@@ -2,6 +2,8 @@
 
 A desktop-app look for Claude Code's terminal transcript, as a mod.
 
+![glass rendering a reply: a Bottom line card, colored shell commands in prose, a code card, a borderless table and a quote](docs/demo.png)
+
 Claude Code draws replies in one markdown style: inline code in a fixed
 lavender, no color for commands, tables in boxes, tool rows in gray. glass
 replaces the drawing of assistant replies, tool-row headers and the turn

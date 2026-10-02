@@ -367,7 +367,12 @@ function renderCallout(c: Ctx, title: string, rows: CalloutRow[]): RenderElement
               // one blank between the rows, so each reads as its own point
               marginTop: 1,
               children: [
-                t.Text({ bold: true, color: p[LABEL_COLOR[r.label] ?? 'calloutText'], children: [r.label.padEnd(LABEL_WIDTH) + '  '] }),
+                // a fixed-width box, so a long row never squeezes the label column
+                t.Box({
+                  width: LABEL_WIDTH + 2,
+                  flexShrink: 0,
+                  children: [t.Text({ bold: true, color: p[LABEL_COLOR[r.label] ?? 'calloutText'], children: [r.label.padEnd(LABEL_WIDTH) + '  '] })],
+                }),
                 t.Box({
                   flexGrow: 1,
                   flexShrink: 1,
