@@ -95,8 +95,12 @@ design panel and an investigation round on 2026-10-02.
   following line, or the items of a list right after a title-only card, is
   a row; `Verified:`, `Issue:` and `Fix:` take their label and color, any
   other row gets a blank 8-cell label. Card = `Box backgroundColor blockBg`
-  sized to its longest row (floor 60, cap M); `calloutBar`-colored `▌` on
-  every row; bold title in
+  sized to its longest row (floor 60, cap M); a `calloutBar`-colored `▎`
+  on every row, the row count from the same word wrap the engine applies.
+  Compact: no padding rows; a blank above a row only when the row before
+  it wrapped. (Full padding plus a blank between every row was tried and
+  judged too bulky; no spacing at all made wrapped rows run together.)
+  Bold title in
   `calloutBar`; labels padded to 8 then two spaces; row text in
   `calloutText`, wrapping under itself.
 - Rule: `─` repeated to min(M, 60) in `rule`.
@@ -112,11 +116,16 @@ design panel and an investigation round on 2026-10-02.
   after `;`, at every embedded newline), continuation lines aligned under
   the first. File tools: path in `path`; URLs underlined in `url`; other
   arguments dim.
-- Bash result bodies get a display-only rewrite (`hooks/output.ts`): paths
-  and URLs, error, warning and success words, numbers and durations, check
-  and cross marks, and git status codes at the start of a line, wrapped in
-  truecolor SGR. The stored result is untouched; the engine keeps collapse
-  and ctrl+o.
+- Bash result bodies of at most 3 lines are redrawn (`hooks/output.ts`,
+  `renderToolOutput`): the dim `⎿` connector, then each line painted as
+  claude-hl painted tool output: commands with evidence, paths and URLs,
+  error, warning and success words, numbers and durations, check and cross
+  marks, git status codes. Longer output keeps the engine's collapsed body
+  and its ctrl+o expansion untouched. (Rewriting `output` with SGR codes
+  was tried first: the engine strips them, nothing showed.)
+- Reply text: a U+FE0F after a text-default symbol (U+26A0 and kin) is
+  dropped, since the terminal draws the emoji form 2 cells while the
+  engine counts 1 and the next character is drawn over.
 - Open: in an expanded group (ctrl+o, `--verbose`) the engine draws the
   result inline in the `ToolUse` row; the header-only tree may drop it
   there. Verify live before adding any preview.
@@ -124,7 +133,8 @@ design panel and an investigation round on 2026-10-02.
 ## Footer
 
 - Replaces `Baked for 12s`: `Box marginLeft 2 marginTop 1`, one dim line
-  `12s · 3 tools · 322k ctx · 1.6k out`. Tools omitted at zero, tokens
+  `12s · 3 tools · 322k ctx · 1.6k out · done 3:31 PM` (the finish time in
+  the machine's locale, as the engine's own line had it). Tools omitted at zero, tokens
   omitted when unknown, the whole line hidden under 3s with no tools.
   Drawn from `$.state` `glass.lastTurn`, written at `turn.complete`.
 

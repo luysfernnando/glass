@@ -24,6 +24,8 @@ export const G = {
   /** Nerd Font powerline rounds, the optional pill caps: U+E0B6 left, U+E0B4 right */
   capL: cp(0xe0b6),
   capR: cp(0xe0b4),
+  /** the engine's tool-output connector: DENTISTRY SYMBOL LIGHT VERTICAL AND BOTTOM LEFT, U+23BF */
+  connector: cp(0x23bf),
   /** HORIZONTAL ELLIPSIS, U+2026 */
   ellipsis: cp(0x2026),
 }

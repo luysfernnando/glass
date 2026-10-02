@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { G } from '../hooks/glyphs'
 import { inlineText, parseMarkdown } from '../hooks/markdown'
+import { paintLine } from '../hooks/output'
 import { pathLike } from '../hooks/paths'
 import { needsAttention, writeIntent } from '../hooks/prose'
 import { proseSpans, shellSpans } from '../hooks/shell'
@@ -98,6 +99,30 @@ test('paths anywhere: rooted, known extension or dotfile, with a line suffix', a
   expect(pathLike('~/.config/app.toml')).toEqual({ path: '~/.config/app.toml', lineno: '' })
   expect(pathLike('and/or')).toBe(null)
   expect(pathLike('e.g.')).toBe(null)
+})
+
+test('tool output lines paint like claude-hl: git codes, commands, paths, numbers, status words', async () => {
+  const colored = (line: string) => paintLine(line).filter(s => s.color).map(s => `${s.color}:${s.text}`)
+  expect(colored('M hooks/render.ts')).toEqual(['warn:M', 'path:hooks/render.ts'])
+  expect(colored('?? docs/demo.png')).toEqual(['comment:?', 'comment:?', 'path:docs/demo.png'])
+  expect(colored('tmux new-session -s main')).toEqual(['cmd:tmux', 'sub:new-session', 'flag:-s', 'sub:main'])
+  expect(colored('test result: ok. 12 passed; 0 failed; finished in 0.16s')).toEqual([
+    'ok:ok', 'num:12', 'ok:passed', 'num:0', 'err:failed', 'num:0.16s',
+  ])
+  expect(colored('warning: unused at src/main.rs:120:9')).toEqual(['warn:warning', 'path:src/main.rs', 'num::120:9'])
+})
+
+test('a text-default symbol loses its emoji selector so widths agree', async () => {
+  const warn = String.fromCodePoint(0x26a0) + String.fromCodePoint(0xfe0f)
+  const check = String.fromCodePoint(0x2705)
+  const b = parseMarkdown(`${warn} check and ${check} done`)[0]
+  expect(b?.kind === 'paragraph' ? inlineText(b.inlines) : '').toBe(`${String.fromCodePoint(0x26a0)} check and ${check} done`)
+})
+
+test('the sandbox knows the local time zone for the footer clock', async () => {
+  const zone = new Intl.DateTimeFormat().resolvedOptions().timeZone
+  expect(typeof zone).toBe('string')
+  expect(zone.length).toBeGreaterThan(0)
 })
 
 test('prose-like code is not painted as a command', async () => {

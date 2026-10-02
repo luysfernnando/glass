@@ -4,12 +4,18 @@ import type { Register } from 'claude-code'
 import type { GlassTurn } from '../types'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
-import { paintOutput } from './output'
 import { paletteNamed } from './palette'
 import { writeIntent } from './prose'
-import { renderReply, renderToolHeader } from './render'
+import { renderReply, renderToolHeader, renderToolOutput } from './render'
 
 const lastTurn = atom({ plugin: 'glass', key: 'lastTurn' } as const, null)
+
+const ESC = String.fromCodePoint(0x1b)
+// the engine shows this many output lines before folding the rest behind ctrl+o
+const MAX_PAINTED_LINES = 3
+
+// `3:31 PM` in the machine's locale
+const clockTime = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
 
 export const register: Register = (on, options) => {
   const opts = (options ?? {}) as { palette?: unknown }
@@ -43,18 +49,22 @@ export const register: Register = (on, options) => {
     return renderToolHeader(t, palette, e.props)
   })
 
-  // Bash output body: a display-only rewrite that paints paths and status
-  // words with SGR codes. The stored result is untouched.
+  // Bash output body, painted the way claude-hl painted it. The engine
+  // strips escape codes from a rewritten result, so the body is drawn as
+  // Text, and only when it is short enough that the engine would show it
+  // whole: longer output keeps the engine's collapsed body and ctrl+o.
   on('ui.render', { component: 'ToolResult' }, ($, e, next) => {
     if (e.surface !== 'terminal' || e.props.tool !== 'Bash' || e.props.isErrored) return next(e)
-    const out = e.props.output as { stdout?: unknown; stderr?: unknown } | undefined
-    if (!out || typeof out.stdout !== 'string') return next(e)
-    const painted = {
-      ...out,
-      stdout: paintOutput(out.stdout, palette),
-      stderr: typeof out.stderr === 'string' ? paintOutput(out.stderr, palette) : out.stderr,
-    }
-    return next({ ...e, props: { ...e.props, output: painted } })
+    const out = e.props.output as { stdout?: unknown; stderr?: unknown; interrupted?: unknown } | undefined
+    if (!out || typeof out.stdout !== 'string' || out.interrupted === true) return next(e)
+    const stderr = typeof out.stderr === 'string' ? out.stderr : ''
+    const text = [out.stdout, stderr].filter(s => s.trim() !== '').join('\n').replace(/\s+$/, '')
+    if (text === '' || text.includes(ESC)) return next(e)
+    const lines = text.split('\n')
+    const cols = e.viewport?.columns ?? 80
+    // short and narrow: the engine would neither collapse nor wrap it much
+    if (lines.length > MAX_PAINTED_LINES || lines.some(l => l.length > cols * 2)) return next(e)
+    return renderToolOutput($.ui.resolve(e), palette, lines)
   })
 
   // ---- turn footer -------------------------------------------------------
@@ -81,6 +91,7 @@ export const register: Register = (on, options) => {
         tools,
         inTokens: u ? u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens : 0,
         outTokens: u ? u.output_tokens : 0,
+        finishedAt: await $.clock.now(),
       }
       await update($, lastTurn, () => turn)
     }
@@ -100,6 +111,8 @@ export const register: Register = (on, options) => {
     if (count > 0) parts.push(`${count} ${count === 1 ? 'tool' : 'tools'}`)
     // input is mostly cache reads of the whole context, so call it ctx
     if (turn && turn.inTokens > 0) parts.push(`${fmtTokens(turn.inTokens)} ctx`, `${fmtTokens(turn.outTokens)} out`)
+    // when the turn ended, as the engine's own line said it
+    if (turn) parts.push(`done ${clockTime.format(turn.finishedAt)}`)
     return Box({ marginLeft: 2, marginTop: 1, children: [Text({ dimColor: true, children: [parts.join(` ${G.middot} `)] })] })
   })
 }

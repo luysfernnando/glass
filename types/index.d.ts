@@ -6,6 +6,8 @@ export type GlassTurn = {
   /** input + cache read + cache creation tokens */
   inTokens: number
   outTokens: number
+  /** when the turn ended, ms since the epoch */
+  finishedAt: number
 }
 
 declare module 'claude-code' {

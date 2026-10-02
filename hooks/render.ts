@@ -7,6 +7,7 @@ import { G } from './glyphs'
 import { inlineText } from './markdown'
 import type { Align, Block, CalloutRow, Inline, ListItem } from './markdown'
 import type { Palette } from './palette'
+import { paintLine } from './output'
 import { bareWord, isUrl, pathLike } from './paths'
 import { isPrivateNote, needsAttention } from './prose'
 import { proseSpans, shellSpans } from './shell'
@@ -337,15 +338,19 @@ function wrappedLines(inlines: Inline[], width: number): number {
 
 // The Bottom line card, sized to its longest row. A thin continuous bar
 // down the left edge: a quarter-block glyph on every row of the card, the
-// row count computed from the same wrapping the engine applies. A line of
-// padding above and below, then the label column and the text.
+// row count computed from the same wrapping the engine applies. Compact:
+// no padding rows; a blank separates a row from the one before only when
+// that one wrapped, since a wrapped row is what made the rows run together
+// and single-line rows stay distinct by their labels alone.
 function renderCallout(c: Ctx, title: string, rows: CalloutRow[]): RenderElement {
   const { t, p } = c
   const rowWidth = (r: CalloutRow) => 2 + LABEL_WIDTH + 2 + inlineWidth(r.inlines) + 1
   const width = cardWidth(c, Math.max(2 + cellWidth(title), ...rows.map(rowWidth)))
   const textWidth = width - 2 - LABEL_WIDTH - 2 - 1
-  // padding, title, then each row with a blank above it, padding
-  const height = 1 + 1 + rows.reduce((n, r) => n + 1 + wrappedLines(r.inlines, textWidth), 0) + 1
+  const lines = rows.map(r => wrappedLines(r.inlines, textWidth))
+  const gap = (i: number) => (i > 0 && lines[i - 1]! > 1 ? 1 : 0)
+  // title, then each row with its gap
+  const height = 1 + lines.reduce((n, l, i) => n + gap(i) + l, 0)
   return t.Box({
     flexDirection: 'row',
     width,
@@ -357,15 +362,12 @@ function renderCallout(c: Ctx, title: string, rows: CalloutRow[]): RenderElement
         flexGrow: 1,
         flexShrink: 1,
         paddingLeft: 1,
-        paddingTop: 1,
-        paddingBottom: 1,
         children: [
           t.Text({ bold: true, color: p.calloutBar, children: [title] }),
-          ...rows.map(r =>
+          ...rows.map((r, i) =>
             t.Box({
               flexDirection: 'row',
-              // one blank between the rows, so each reads as its own point
-              marginTop: 1,
+              marginTop: gap(i),
               children: [
                 // a fixed-width box, so a long row never squeezes the label column
                 t.Box({
@@ -436,6 +438,31 @@ export function renderToolHeader(t: Table, p: Palette, row: ToolRow): RenderElem
   return t.Box({
     flexDirection: 'row',
     children: [...head, t.Box({ flexGrow: 1, flexShrink: 1, children: [t.Text({ wrap: 'wrap', children: subject })] })],
+  })
+}
+
+// The engine's Bash result body, redrawn so the output can be painted (the
+// engine strips escape codes from a rewritten result, so colors have to be
+// Text). Only for output the engine would show whole: longer output keeps
+// the engine's own collapsed body and its ctrl+o expansion.
+export function renderToolOutput(t: Table, p: Palette, lines: string[]): RenderElement {
+  return t.Box({
+    flexDirection: 'row',
+    marginLeft: 2,
+    children: [
+      t.Text({ dimColor: true, children: [G.connector + '  '] }),
+      t.Box({
+        flexDirection: 'column',
+        flexGrow: 1,
+        flexShrink: 1,
+        children: lines.map(line =>
+          t.Text({
+            wrap: 'wrap',
+            children: paintLine(line).map(s => (s.color ? t.Text({ color: p[s.color], children: [s.text] }) : t.Text({ dimColor: true, children: [s.text] }))),
+          }),
+        ),
+      }),
+    ],
   })
 }
 

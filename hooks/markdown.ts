@@ -37,10 +37,19 @@ const RAW_START_RE = /^\s*<[a-zA-Z!/]/
 const CALLOUT_HEAD_RE = /^\*\*(Bottom line)\*\*:?\s*$/i
 const CALLOUT_ROW_RE = /^(?:[-*+]\s+)?\*{0,2}(Verified|Issue|Fix)\s*:?\*{0,2}\s*:?\s+(.*)$/
 
+// U+FE0F after a symbol that is not an emoji by default (U+26A0 and kin)
+const TEXT_SYMBOL_VS16 = new RegExp('(\\P{Emoji_Presentation})' + String.fromCodePoint(0xfe0f), 'gu')
+
 export function parseMarkdown(input: string): Block[] {
   // the API allows only tab and newline as control characters in a Text;
   // anything else would get the whole tree refused
-  const text = input.replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
+  const text = input
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
+    // a variation selector that turns a text-default symbol into an emoji
+    // makes the terminal draw it 2 cells while the engine counts 1, and the
+    // next character is drawn over: keep the symbol, drop the selector
+    .replace(TEXT_SYMBOL_VS16, '$1')
   const lines = text.split('\n')
   const blocks: Block[] = []
   let i = 0
