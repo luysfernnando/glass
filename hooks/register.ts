@@ -8,7 +8,11 @@ import { paletteNamed } from './palette'
 import { writeIntent } from './prose'
 import { renderReply, renderToolHeader, renderToolOutput } from './render'
 
-const lastTurn = atom({ plugin: 'glass', key: 'lastTurn' } as const, null)
+// The turns this session, newest last. A footer row finds its own turn in
+// here: a `read` while a render hook runs subscribes that row, so every
+// `update` draws every footer again, and each must still find its data.
+const turns = atom({ plugin: 'glass', key: 'turns' } as const, [] as GlassTurn[])
+const HISTORY = 48
 
 const ESC = String.fromCodePoint(0x1b)
 // the engine shows this many output lines before folding the rest behind ctrl+o
@@ -93,7 +97,7 @@ export const register: Register = (on, options) => {
         outTokens: u ? u.output_tokens : 0,
         finishedAt: await $.clock.now(),
       }
-      await update($, lastTurn, () => turn)
+      await update($, turns, h => [...(h ?? []), turn].slice(-HISTORY))
     }
     return next(e)
   })
@@ -102,9 +106,12 @@ export const register: Register = (on, options) => {
     if (e.surface !== 'terminal') return next(e)
     const { Box, Text } = $.ui.resolve(e)
     const durationMs = e.props.durationMs
-    const stored = await read($, lastTurn)
-    // the line may draw before turn.complete lands; only trust a matching turn
-    const turn = stored && Math.abs(stored.durationMs - durationMs) < 5000 ? stored : null
+    const history = (await read($, turns)) ?? []
+    // this row's own turn: the engine formats the same durationMs the event
+    // carried; a near miss covers the line drawing before turn.complete lands
+    const turn = history.find(h => h.durationMs === durationMs)
+      ?? [...history].reverse().find(h => Math.abs(h.durationMs - durationMs) < 5000)
+      ?? null
     const count = turn?.tools ?? 0
     if (durationMs < 3000 && count === 0) return Box({ display: 'none', children: [] })
     const parts = [fmtDuration(durationMs)]

@@ -12,6 +12,6 @@ export type GlassTurn = {
 
 declare module 'claude-code' {
   interface PluginState {
-    glass: { lastTurn: GlassTurn | null }
+    glass: { turns: GlassTurn[] }
   }
 }

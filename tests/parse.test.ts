@@ -141,3 +141,16 @@ test('a quote bar covers every row: wrapped paragraph, blank, list items', async
   // wide enough: 1 row, a blank, two items
   expect(quoteRows(blocks[0].blocks, 80)).toBe(4)
 })
+
+test('mounted: the quote bar is one glyph column as tall as the quote', async $ => {
+  const ui = await $.ui.mount({
+    plugin: 'glass',
+    surface: 'terminal',
+    component: 'AssistantMessage',
+    props: { text: '> one two\n>\n> - a\n> - b', isFirstOfReply: true },
+  })
+  // a paragraph row, a blank, two list rows: four marks joined by newlines
+  const bar = await ui.find({ type: 'Text', text: new RegExp(`^(${G.mark}\\n){3}${G.mark}$`) })
+  expect(bar).toBeDefined()
+  await ui.unmount()
+})

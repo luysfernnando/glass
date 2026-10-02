@@ -140,7 +140,7 @@ design panel and an investigation round on 2026-10-02.
   `12s · 3 tools · 322k ctx · 1.6k out · done 3:31 PM` (the finish time in
   the machine's locale, as the engine's own line had it). Tools omitted at zero, tokens
   omitted when unknown, the whole line hidden under 3s with no tools.
-  Drawn from `$.state` `glass.lastTurn`, written at `turn.complete`.
+  Drawn from `$.state` `glass.turns` (the last 48 turns, written at `turn.complete`); a footer row finds its own turn by `durationMs`, since a state read in a render hook subscribes the row and every write redraws it.
 
 ## Palette
 
