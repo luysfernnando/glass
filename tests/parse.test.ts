@@ -1,0 +1,107 @@
+import { expect, test } from 'claude-code/testing'
+
+import { G } from '../hooks/glyphs'
+import { inlineText, parseMarkdown } from '../hooks/markdown'
+import { pathLike } from '../hooks/paths'
+import { needsAttention, writeIntent } from '../hooks/prose'
+import { proseSpans, shellSpans } from '../hooks/shell'
+import { cellWidth } from '../hooks/width'
+
+const cp = (n: number) => String.fromCodePoint(n)
+
+test('cellWidth mirrors the engine ruler on the glyphs the mod draws', async () => {
+  const cases: Array<[string, number]> = [
+    ['cmd', 3],
+    ['hooks/render.ts:88', 18],
+    [cp(0x2705) + ' done', 7],
+    [cp(0x274c) + ' fail', 7],
+    [cp(0x4e2d) + cp(0x6587), 4],
+    ['e' + cp(0x301), 1],
+    [G.bullet + ' next', 6],
+    [G.check + ' task', 6],
+    [G.ring + ' sub', 5],
+    [G.rule.repeat(5), 5],
+    [G.bar + ' quote', 7],
+    [G.capL + 'x' + G.capR, 3],
+    [cp(0x1b) + '[38;2;1;2;3m' + 'ab' + cp(0x1b) + '[39m', 2],
+  ]
+  for (const [s, want] of cases) expect(cellWidth(s)).toBe(want)
+})
+
+test('every glyph survived into the module as one code point', async () => {
+  for (const g of Object.values(G)) expect([...g].length).toBe(1)
+})
+
+test('a Bottom line card forms on its head line and keeps rows while streaming', async () => {
+  const b = parseMarkdown('**Bottom line**\nVerified: x\nIss')[0]
+  expect(b?.kind).toBe('callout')
+  if (b?.kind !== 'callout') return
+  expect(b.rows.map(r => r.label)).toEqual(['Verified', ''])
+  expect(inlineText(b.rows[1]!.inlines)).toBe('Iss')
+})
+
+test('a title-only Bottom line takes the list under it as rows', async () => {
+  const b = parseMarkdown('**Bottom line**\n\n- **Verified:** a\n- Issue: b\n- Fix: c')[0]
+  expect(b?.kind).toBe('callout')
+  if (b?.kind !== 'callout') return
+  expect(b.rows.map(r => r.label)).toEqual(['Verified', 'Issue', 'Fix'])
+})
+
+test('tables start under a paragraph, keep raw text, and need matching cell counts', async () => {
+  const blocks = parseMarkdown('intro\n| a | b |\n|---|---|\n| 1 | 2 |\n\nx | y\n---')
+  expect(blocks.map(b => b.kind)).toEqual(['paragraph', 'table', 'paragraph', 'rule'])
+  const table = blocks[1]
+  if (table?.kind !== 'table') return
+  expect(table.raw).toBe('| a | b |\n|---|---|\n| 1 | 2 |')
+})
+
+test('control characters and CRLF never reach the tree', async () => {
+  const blocks = parseMarkdown('a\r\nb' + cp(0x07) + 'c')
+  expect(blocks.map(b => (b.kind === 'paragraph' ? inlineText(b.inlines) : b.kind))).toEqual(['a\nbc'])
+})
+
+test('a fence info string with attributes still yields the language', async () => {
+  const b = parseMarkdown('```ts title=x\ncode\n```')[0]
+  expect(b?.kind).toBe('code')
+  if (b?.kind === 'code') expect(b.lang).toBe('ts')
+})
+
+test('the shell tokenizer keeps command color across a newline after &&', async () => {
+  const spans = shellSpans('git add .\n&& git commit -m "x"', true) ?? []
+  const cmds = spans.filter(s => s.kind === 'cmd').map(s => s.text)
+  expect(cmds).toEqual(['git', 'git'])
+})
+
+test('prose commands paint only with evidence, as claude-hl did', async () => {
+  const paint = (s: string) => proseSpans(s).map(x => `${x.kind}:${s.slice(x.start, x.end)}`)
+  expect(paint('then run git push --follow-tags to publish')).toEqual(['cmd:git', 'sub:push', 'flag:--follow-tags'])
+  expect(paint('make sure the build passes')).toEqual([])
+  expect(paint('go ahead and open it')).toEqual([])
+  expect(paint('run git status in a sentence.')).toEqual([])
+  expect(paint('Ran git status')).toEqual(['cmd:git', 'sub:status'])
+  expect(paint('use cd ~/src and ls -la.')).toEqual(['cmd:cd', 'path:~/src', 'cmd:ls', 'flag:-la'])
+})
+
+test('paragraphs that need the reader are recognized', async () => {
+  expect(needsAttention('Do you want me to keep the tests?')).toBe(true)
+  expect(needsAttention('Run the migration before you deploy.')).toBe(true)
+  expect(needsAttention('I did not verify the dark theme.')).toBe(true)
+  expect(needsAttention('The parser handles tables and quotes.')).toBe(false)
+  expect(writeIntent('can you draft an email to the team')).toBe(true)
+  expect(writeIntent('fix the failing test')).toBe(false)
+})
+
+test('paths anywhere: rooted, known extension or dotfile, with a line suffix', async () => {
+  expect(pathLike('src/main.rs:42:7')).toEqual({ path: 'src/main.rs', lineno: ':42:7' })
+  expect(pathLike('README.md')).toEqual({ path: 'README.md', lineno: '' })
+  expect(pathLike('.gitignore')).toEqual({ path: '.gitignore', lineno: '' })
+  expect(pathLike('~/.config/app.toml')).toEqual({ path: '~/.config/app.toml', lineno: '' })
+  expect(pathLike('and/or')).toBe(null)
+  expect(pathLike('e.g.')).toBe(null)
+})
+
+test('prose-like code is not painted as a command', async () => {
+  expect(shellSpans('RenderElement')).toBe(null)
+  expect(shellSpans('shell.ts')).toBe(null)
+  expect(shellSpans('npm run dev')?.map(s => s.kind)).toEqual(['cmd', 'plain', 'sub', 'plain', 'sub'])
+})

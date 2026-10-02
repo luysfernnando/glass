@@ -1,0 +1,5 @@
+# laid beside the mod by the engine on every load; never committed
+.claude-plugin/types/
+tsconfig.json
+node_modules/
+.DS_Store

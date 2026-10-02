@@ -1,0 +1,119 @@
+import { atom, read, update } from 'claude-code'
+import type { Register } from 'claude-code'
+
+import type { GlassTurn } from '../types'
+import { G } from './glyphs'
+import { parseMarkdown } from './markdown'
+import { paintOutput } from './output'
+import { paletteNamed } from './palette'
+import { writeIntent } from './prose'
+import { renderReply, renderToolHeader } from './render'
+
+const lastTurn = atom({ plugin: 'glass', key: 'lastTurn' } as const, null)
+
+export const register: Register = (on, options) => {
+  const opts = (options ?? {}) as { palette?: unknown }
+  const palette = paletteNamed(opts.palette)
+  // gutter marks are off for a turn whose prompt asked for writing: the
+  // reply is then the thing itself and asks nothing of the reader
+  let marks = true
+
+  // ---- reply renderer ----------------------------------------------------
+  on('ui.render', { component: 'AssistantMessage' }, ($, e, next) => {
+    if (e.surface !== 'terminal') return next(e)
+    const text = e.props.text
+    if (text.trim() === '') return next(e)
+    const t = $.ui.resolve(e)
+    return renderReply(t, parseMarkdown(text), palette, {
+      bullet: e.props.isFirstOfReply,
+      columns: e.viewport?.columns ?? 80,
+      marks,
+    })
+  })
+
+  // ---- tool row header ---------------------------------------------------
+  // Draws the header line only; the result body stays the engine's. Open
+  // question: in an expanded group (ctrl+o, --verbose) the engine draws the
+  // result inline in this row, and this header-only tree may drop it there.
+  // The props cannot tell a grouped row from a standalone one, so no preview
+  // is drawn until that is verified live.
+  on('ui.render', { component: 'ToolUse' }, ($, e, next) => {
+    if (e.surface !== 'terminal') return next(e)
+    const t = $.ui.resolve(e)
+    return renderToolHeader(t, palette, e.props)
+  })
+
+  // Bash output body: a display-only rewrite that paints paths and status
+  // words with SGR codes. The stored result is untouched.
+  on('ui.render', { component: 'ToolResult' }, ($, e, next) => {
+    if (e.surface !== 'terminal' || e.props.tool !== 'Bash' || e.props.isErrored) return next(e)
+    const out = e.props.output as { stdout?: unknown; stderr?: unknown } | undefined
+    if (!out || typeof out.stdout !== 'string') return next(e)
+    const painted = {
+      ...out,
+      stdout: paintOutput(out.stdout, palette),
+      stderr: typeof out.stderr === 'string' ? paintOutput(out.stderr, palette) : out.stderr,
+    }
+    return next({ ...e, props: { ...e.props, output: painted } })
+  })
+
+  // ---- turn footer -------------------------------------------------------
+  // main-loop tool calls this turn; a hot reload resets it, which only
+  // affects the footer of the turn that reloaded
+  let tools = 0
+
+  on('prompt.submit', ($, e, next) => {
+    tools = 0
+    marks = !writeIntent(e.text)
+    return next(e)
+  })
+
+  on('tool.call', ($, e, next) => {
+    if (!e.agentId) tools += 1
+    return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    if (!e.agentId) {
+      const u = e.usage
+      const turn: GlassTurn = {
+        durationMs: e.durationMs,
+        tools,
+        inTokens: u ? u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens : 0,
+        outTokens: u ? u.output_tokens : 0,
+      }
+      await update($, lastTurn, () => turn)
+    }
+    return next(e)
+  })
+
+  on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
+    if (e.surface !== 'terminal') return next(e)
+    const { Box, Text } = $.ui.resolve(e)
+    const durationMs = e.props.durationMs
+    const stored = await read($, lastTurn)
+    // the line may draw before turn.complete lands; only trust a matching turn
+    const turn = stored && Math.abs(stored.durationMs - durationMs) < 5000 ? stored : null
+    const count = turn?.tools ?? 0
+    if (durationMs < 3000 && count === 0) return Box({ display: 'none', children: [] })
+    const parts = [fmtDuration(durationMs)]
+    if (count > 0) parts.push(`${count} ${count === 1 ? 'tool' : 'tools'}`)
+    // input is mostly cache reads of the whole context, so call it ctx
+    if (turn && turn.inTokens > 0) parts.push(`${fmtTokens(turn.inTokens)} ctx`, `${fmtTokens(turn.outTokens)} out`)
+    return Box({ marginLeft: 2, marginTop: 1, children: [Text({ dimColor: true, children: [parts.join(` ${G.middot} `)] })] })
+  })
+}
+
+function fmtDuration(ms: number): string {
+  const s = Math.round(ms / 1000)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  return `${m}m ${String(s % 60).padStart(2, '0')}s`
+}
+
+function fmtTokens(n: number): string {
+  if (n < 1000) return String(n)
+  if (n < 10_000) return `${(n / 1000).toFixed(1)}k`
+  if (n < 1e6) return `${Math.round(n / 1000)}k`
+  return `${(n / 1e6).toFixed(1)}M`
+}
