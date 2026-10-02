@@ -3,6 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import { G } from '../hooks/glyphs'
 import { inlineText, parseMarkdown } from '../hooks/markdown'
 import { paintLine } from '../hooks/output'
+import { quoteRows } from '../hooks/render'
 import { pathLike } from '../hooks/paths'
 import { needsAttention, writeIntent } from '../hooks/prose'
 import { proseSpans, shellSpans } from '../hooks/shell'
@@ -129,4 +130,14 @@ test('prose-like code is not painted as a command', async () => {
   expect(shellSpans('RenderElement')).toBe(null)
   expect(shellSpans('shell.ts')).toBe(null)
   expect(shellSpans('npm run dev')?.map(s => s.kind)).toEqual(['cmd', 'plain', 'sub', 'plain', 'sub'])
+})
+
+test('a quote bar covers every row: wrapped paragraph, blank, list items', async () => {
+  const blocks = parseMarkdown('> one two three four five six\n>\n> - a\n> - b')
+  expect(blocks[0]?.kind).toBe('quote')
+  if (blocks[0]?.kind !== 'quote') return
+  // inner measure 12: the paragraph wraps to 3 rows, a blank, two items
+  expect(quoteRows(blocks[0].blocks, 14)).toBe(6)
+  // wide enough: 1 row, a blank, two items
+  expect(quoteRows(blocks[0].blocks, 80)).toBe(4)
 })

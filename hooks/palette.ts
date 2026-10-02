@@ -22,8 +22,10 @@ export type Palette = {
   bullet: string
   /** ordered list numbers */
   orderedNum: string
-  /** heading rules, table borders, quote bars, horizontal rules */
+  /** heading rules, table borders, horizontal rules */
   rule: string
+  /** the thin bar down a quote's left edge */
+  quoteBar: string
   /** success: status dots, the done task mark, ok words in output */
   ok: string
   err: string
@@ -70,6 +72,7 @@ const tidepool: Palette = {
   bullet: '#7aa2b5', // punctuation
   orderedNum: '#7aa2b5',
   rule: '#48708c', // muted: line numbers, folds
+  quoteBar: '#7bc0ae', // lifted pine: colored, but quieter than foam
   ok: '#9cce8b', // olive
   err: '#e67680', // love
   warn: '#e9b873', // gold
@@ -120,6 +123,7 @@ export const PALETTES: Record<PaletteName, Palette> = {
     accent: '#c678dd',
     bullet: '#7a9a9a',
     rule: '#7a9a9a',
+    quoteBar: '#7fc8b8', // the sub teal, apart from the purple headings
     ok: '#98c379',
     err: '#e06c75',
     warn: '#e5c07b',
@@ -142,6 +146,7 @@ export const PALETTES: Record<PaletteName, Palette> = {
     accent: '#c4a7e7',
     bullet: '#6e6a86',
     rule: '#6e6a86',
+    quoteBar: '#9ccfd8', // foam
     ok: '#3e8fb0',
     err: '#eb6f92',
     warn: '#f6c177',

@@ -245,28 +245,71 @@ function renderList(c: Ctx, items: ListItem[]): RenderElement {
   })
 }
 
+// A quote: a thin continuous bar down the left edge, one quarter-block
+// glyph per row of the quote (the row count estimated from the same
+// wrapping the engine applies), a space, then the inner blocks at `M - 2`
+// with a blank row between them. No tint.
 function renderQuote(c: Ctx, blocks: Block[]): RenderElement {
   const { t, p, m } = c
-  const rows: RenderElement[] = []
-  blocks.forEach((b, i) => {
-    if (i > 0) rows.push(t.Text({ color: p.rule, children: [G.bar] }))
-    rows.push(
+  const inner = { ...c, m: m - 2 }
+  const height = quoteRows(blocks, m)
+  return t.Box({
+    flexDirection: 'row',
+    children: [
+      t.Box({ width: 2, flexShrink: 0, children: [t.Text({ color: p.quoteBar, children: [Array(height).fill(G.mark).join('\n')] })] }),
       t.Box({
-        flexDirection: 'row',
-        children: [
-          t.Text({ color: p.rule, children: [G.bar + ' '] }),
-          t.Box({
-            flexDirection: 'column',
-            flexGrow: 1,
-            flexShrink: 1,
-            width: m - 2,
-            children: [renderBlock({ ...c, m: m - 2 }, b)],
-          }),
-        ],
+        flexDirection: 'column',
+        flexGrow: 1,
+        flexShrink: 1,
+        width: m - 2,
+        rowGap: 1,
+        children: blocks.map(b => renderBlock(inner, b)),
       }),
-    )
+    ],
   })
-  return t.Box({ flexDirection: 'column', children: rows })
+}
+
+// rows a quote takes at measure `m`: its blocks at `m - 2`, a blank between
+export function quoteRows(blocks: Block[], m: number): number {
+  const w = m - 2
+  const rows = blocks.reduce((n, b) => n + blockRows(b, w), 0) + Math.max(0, blocks.length - 1)
+  return Math.max(1, rows)
+}
+
+// rows a block takes at measure `m`, mirroring what renderBlock draws
+function blockRows(b: Block, m: number): number {
+  switch (b.kind) {
+    case 'paragraph':
+    case 'heading':
+      return wrappedLines(b.inlines, m)
+    case 'code': {
+      const code = b.source.replace(/\n$/, '')
+      const lines = code === '' ? 0 : code.split('\n').length
+      return (b.lang || lines > 8 ? 1 : 0) + Math.max(1, lines)
+    }
+    case 'list': {
+      const ordered = b.items.filter(it => /^\d/.test(it.marker))
+      const numWidth = Math.max(0, ...ordered.map(it => cellWidth(it.marker)))
+      return b.items.reduce((n, it) => {
+        const marker = /^\d/.test(it.marker) && !it.task ? numWidth + 1 : 2
+        return n + wrappedLines(it.inlines, Math.max(10, m - it.depth * 2) - marker)
+      }, 0)
+    }
+    case 'rule':
+      return 1
+    case 'raw':
+      return wrappedLines([{ kind: 'text', text: b.text }], m)
+    case 'quote':
+      return quoteRows(b.blocks, m)
+    case 'table':
+      return b.rows.length + 2
+    case 'callout': {
+      const rowWidth = (r: CalloutRow) => 2 + LABEL_WIDTH + 2 + inlineWidth(r.inlines) + 1
+      const width = Math.max(CARD_MIN, Math.min(m, Math.max(0, ...b.rows.map(rowWidth))))
+      const textWidth = width - 2 - LABEL_WIDTH - 2 - 1
+      return 1 + Math.max(1, b.rows.reduce((n, r) => n + wrappedLines(r.inlines, textWidth), 0))
+    }
+  }
 }
 
 // row-separator table: bold header, one rule, two-cell gaps, no verticals;

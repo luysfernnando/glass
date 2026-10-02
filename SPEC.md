@@ -88,8 +88,12 @@ design panel and an investigation round on 2026-10-02.
   raw lines. The separator row must match the header's cell count; a bare
   `---` under a line with `|` is a rule. A table start interrupts a
   paragraph. Streaming reflows widths per committed row; jitter accepted.
-- Quote: dim `▌` bar, one space, the inner blocks at `M - 2`, no tint. A
-  bare bar row between inner blocks.
+- Quote: a `quoteBar`-colored `▎` on every row of the quote (the row count
+  estimated from the engine's wrapping, as the Bottom line card does), one
+  space, the inner blocks at `M - 2` with a blank row between them, no tint.
+  (A dim `▌` half block drawn once per inner block was the first design: too
+  thick, and the bar vanished on wrapped and list rows. Changed 2026-10-02.
+  Box has no single-side border, so the bar is a glyph column.)
 - Bottom line card: detection is monotonic. Once the head line is
   `**Bottom line**` the block is a card for the rest of the stream. Every
   following line, or the items of a list right after a title-only card, is
