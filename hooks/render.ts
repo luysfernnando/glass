@@ -336,20 +336,21 @@ function wrappedLines(inlines: Inline[], width: number): number {
   return lines
 }
 
-// The Bottom line card, sized to its longest row. A thin continuous bar
-// down the left edge: a quarter-block glyph on every row of the card, the
-// row count computed from the same wrapping the engine applies. Compact:
-// no padding and no blank rows; the colored label column keeps the rows
-// apart.
+// The Bottom line card. The title sits above the card as a plain bold line;
+// only the labelled rows live inside, sized to the longest row. A thin
+// continuous bar down the left edge: a quarter-block glyph on every row of
+// the card, the row count computed from the same wrapping the engine
+// applies. Compact: no padding and no blank rows; the colored label column
+// keeps the rows apart.
 function renderCallout(c: Ctx, title: string, rows: CalloutRow[]): RenderElement {
   const { t, p } = c
   const rowWidth = (r: CalloutRow) => 2 + LABEL_WIDTH + 2 + inlineWidth(r.inlines) + 1
-  const width = cardWidth(c, Math.max(2 + cellWidth(title), ...rows.map(rowWidth)))
+  const width = cardWidth(c, Math.max(0, ...rows.map(rowWidth)))
   const textWidth = width - 2 - LABEL_WIDTH - 2 - 1
   const lines = rows.map(r => wrappedLines(r.inlines, textWidth))
-  // the title, then each row's wrapped lines
-  const height = 1 + lines.reduce((n, l) => n + l, 0)
-  return t.Box({
+  // each row's wrapped lines; the title is outside the card
+  const height = Math.max(1, lines.reduce((n, l) => n + l, 0))
+  const card = t.Box({
     flexDirection: 'row',
     width,
     backgroundColor: p.blockBg,
@@ -360,30 +361,31 @@ function renderCallout(c: Ctx, title: string, rows: CalloutRow[]): RenderElement
         flexGrow: 1,
         flexShrink: 1,
         paddingLeft: 1,
-        children: [
-          t.Text({ bold: true, color: p.calloutBar, children: [title] }),
-          ...rows.map(r =>
-            t.Box({
-              flexDirection: 'row',
-              children: [
-                // a fixed-width box, so a long row never squeezes the label column
-                t.Box({
-                  width: LABEL_WIDTH + 2,
-                  flexShrink: 0,
-                  children: [t.Text({ bold: true, color: p[LABEL_COLOR[r.label] ?? 'calloutText'], children: [r.label.padEnd(LABEL_WIDTH) + '  '] })],
-                }),
-                t.Box({
-                  flexGrow: 1,
-                  flexShrink: 1,
-                  paddingRight: 1,
-                  children: [t.Text({ color: p.calloutText, wrap: 'wrap', children: renderInlines(c, r.inlines) })],
-                }),
-              ],
-            }),
-          ),
-        ],
+        children: rows.map(r =>
+          t.Box({
+            flexDirection: 'row',
+            children: [
+              // a fixed-width box, so a long row never squeezes the label column
+              t.Box({
+                width: LABEL_WIDTH + 2,
+                flexShrink: 0,
+                children: [t.Text({ bold: true, color: p[LABEL_COLOR[r.label] ?? 'calloutText'], children: [r.label.padEnd(LABEL_WIDTH) + '  '] })],
+              }),
+              t.Box({
+                flexGrow: 1,
+                flexShrink: 1,
+                paddingRight: 1,
+                children: [t.Text({ color: p.calloutText, wrap: 'wrap', children: renderInlines(c, r.inlines) })],
+              }),
+            ],
+          }),
+        ),
       }),
     ],
+  })
+  return t.Box({
+    flexDirection: 'column',
+    children: [t.Text({ bold: true, color: p.calloutBar, children: [title] }), card],
   })
 }
 

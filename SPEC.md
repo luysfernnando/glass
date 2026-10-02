@@ -100,9 +100,10 @@ design panel and an investigation round on 2026-10-02.
   Compact: no padding rows and no blank rows. (Full padding plus a blank
   between every row was tried and judged too bulky; so was a blank after
   wrapped rows only.)
-  Bold title in
-  `calloutBar`; labels padded to 8 then two spaces; row text in
-  `calloutText`, wrapping under itself.
+  The bold `calloutBar` title sits ABOVE the card as a plain line; only the
+  labelled rows are inside the tinted box (title inside the box was the
+  first design, moved out 2026-10-02 by request). Labels padded to 8 then
+  two spaces; row text in `calloutText`, wrapping under itself.
 - Rule: `─` repeated to min(M, 60) in `rule`.
 - Raw html: the engine's `Markdown`.
 
