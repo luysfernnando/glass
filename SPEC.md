@@ -97,9 +97,9 @@ design panel and an investigation round on 2026-10-02.
   other row gets a blank 8-cell label. Card = `Box backgroundColor blockBg`
   sized to its longest row (floor 60, cap M); a `calloutBar`-colored `▎`
   on every row, the row count from the same word wrap the engine applies.
-  Compact: no padding rows; a blank above a row only when the row before
-  it wrapped. (Full padding plus a blank between every row was tried and
-  judged too bulky; no spacing at all made wrapped rows run together.)
+  Compact: no padding rows and no blank rows. (Full padding plus a blank
+  between every row was tried and judged too bulky; so was a blank after
+  wrapped rows only.)
   Bold title in
   `calloutBar`; labels padded to 8 then two spaces; row text in
   `calloutText`, wrapping under itself.
@@ -108,14 +108,13 @@ design panel and an investigation round on 2026-10-02.
 
 ## Tool rows
 
-- Header only; the result body stays the engine's. Row = status dot
-  (`ok` green, `err` red on error or interrupt, `comment` while running),
-  tool name in `tool` (rose, as claude-hl painted it), two spaces, the
-  subject. Bash: the command tokenized with
-  the head trusted, one command per line (break before `&&` and `||`,
-  after `;`, at every embedded newline), continuation lines aligned under
-  the first. File tools: path in `path`; URLs underlined in `url`; other
-  arguments dim.
+- Header row = a blank row above, status dot (`ok` green, `err` red on
+  error or interrupt, `comment` while running), then `Tool(subject)` as one
+  wrapping line, as the engine and claude-hl draw it: tool name in `tool`
+  (rose), parentheses dim. Bash: the command tokenized with the head
+  trusted, flowing on one line. (Breaking chained commands one per line was
+  tried and reverted by the owner.) File tools: path in `path`; URLs
+  underlined in `url`; other arguments dim after a comma.
 - Bash result bodies of at most 3 lines are redrawn (`hooks/output.ts`,
   `renderToolOutput`): the dim `⎿` connector, then each line painted as
   claude-hl painted tool output: commands with evidence, paths and URLs,

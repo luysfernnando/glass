@@ -11,7 +11,7 @@ import { paintLine } from './output'
 import { bareWord, isUrl, pathLike } from './paths'
 import { isPrivateNote, needsAttention } from './prose'
 import { proseSpans, shellSpans } from './shell'
-import type { Span, SpanKind } from './shell'
+import type { SpanKind } from './shell'
 import { cellWidth } from './width'
 
 type Table = Elements['terminal']
@@ -339,18 +339,16 @@ function wrappedLines(inlines: Inline[], width: number): number {
 // The Bottom line card, sized to its longest row. A thin continuous bar
 // down the left edge: a quarter-block glyph on every row of the card, the
 // row count computed from the same wrapping the engine applies. Compact:
-// no padding rows; a blank separates a row from the one before only when
-// that one wrapped, since a wrapped row is what made the rows run together
-// and single-line rows stay distinct by their labels alone.
+// no padding and no blank rows; the colored label column keeps the rows
+// apart.
 function renderCallout(c: Ctx, title: string, rows: CalloutRow[]): RenderElement {
   const { t, p } = c
   const rowWidth = (r: CalloutRow) => 2 + LABEL_WIDTH + 2 + inlineWidth(r.inlines) + 1
   const width = cardWidth(c, Math.max(2 + cellWidth(title), ...rows.map(rowWidth)))
   const textWidth = width - 2 - LABEL_WIDTH - 2 - 1
   const lines = rows.map(r => wrappedLines(r.inlines, textWidth))
-  const gap = (i: number) => (i > 0 && lines[i - 1]! > 1 ? 1 : 0)
-  // title, then each row with its gap
-  const height = 1 + lines.reduce((n, l, i) => n + gap(i) + l, 0)
+  // the title, then each row's wrapped lines
+  const height = 1 + lines.reduce((n, l) => n + l, 0)
   return t.Box({
     flexDirection: 'row',
     width,
@@ -364,10 +362,9 @@ function renderCallout(c: Ctx, title: string, rows: CalloutRow[]): RenderElement
         paddingLeft: 1,
         children: [
           t.Text({ bold: true, color: p.calloutBar, children: [title] }),
-          ...rows.map((r, i) =>
+          ...rows.map(r =>
             t.Box({
               flexDirection: 'row',
-              marginTop: gap(i),
               children: [
                 // a fixed-width box, so a long row never squeezes the label column
                 t.Box({
@@ -398,46 +395,50 @@ export type ToolRow = {
   isInterrupted: boolean
 }
 
-// A tool row's header: status dot, tool name, then the call's subject.
-// Bash commands are tokenized like inline code, one command per line; file
-// tools show their path. The engine stops drawing its own dot once a hook
-// draws the row, so the dot is ours and carries the status.
+// A tool row's header, drawn the way the engine and claude-hl draw it:
+// status dot, then `Tool(subject)` as one wrapping line, the tool name in
+// its color and the parentheses dim. Bash commands are tokenized like
+// inline code; file tools show their path. A blank row above, as the
+// engine's own row keeps, so consecutive tool rows do not run together.
+// The engine stops drawing its own dot once a hook draws the row, so the
+// dot is ours and carries the status.
 export function renderToolHeader(t: Table, p: Palette, row: ToolRow): RenderElement {
   const { tool, input } = row
   const dot = row.isRunning ? p.comment : row.isErrored || row.isInterrupted ? p.err : p.ok
   const args = (input ?? {}) as Record<string, unknown>
   const str = (k: string) => (typeof args[k] === 'string' ? (args[k] as string) : null)
-  const head = [t.Text({ color: dot, children: [G.bullet + ' '] }), t.Text({ color: p.tool, children: [tool] }), t.Text({ children: ['  '] })]
 
+  const subject: RenderNode[] = []
   const command = tool === 'Bash' ? str('command') : null
   if (command) {
-    const paint = (s: Span): RenderNode => (s.kind === 'plain' ? s.text : t.Text({ color: p[s.kind], children: [s.text] }))
-    const lines = splitCommandLines(shellSpans(command, true) ?? [{ text: command, kind: 'plain' }])
-    return t.Box({
-      flexDirection: 'row',
-      children: [
-        ...head,
-        t.Box({
-          flexDirection: 'column',
-          flexGrow: 1,
-          flexShrink: 1,
-          children: lines.map(l => t.Text({ wrap: 'wrap', children: l.map(paint) })),
-        }),
-      ],
-    })
+    const spans = shellSpans(command, true) ?? [{ text: command, kind: 'plain' as const }]
+    for (const s of spans) subject.push(s.kind === 'plain' ? s.text : t.Text({ color: p[s.kind], children: [s.text] }))
+  } else {
+    const path = str('file_path') ?? str('path') ?? str('notebook_path')
+    const url = str('url')
+    const other = str('pattern') ?? str('query') ?? str('description') ?? str('skill') ?? str('prompt') ?? str('command')
+    if (other && !path) subject.push(other)
+    if (path) subject.push(t.Text({ color: p.path, children: [path] }))
+    if (url) subject.push(t.Text({ color: p.url, underline: true, children: [url] }))
+    if (other && path) subject.push(t.Text({ dimColor: true, children: [', ' + other] }))
   }
-
-  const path = str('file_path') ?? str('path') ?? str('notebook_path')
-  const url = str('url')
-  const other = str('pattern') ?? str('query') ?? str('description') ?? str('skill') ?? str('prompt') ?? str('command')
-  const subject: RenderNode[] = []
-  if (other && !path) subject.push(other)
-  if (path) subject.push(t.Text({ color: p.path, children: [path] }))
-  if (url) subject.push(t.Text({ color: p.url, underline: true, children: [url] }))
-  if (other && path) subject.push(t.Text({ dimColor: true, children: ['  ' + other] }))
+  const paren = (s: string) => t.Text({ dimColor: true, children: [s] })
   return t.Box({
     flexDirection: 'row',
-    children: [...head, t.Box({ flexGrow: 1, flexShrink: 1, children: [t.Text({ wrap: 'wrap', children: subject })] })],
+    marginTop: 1,
+    children: [
+      t.Text({ color: dot, children: [G.bullet + ' '] }),
+      t.Box({
+        flexGrow: 1,
+        flexShrink: 1,
+        children: [
+          t.Text({
+            wrap: 'wrap',
+            children: [t.Text({ color: p.tool, children: [tool] }), ...(subject.length ? [paren('('), ...subject, paren(')')] : [])],
+          }),
+        ],
+      }),
+    ],
   })
 }
 
@@ -464,39 +465,6 @@ export function renderToolOutput(t: Table, p: Palette, lines: string[]): RenderE
       }),
     ],
   })
-}
-
-// one command per line: break before && and ||, after ;, and at every
-// newline the command itself contains
-function splitCommandLines(spans: Span[]): Span[][] {
-  const flat: Span[] = []
-  for (const s of spans) {
-    const parts = s.text.split('\n')
-    parts.forEach((part, i) => {
-      if (i > 0) flat.push({ text: '\n', kind: 'plain' })
-      if (part) flat.push({ text: part, kind: s.kind })
-    })
-  }
-  const lines: Span[][] = [[]]
-  const current = () => lines[lines.length - 1]!
-  const hasContent = (l: Span[]) => l.some(x => x.text.trim() !== '')
-  for (const s of flat) {
-    if (s.text === '\n') {
-      if (hasContent(current())) lines.push([])
-      continue
-    }
-    const isChain = s.kind === 'op' && (s.text === '&&' || s.text === '||')
-    if (isChain && hasContent(current())) lines.push([])
-    current().push(s)
-    if (s.kind === 'op' && s.text === ';') lines.push([])
-  }
-  return lines
-    .map(l => {
-      while (l.length && l[0]!.text.trim() === '') l.shift()
-      while (l.length && l[l.length - 1]!.text.trim() === '') l.pop()
-      return l
-    })
-    .filter(l => l.length > 0)
 }
 
 function renderInlines(c: Ctx, inlines: Inline[]): RenderNode[] {
