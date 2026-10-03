@@ -92,6 +92,16 @@ function spaced(t: Table, p: Palette, row: RenderElement): RenderElement {
   return t.Box({ flexDirection: 'column', marginLeft: TREE_INSET, marginRight: TREE_INSET, children: [t.Text({ color: p.faint, children: [G.pipe] }), row] })
 }
 
+// the session's directory: paths under it draw relative (`SPEC.md`, not
+// the whole home path); set at session.start, empty draws paths whole
+let cwd = ''
+export function setCwd(dir: string): void {
+  cwd = dir.replace(/\/+$/, '')
+}
+export function rel(path: string): string {
+  return cwd && path.startsWith(cwd + '/') ? path.slice(cwd.length + 1) : path
+}
+
 const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`
 const sep = ` ${G.middot} `
 
@@ -253,7 +263,7 @@ function subjectNodes(t: Table, p: Palette, tool: string, input: unknown, live: 
   const other = str(args, 'pattern') ?? str(args, 'query') ?? str(args, 'description') ?? str(args, 'skill') ?? str(args, 'prompt') ?? str(args, 'command')
   // a done row steps everything after the name down to faint, paths included
   if (other && !path) out.push(t.Text({ ...(live ? {} : { color: p.faint }), children: [safeText(other.replace(/\s*\n\s*/g, ' '), 200)] }))
-  if (path) out.push(t.Text({ color: live ? p.path : p.faint, children: [safeText(path, 400)] }))
+  if (path) out.push(t.Text({ color: live ? p.path : p.faint, children: [safeText(rel(path), 400)] }))
   if (url) out.push(t.Text({ color: live ? p.url : p.faint, underline: live, children: [safeText(url, 400)] }))
   if (other && path) out.push(t.Text({ color: live ? p.meta : p.faint, children: [sep + safeText(other.replace(/\s*\n\s*/g, ' '), 200)] }))
   return out
@@ -350,7 +360,7 @@ export function renderToolOutput(t: Table, p: Palette, lines: string[], o: Outpu
     trunked(t, p, rowsOf(line, o.columns), [
       t.Text({
         wrap: 'wrap',
-        children: paintLine(line).map(s => (s.color ? t.Text({ color: p[s.color], children: [s.text] }) : t.Text({ color: p.private, children: [s.text] }))),
+        children: paintLine(line).map(s => (s.color ? t.Text({ color: p[s.color], children: [s.text] }) : t.Text({ color: p.meta, children: [s.text] }))),
       }),
     ], o.last),
   )
@@ -370,6 +380,8 @@ export type DiffOptions = {
   columns: number
   /** the row above is the turn's last (kept for the callers' symmetry; the card's own border is its trunk) */
   last?: boolean
+  /** `Created` or `Deleted` before the path in the title; absent for an update */
+  verb?: string
 }
 
 // rows a diff body draws before folding the rest into a count
@@ -390,17 +402,29 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
   let widest = 0
   let total = 0
   let hidden = 0
+  let add = 0
+  let del = 0
   hunks.forEach((h, i) => {
     const state: State = { inBlock: false }
+    // one context line before the first change and one after the last;
+    // context between changes stays, and the numbers keep counting
+    const changed = h.lines.map((l, k) => (l[0] === '+' || l[0] === '-' ? k : -1)).filter(k => k >= 0)
+    const lo = changed.length ? changed[0]! - 1 : -Infinity
+    const hi = changed.length ? changed[changed.length - 1]! + 1 : Infinity
+    let k = -1
     if (i > 0 && total < MAX_DIFF_ROWS) rows.push(t.Text({ color: p.faint, children: [' '.repeat(digits + 3) + G.ellipsis] }))
     let old = h.oldStart
     let cur = h.newStart
     for (const raw of h.lines) {
+      k++
       const head = raw[0]
       const kind = head === '+' ? 'add' : head === '-' ? 'del' : head === '\\' ? 'note' : 'ctx'
       const num = kind === 'del' ? old : cur
       if (kind === 'ctx' || kind === 'del') old++
       if (kind === 'ctx' || kind === 'add') cur++
+      if (kind === 'add') add++
+      if (kind === 'del') del++
+      if (kind === 'ctx' && (k < lo || k > hi)) continue
       total++
       if (total > MAX_DIFF_ROWS) {
         hidden++
@@ -444,7 +468,34 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
   // no glyph column has to guess the height. The arcs read as the line
   // flowing into the frame and out again. (A trunk column beside the card
   // was the first design; it came up short beside wrapped rows.)
-  const width = Math.min(Math.max(20, o.columns - 2 * TREE_INSET), Math.max(DIFF_MIN, widest + digits + 3 + 4))
+  // the file and its counts sit in the top border: `SPEC.md +1 -1`
+  const name = safeText(rel(o.path), 400)
+  const counts = (add > 0 ? ` +${add}` : '') + (del > 0 ? ` -${del}` : '')
+  const titleWidth = cellWidth((o.verb ? o.verb + ' ' : '') + name + counts) + 2
+  const cap = Math.max(20, o.columns - 2 * TREE_INSET)
+  const width = Math.min(cap, Math.max(DIFF_MIN, widest + digits + 3 + 4, titleWidth + 6))
+  if (o.path) {
+    rows.push(
+      t.Box({
+        position: 'absolute',
+        top: -1,
+        left: 1,
+        children: [
+          t.Text({
+            wrap: 'truncate-end',
+            children: [
+              ' ',
+              ...(o.verb ? [t.Text({ color: p.meta, children: [o.verb + ' '] })] : []),
+              t.Text({ color: p.path, children: [clip(name, width - 8)] }),
+              ...(add > 0 ? [' ', t.Text({ color: p.ok, children: [`+${add}`] })] : []),
+              ...(del > 0 ? [' ', t.Text({ color: p.err, children: [`-${del}`] })] : []),
+              ' ',
+            ],
+          }),
+        ],
+      }),
+    )
+  }
   return t.Box({
     marginLeft: TREE_INSET,
     marginRight: TREE_INSET,
@@ -480,28 +531,24 @@ export function renderBashResult(t: Table, p: Palette, lines: string[], files: R
   const air = () => trunked(t, p, 1, [t.Text({ children: [''] })], o.last)
   if (lines.length > 0) rows.push(renderToolOutput(t, p, lines, { columns: o.columns, maxLines: o.maxLines, last: o.last }))
   for (const f of files) {
-    let add = 0
-    let del = 0
-    for (const h of f.hunks) for (const l of h.lines) {
-      if (l[0] === '+') add++
-      else if (l[0] === '-') del++
-    }
-    const verb = f.created ? 'Created' : f.deleted ? 'Deleted' : 'Updated'
+    const verb = f.created ? 'Created' : f.deleted ? 'Deleted' : undefined
     rows.push(air())
+    // the card's top border names the file; a change with no hunks keeps a header line
+    if (f.hunks.length > 0) {
+      rows.push(renderDiff(t, p, f.hunks, { path: f.filePath, columns: o.columns, last: o.last, ...(verb ? { verb } : {}) }))
+      continue
+    }
     rows.push(
       trunked(t, p, 1, [
         t.Text({
           wrap: 'truncate-end',
           children: [
-            t.Text({ color: p.meta, children: [verb + ' '] }),
-            t.Text({ color: p.path, children: [safeText(f.filePath, 400)] }),
-            ...(add > 0 ? [' ', t.Text({ color: p.ok, children: [`+${add}`] })] : []),
-            ...(del > 0 ? [' ', t.Text({ color: p.err, children: [`-${del}`] })] : []),
+            t.Text({ color: p.meta, children: [(verb ?? 'Updated') + ' '] }),
+            t.Text({ color: p.path, children: [safeText(rel(f.filePath), 400)] }),
           ],
         }),
       ], o.last),
     )
-    if (f.hunks.length > 0) rows.push(renderDiff(t, p, f.hunks, { path: f.filePath, columns: o.columns, last: o.last }))
   }
   if (o.moreFiles > 0) {
     rows.push(air())
@@ -512,7 +559,7 @@ export function renderBashResult(t: Table, p: Palette, lines: string[], files: R
 
 // ---- folded group --------------------------------------------------------
 
-export type GroupCall = { tool: string; isRunning: boolean; isErrored: boolean; isInterrupted: boolean }
+export type GroupCall = { tool: string; input?: unknown; isRunning: boolean; isErrored: boolean; isInterrupted: boolean }
 
 export type GroupOptions = {
   isActive: boolean
@@ -527,13 +574,23 @@ export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupC
   const done = calls.filter(c => !c.isRunning).length
   const edits = calls.filter(c => isEditTool(c.tool)).length
   const failed = calls.filter(c => c.isErrored || c.isInterrupted).length
-  const parts: RenderNode[] = [`+${done} completed`]
+  // what the run touched: the tools with counts, then each subject once
+  const counts = new Map<string, number>()
+  for (const c of calls) counts.set(c.tool, (counts.get(c.tool) ?? 0) + 1)
+  const tools = [...counts].map(([tool, n]) => (n > 1 ? `${tool} ${G.times}${n}` : tool)).join(sep)
+  const subjects = [...new Set(calls.map(c => {
+    const a = (c.input ?? {}) as Record<string, unknown>
+    const s = str(a, 'file_path') ?? str(a, 'path') ?? str(a, 'pattern') ?? str(a, 'query') ?? str(a, 'url') ?? ''
+    return safeText(rel(s).replace(/\s+/g, ' '), 200)
+  }).filter(s => s !== ''))]
+  const parts: RenderNode[] = [t.Text({ color: p.tool, children: [tools] })]
+  if (subjects.length) parts.push('  ' + subjects.join(sep))
   if (edits > 0) parts.push(` [${plural(edits, 'edit')}]`)
   if (failed > 0) parts.push(sep, t.Text({ color: p.err, children: [`${failed} failed`] }))
   // no fold button: a Button in a transcript row never received its press
-  // live (2026-10-03), so the row names the engine's own way in
+  // live (2026-10-03); /expand opens every group
   const button = null
-  const tail = o.isActive ? sep + `${calls.length - done} running` + G.ellipsis : sep + 'ctrl+o to expand'
+  const tail = o.isActive ? sep + `${calls.length - done} running` + G.ellipsis : ''
   return spaced(t, p, t.Box({
     ...(o.key ? { key: `group:${o.key}`, hover: { backgroundColor: p.rowHover } } : {}),
     flexDirection: 'row',
@@ -562,6 +619,8 @@ export function renderEventRow(t: Table, p: Palette, text: string, task: EventTa
   const status = (task?.status ?? '').toLowerCase()
   const failed = /fail|error|kill|cancel/.test(status)
   const right = typeof task?.durationMs === 'number' && task.durationMs > 0 ? fmtToolTime(task.durationMs) : ''
+  // `Agent "Count hook source lines" finished` draws as a tool row
+  const agent = /^Agent "(.+)" \w+/.exec(first)
   const row = spaced(t, p, t.Box({
     key: `event:${first.slice(0, 60)}`,
     flexDirection: 'row',
@@ -569,8 +628,8 @@ export function renderEventRow(t: Table, p: Palette, text: string, task: EventTa
     children: [
       t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }),
       t.Text({ color: failed ? p.err : p.ok, children: [(failed ? G.cross : G.tick) + ' '] }),
-      t.Box({ flexGrow: 1, flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.meta, children: [first] })] }),
-      ...(right ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.meta, children: [right] })] })] : []),
+      t.Box({ flexGrow: 1, flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.meta, children: agent ? [t.Text({ color: p.tool, children: ['Agent'] }), '  ' + agent[1]!] : [first] })] }),
+      ...(right ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.faint, children: [right] })] })] : []),
     ],
   }))
   if (rest === '') return row

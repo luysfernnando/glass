@@ -95,9 +95,10 @@ test('a folded group counts edits and failures and names ctrl+o', async () => {
     { tool: 'Grep', isRunning: false, isErrored: false, isInterrupted: false },
   ]
   const folded = flat(renderGroupRow(t, p, calls, { isActive: false, key: 'expand:g1', onExpand: () => {} }))
-  expect(folded).toContain('+3 completed [1 edit]')
+  expect(folded).toContain('Read' + ' ' + G.middot + ' Edit ' + G.middot + ' Grep')
+  expect(folded).toContain('[1 edit]')
   expect(folded).toContain('1 failed')
-  expect(folded).toContain('ctrl+o to expand')
+  expect(folded).not.toContain('ctrl+o to expand')
   expect(folded).not.toContain('Click')
   const active = flat(renderGroupRow(t, p, [...calls, { tool: 'Read', isRunning: true, isErrored: false, isInterrupted: false }], { isActive: true, key: null, onExpand: null }))
   expect(active).toContain('1 running' + G.ellipsis)
@@ -136,7 +137,7 @@ test('the band: a frame the band wide with five agents and a fold, or one strip 
 
 test('an event row: a tick and the first line, a cross on a failed task, the duration at the right', async () => {
   const ok = flat(renderEventRow(t, p, 'Agent "Hunt widths" finished\nmore detail', { status: 'completed', durationMs: 72_000 }))
-  expect(ok.startsWith(G.pipe + G.tee + G.rule + ' ' + G.tick + ' Agent "Hunt widths" finished')).toBe(true)
+  expect(ok.startsWith(G.pipe + G.tee + G.rule + ' ' + G.tick + ' Agent  Hunt widths')).toBe(true)
   expect(ok).not.toContain('more detail')
   expect(ok.endsWith('1m 12s')).toBe(true)
   const bad = flat(renderEventRow(t, p, 'Agent died', { status: 'failed' }))
@@ -210,7 +211,7 @@ test('mounted: a user row, a tree row, a folded group and the band validate on t
       isExpanded: false,
     },
   })
-  expect(await group.find({ type: 'Text', text: /\+2 completed/ })).toBeDefined()
+  expect(await group.find({ type: 'Text', text: /a\.ts/ })).toBeDefined()
   await group.unmount()
 
   // a task's notification and another agent's message: both rows carry a
@@ -297,7 +298,8 @@ test('a Bash result that rewrote files: the body folded past the painted lines, 
   expect(text).toContain('three')
   expect(text).not.toContain('four')
   expect(text).toContain(G.ellipsis + ' +2 lines')
-  expect(text).toContain('Updated /x/hooks/a.ts +2 -1')
+  expect(text).not.toContain('Updated')
+  expect(text).toContain(' /x/hooks/a.ts +2 -1 ')
   expect(text).toContain('2 - const b = 2')
   expect(text).toContain('2 + const b = 3')
   expect(text).toContain('Created /x/README.md')

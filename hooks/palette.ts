@@ -190,7 +190,7 @@ const water: Palette = {
   accent: '#00a2ce', // accentAssistant
   bullet: '#8e8ca1',
   orderedNum: '#8e8ca1',
-  rule: '#3d3b50', // textDim
+  rule: '#5a5870', // textDim lifted: #3d3b50 is 1.69:1 on night-owl's ground and the rules vanished
   quoteBar: '#009a8b',
   ok: '#4fd1a0', // lifted: Empryo's success #0b8b00 is mud on a dark ground
   err: '#e85c6b', // the dusty rose of Empryo's desktop; its #ee0b2a glares
@@ -215,7 +215,7 @@ const water: Palette = {
   codeStr: '#e65f2a',
   codeNum: '#3bb8d8',
   addBg: '#0e2a3a',
-  delBg: '#241c2a',
+  delBg: '#33222e', // lifted from #241c2a (1.11:1) toward SPEC's 1.2:1 tint floor
 }
 
 // Every palette spells out every key: no shared block, so a theme reads whole.

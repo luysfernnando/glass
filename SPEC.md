@@ -474,3 +474,22 @@ finished turn; these rules replace the ones above where they differ.
   a streaming event's hook must be `async function*`; a `Box` with a
   `hover` style must carry a `key`, or the validator refuses the tree and
   the engine draws its own row (this hid the event rows for two demos).
+
+### Third pass: the demo's density (2026-10-03, after the design panel)
+
+- Paths under the session's directory draw relative (`SPEC.md`): `$.session.cwd()`
+  read at `session.start`, applied in tree subjects, group rows, diff titles.
+- The diff card names its file in its top border: `╭─ SPEC.md +1 -1 ──╮`, an
+  absolutely placed Text over the border row (`Created`/`Deleted` before the path
+  when so). The `Updated <path> +a -b` header row under a Bash edit goes; a file
+  with no hunks keeps it. One context line before a hunk's first change and one
+  after its last; context between changes stays; the numbers keep counting.
+- A folded group names what it touched: the tools with counts in `tool`, then
+  each subject once. `ctrl+o to expand` goes (it never opened a group live).
+- A finished agent is one row: `✓ Agent  <description>` with its duration in
+  `faint`. The folded `Message from @<type>` row of a subagent this session
+  spawned draws `display: none`; ctrl+o still shows it, and a peer's stays.
+- Unpainted Bash output draws in `meta`, apart from the `faint` scaffolding.
+- `water`: `rule #5a5870` (was 1.69:1 and vanished), `delBg #33222e`.
+- Live check: the title lands on the border row, not above it. If the engine
+  measures the offset from the outer edge, set `top: 0`.

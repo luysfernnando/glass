@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
-import { isEditTool, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { isEditTool, setCwd, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -60,6 +60,9 @@ export const register: Register = (on, options) => {
   let marks = true
   // the slash commands this session has, for the footer's actions
   let commands = new Set<string>()
+  // the names and types of subagents this session spawned: their folded
+  // `Message from` rows hide, since the finished row says the same
+  const spawned = new Set<string>()
 
   // the live main-loop turn; a hot reload resets it, which only affects the
   // footer of the turn that reloaded
@@ -78,6 +81,11 @@ export const register: Register = (on, options) => {
   })
 
   on('session.start', async ($, e, next) => {
+    try {
+      setCwd(await $.session.cwd())
+    } catch {
+      setCwd('')
+    }
     try {
       commands = new Set((await $.command.list()).map(c => c.name))
     } catch {
@@ -136,6 +144,7 @@ export const register: Register = (on, options) => {
     // bridge): one muted row; ctrl+o keeps the engine's body
     if (kind !== 'composer') {
       if (e.props.isExpanded) return next(e)
+      if (spawned.has(e.props.from?.name ?? '')) return t.Box({ display: 'none', children: [] })
       return renderMessageRow(t, palette, e.props.from?.name ?? kind)
     }
     const text = e.props.text
@@ -347,6 +356,8 @@ export const register: Register = (on, options) => {
 
   on('agent.spawn', async ($, e, next) => {
     const r = await next(e)
+    if (e.subagentType) spawned.add(e.subagentType)
+    if (typeof (e as { name?: unknown }).name === 'string') spawned.add((e as { name: string }).name)
     if (r.agentId) {
       const agent: GlassAgent = {
         agentId: r.agentId,
