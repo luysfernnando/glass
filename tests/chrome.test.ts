@@ -280,6 +280,10 @@ test('the highlighter: keywords, calls, types, strings, numbers, comments, a blo
   expect(kinds(highlight('x.type = 1 # done', 'py')[0]!)).toEqual(['num:1', 'comment:# done'])
   expect(langOf('/a/b/hooks/chrome.test.ts')).toBe('ts')
   expect(langOf('Makefile')).toBe('makefile')
+  // prose files are English: a markdown diff paints nothing
+  expect(kinds(highlight("The contract for Claude Code's transcript.", 'md')[0]!)).toEqual([])
+  expect(highlight('## Global', 'md')[0]).toEqual([{ text: '## Global', kind: 'plain' }])
+  expect(highlight('', 'md')[0]).toEqual([])
 })
 
 test('a Bash result that rewrote files: the body folded past the painted lines, then a header and a card per file', async () => {

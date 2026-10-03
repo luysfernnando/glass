@@ -178,7 +178,7 @@ const water: Palette = {
   sub: '#3bb8d8', // brandAlt
   flag: '#009a8b', // brandSecondary
   str: '#e65f2a', // amber
-  path: '#9cce8b', // tidepool's olive, the owner's green (2026-10-03): warn keeps the orange to itself
+  path: '#6ec9ab', // sea glass: a quieter sibling of the success mint, so paths stay in water's cool family (owner's pick 2026-10-03; the olive #9cce8b sat outside it, the orange was warn's)
   op: '#8e8ca1', // textSecondary
   num: '#3bb8d8', // info
   var: '#009a8b',

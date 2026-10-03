@@ -22,6 +22,8 @@ export const CODE_COLOR: Record<Exclude<CodeKind, 'plain'>, keyof Palette> = {
 }
 
 const SHELL_LANGS = new Set(['sh', 'bash', 'zsh', 'shell', 'console', 'fish'])
+// prose files: a diff of README.md is English, not code, so nothing paints
+const PROSE_LANGS = new Set(['md', 'markdown', 'mdx', 'txt', 'text', 'rst', 'adoc', 'asciidoc', 'org', 'tex', ''])
 // `#` opens a comment here; everywhere else `//` does
 const HASH_LANGS = new Set(['py', 'python', 'rb', 'ruby', 'yaml', 'yml', 'toml', 'ini', 'conf', 'perl', 'pl', 'r', 'make', 'makefile', 'dockerfile', 'nix', 'elixir', 'ex', 'exs', 'cmake'])
 const DASH_LANGS = new Set(['sql', 'lua', 'hs', 'haskell', 'ada'])
@@ -62,6 +64,7 @@ export function langOf(hint: string): string {
 
 /** one line as colored spans; `state` carries a block comment across lines */
 export function highlightLine(line: string, lang: string, state: State = { inBlock: false }): CodeSpan[] {
+  if (PROSE_LANGS.has(lang)) return line === '' ? [] : [{ text: line, kind: 'plain' }]
   if (SHELL_LANGS.has(lang)) {
     const spans = shellSpans(line, true)
     if (spans) return spans.map(s => ({ text: s.text, kind: s.kind === 'plain' ? 'plain' : s.kind === 'str' ? 'str' : s.kind === 'num' ? 'num' : s.kind === 'comment' ? 'comment' : s.kind === 'cmd' || s.kind === 'sub' ? 'kw' : s.kind === 'flag' || s.kind === 'var' ? 'type' : 'plain' }))

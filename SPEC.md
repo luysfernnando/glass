@@ -85,7 +85,9 @@ design panel and an investigation round on 2026-10-02.
   body is glass's own highlighter (`hooks/highlight.ts`): one row per
   line, keywords in `codeKw`, calls in `codeFn`, types in `codeType`,
   strings in `codeStr`, numbers and constants in `codeNum`, comments in
-  `comment`; shell fences through `shellSpans`. A `faint` gutter from
+  `comment`; shell fences through `shellSpans`; prose files and fences
+  (`md`, `txt`, `rst`, `adoc`...) paint nothing, since a README diff is
+  English. A `faint` gutter from
   line 1 once over 8 lines. (The engine's `Code` paints with its own theme,
   which the owner rejected 2026-10-03; its `Markdown` leaf was tried
   next and dropped for the same reason.)
