@@ -398,7 +398,9 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
   const lang = langOf(o.path)
   const last = Math.max(1, ...hunks.flatMap(h => [h.oldStart + h.lines.length, h.newStart + h.lines.length]))
   const digits = String(last).length
-  const rows: RenderElement[] = []
+  type Piece = { text: string; color?: string }
+  type Line = { kind: 'add' | 'del' | 'ctx' | 'note'; num: number | null; pieces: Piece[] }
+  const lines: Line[] = []
   let widest = 0
   let total = 0
   let hidden = 0
@@ -412,7 +414,7 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
     const lo = changed.length ? changed[0]! - 1 : -Infinity
     const hi = changed.length ? changed[changed.length - 1]! + 1 : Infinity
     let k = -1
-    if (i > 0 && total < MAX_DIFF_ROWS) rows.push(t.Text({ color: p.faint, children: [' '.repeat(digits + 3) + G.ellipsis] }))
+    if (i > 0 && total < MAX_DIFF_ROWS) lines.push({ kind: 'note', num: null, pieces: [{ text: G.ellipsis, color: p.faint }] })
     let old = h.oldStart
     let cur = h.newStart
     for (const raw of h.lines) {
@@ -430,77 +432,113 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
         hidden++
         continue
       }
-      const body = safeText(raw.slice(1), 2000)
+      // tabs expand here: the engine and the terminal disagree on a tab's width
+      const body = safeText(raw.slice(1), 2000).replace(/\t/g, '    ')
       widest = Math.max(widest, cellWidth(body))
       if (kind === 'note') {
-        rows.push(t.Text({ color: p.faint, children: [' '.repeat(digits + 3) + body] }))
+        lines.push({ kind, num: null, pieces: [{ text: body, color: p.faint }] })
         continue
       }
-      const mark = kind === 'add' ? '+' : kind === 'del' ? '-' : ' '
-      const markColor = kind === 'add' ? p.ok : kind === 'del' ? p.err : p.faint
-      const spans = highlightLine(body, lang, state)
-      rows.push(
+      const pieces = highlightLine(body, lang, state).map(s => (s.kind === 'plain' ? { text: s.text } : { text: s.text, color: p[CODE_COLOR[s.kind]] }))
+      lines.push({ kind, num, pieces })
+    }
+  })
+  if (hidden > 0) lines.push({ kind: 'note', num: null, pieces: [{ text: G.ellipsis + ` +${plural(hidden, 'line')} (ctrl+o to expand)`, color: p.faint }] })
+
+  const name = safeText(rel(o.path), 400)
+  const counts = (add > 0 ? ` +${add}` : '') + (del > 0 ? ` -${del}` : '')
+  const verb = o.verb ? o.verb + ' ' : ''
+  const cap = Math.max(20, o.columns - 2 * TREE_INSET)
+  const width = Math.min(cap, Math.max(DIFF_MIN, widest + digits + 3 + 4, cellWidth(verb + name + counts) + 8))
+  // inside the frame: a border and a padding cell each side
+  const inner = width - 4
+  const gutter = digits + 3
+  const room = Math.max(1, inner - gutter)
+
+  // The frame is drawn by glass, row by row, so the file can sit in the top
+  // border, `SPEC.md +1 -1` between the arcs (owner's pick, 2026-10-03; an absolute
+  // title over a Box border is clipped by the engine). glass breaks every
+  // code line at the room itself, so the engine never wraps inside the card
+  // and each row carries its own two edges: no glyph column guesses a height.
+  const edge = (s: string) => t.Text({ color: p.faint, children: [s] })
+  const out: RenderElement[] = []
+  const fixed = 3 + cellWidth(verb + counts) + 3
+  const shown = o.path ? clip(name, Math.max(4, width - fixed)) : ''
+  const titleW = o.path ? cellWidth(verb + shown + counts) + 1 : 0
+  out.push(
+    t.Text({
+      children: [
+        edge(G.arcTL + G.rule + (o.path ? ' ' : '')),
+        ...(o.path
+          ? [
+              ...(verb ? [t.Text({ color: p.meta, children: [verb] })] : []),
+              t.Text({ color: p.path, children: [shown] }),
+              ...(add > 0 ? [' ', t.Text({ color: p.ok, children: [`+${add}`] })] : []),
+              ...(del > 0 ? [' ', t.Text({ color: p.err, children: [`-${del}`] })] : []),
+              ' ',
+            ]
+          : []),
+        edge(G.rule.repeat(Math.max(1, width - 3 - (o.path ? 1 : 0) - titleW)) + G.arcTR),
+      ],
+    }),
+  )
+  for (const l of lines) {
+    const bg = l.kind === 'add' ? p.addBg : l.kind === 'del' ? p.delBg : undefined
+    const mark = l.kind === 'add' ? '+' : l.kind === 'del' ? '-' : ' '
+    const markColor = l.kind === 'add' ? p.ok : l.kind === 'del' ? p.err : p.faint
+    chunk(l.pieces, room).forEach((part, n) => {
+      const used = part.reduce((w, x) => w + cellWidth(x.text), 0)
+      const head: RenderNode[] =
+        n === 0 && l.num !== null
+          ? [t.Text({ color: p.faint, children: [String(l.num).padStart(digits) + ' '] }), t.Text({ color: markColor, children: [mark + ' '] })]
+          : [' '.repeat(gutter)]
+      out.push(
         t.Box({
           flexDirection: 'row',
-          ...(kind === 'add' ? { backgroundColor: p.addBg } : kind === 'del' ? { backgroundColor: p.delBg } : {}),
           children: [
-            t.Text({ color: p.faint, children: [String(num).padStart(digits) + ' '] }),
-            t.Text({ color: markColor, children: [mark + ' '] }),
+            edge(G.pipe + ' '),
             t.Box({
-              flexGrow: 1,
-              flexShrink: 1,
+              width: inner,
+              flexShrink: 0,
+              ...(bg ? { backgroundColor: bg } : {}),
               children: [
                 t.Text({
-                  wrap: 'wrap',
-                  children: spans.map(s => (s.kind === 'plain' ? s.text : t.Text({ color: p[CODE_COLOR[s.kind]], children: [s.text] }))),
+                  wrap: 'truncate-end',
+                  children: [...head, ...part.map(x => (x.color ? t.Text({ color: x.color, children: [x.text] }) : x.text)), ' '.repeat(Math.max(0, room - used))],
                 }),
               ],
             }),
+            edge(' ' + G.pipe),
           ],
         }),
       )
-    }
-  })
-  if (hidden > 0) rows.push(t.Text({ color: p.faint, children: [' '.repeat(digits + 3) + G.ellipsis + ` +${plural(hidden, 'line')} (ctrl+o to expand)`] }))
-  // frame: 2 border cells, 1 padding each side, the gutter, the code
-  // The card sits on the trunk column itself: its left border is the trunk
-  // for exactly as many rows as the card has, wrapped lines included, so
-  // no glyph column has to guess the height. The arcs read as the line
-  // flowing into the frame and out again. (A trunk column beside the card
-  // was the first design; it came up short beside wrapped rows.)
-  // the file and its counts sit in the top border: `SPEC.md +1 -1`
-  const name = safeText(rel(o.path), 400)
-  const counts = (add > 0 ? ` +${add}` : '') + (del > 0 ? ` -${del}` : '')
-  const titleWidth = cellWidth((o.verb ? o.verb + ' ' : '') + name + counts) + 2
-  const cap = Math.max(20, o.columns - 2 * TREE_INSET)
-  const width = Math.min(cap, Math.max(DIFF_MIN, widest + digits + 3 + 4, titleWidth + 6))
-  // the file and its counts head the card, inside the frame: the engine
-  // clips a child off the border row and counts offsets from inside it, so
-  // a title cannot sit on the border (live, 2026-10-03, 0.3.7 covered code)
-  if (o.path) {
-    rows.unshift(
-      t.Text({
-        wrap: 'truncate-end',
-        children: [
-          ...(o.verb ? [t.Text({ color: p.meta, children: [o.verb + ' '] })] : []),
-          t.Text({ color: p.path, children: [clip(name, width - 8)] }),
-          ...(add > 0 ? [' ', t.Text({ color: p.ok, children: [`+${add}`] })] : []),
-          ...(del > 0 ? [' ', t.Text({ color: p.err, children: [`-${del}`] })] : []),
-        ],
-      }),
-    )
+    })
   }
-  return t.Box({
-    marginLeft: TREE_INSET,
-    marginRight: TREE_INSET,
-    width,
-    flexDirection: 'column',
-    borderStyle: 'round',
-    borderColor: p.faint,
-    paddingLeft: 1,
-    paddingRight: 1,
-    children: rows,
-  })
+  out.push(edge(G.arcBL + G.rule.repeat(width - 2) + G.arcBR))
+  // the card sits on the trunk column: its left edge is the trunk
+  return t.Box({ marginLeft: TREE_INSET, marginRight: TREE_INSET, width, flexDirection: 'column', children: out })
+}
+
+// colored pieces cut into rows of at most `w` cells, by the engine's ruler
+function chunk(pieces: ReadonlyArray<{ text: string; color?: string }>, w: number): { text: string; color?: string }[][] {
+  const rows: { text: string; color?: string }[][] = [[]]
+  let used = 0
+  for (const piece of pieces) {
+    let buf = ''
+    for (const ch of piece.text) {
+      const cw = cellWidth(ch)
+      if (used + cw > w && used > 0) {
+        if (buf) rows[rows.length - 1]!.push({ ...piece, text: buf })
+        rows.push([])
+        buf = ''
+        used = 0
+      }
+      buf += ch
+      used += cw
+    }
+    if (buf) rows[rows.length - 1]!.push({ ...piece, text: buf })
+  }
+  return rows
 }
 
 // ---- a Bash result that changed files ------------------------------------

@@ -261,7 +261,18 @@ test('an Edit diff: one number column, a plus row in ok on addBg, a minus row in
   }
   walk(out)
   const card = out as { props: { borderStyle?: string; marginLeft?: number } }
-  expect(card.props.borderStyle).toBe('round')
+  // glass draws the frame: the file in the top border, two edges on every row
+  expect(card.props.borderStyle).toBeUndefined()
+  const rows = lines(out)
+  expect(rows[0]!.startsWith(G.arcTL + G.rule + ' hooks/chrome.ts +2 -2 ' + G.rule)).toBe(true)
+  expect(rows[rows.length - 1]!.startsWith(G.arcBL)).toBe(true)
+  const w = cellWidth(rows[0]!)
+  for (const r of rows) expect(cellWidth(r)).toBe(w)
+  for (const r of rows.slice(1, -1)) expect(r.startsWith(G.pipe) && r.endsWith(G.pipe)).toBe(true)
+  // a line wider than the card breaks into rows glass counts, each framed
+  const long = lines(renderDiff(t, p, [{ oldStart: 1, newStart: 1, lines: ['+' + 'x'.repeat(150)] }], { path: 'a.ts', columns: 80 }))
+  expect(long.length).toBe(2 + 3)
+  for (const r of long) expect(cellWidth(r)).toBe(76)
   // the frame sits on the trunk column, so its left border is the trunk
   expect(card.props.marginLeft).toBe(2)
   expect(colors).toContain(p.ok)
@@ -299,7 +310,7 @@ test('a Bash result that rewrote files: the body folded past the painted lines, 
   expect(text).not.toContain('four')
   expect(text).toContain(G.ellipsis + ' +2 lines')
   expect(text).not.toContain('Updated')
-  expect(text).toContain('/x/hooks/a.ts +2 -11   const a = 1')
+  expect(text).toContain(G.arcTL + G.rule + ' /x/hooks/a.ts +2 -1 ' + G.rule)
   expect(text).toContain('2 - const b = 2')
   expect(text).toContain('2 + const b = 3')
   expect(text).toContain('Created /x/README.md')

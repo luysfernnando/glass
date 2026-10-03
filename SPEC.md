@@ -479,14 +479,21 @@ finished turn; these rules replace the ones above where they differ.
 
 - Paths under the session's directory draw relative (`SPEC.md`): `$.session.cwd()`
   read at `session.start`, applied in tree subjects, group rows, diff titles.
-- The diff card's first row, inside the frame, names its file: `SPEC.md +1 -1`
-  (`Created`/`Deleted` before the path when so). The `Updated <path> +a -b`
-  header row under a Bash edit goes; a file with no hunks keeps it. One context
-  line before a hunk's first change and one after its last; context between
-  changes stays; the numbers keep counting. (A title on the top border was
-  tried twice, 2026-10-03: an absolute Text at `top: -1` was clipped, at
-  `top: 0` it covered the first code row. The engine counts offsets from
-  inside the border and never lets a child paint the border row.)
+- The diff card names its file in its top border, `╭─ SPEC.md +1 -1 ───╮`
+  (`Created`/`Deleted` before the path when so). glass draws the frame itself,
+  row by row: no Box border. It breaks every code line at the card's room by
+  the engine's ruler (mid-word, as delta does), so the engine never wraps
+  inside the card and every row carries its own two edges; the text Box is
+  `truncate-end` as a guard only. This answers the old objection to a glyph
+  frame (a side column came up short beside wrapped rows): no row wraps.
+  Tabs expand to four spaces. The `Updated <path> +a -b` header row under a
+  Bash edit goes; a file with no hunks keeps it. One context line before a
+  hunk's first change and one after its last; context between changes stays;
+  the numbers keep counting. (Tried first, 2026-10-03: an absolute Text over
+  a Box border. At `top: -1` it was clipped, at `top: 0` it covered the first
+  code row: the engine counts offsets from inside the border and never lets a
+  child paint the border row. Then the title as the first row inside the
+  frame, which the owner found plain.)
 - A folded group names what it touched: the tools with counts in `tool`, then
   each subject once. `ctrl+o to expand` goes (it never opened a group live).
 - A finished agent is one row: `✓ Agent  <description>` with its duration in
