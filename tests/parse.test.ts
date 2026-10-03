@@ -82,6 +82,12 @@ test('prose commands paint only with evidence, as claude-hl did', async () => {
   expect(paint('run git status in a sentence.')).toEqual([])
   expect(paint('Ran git status')).toEqual(['cmd:git', 'sub:status'])
   expect(paint('use cd ~/src and ls -la.')).toEqual(['cmd:cd', 'path:~/src', 'cmd:ls', 'flag:-la'])
+  // English words that are also commands: a bare number is the sentence
+  expect(paint('three agents that each sleep 5 seconds.')).toEqual([])
+  expect(paint('3,336 total lines of code across 13 files.')).toEqual([])
+  expect(paint('Ran sleep 5')).toEqual(['cmd:sleep', 'num:5'])
+  expect(paint('then sleep 5 && echo one')).toEqual(['cmd:sleep', 'num:5', 'op:&&', 'cmd:echo'])
+  expect(paint('open the file with code -r .')).toEqual(['cmd:code', 'flag:-r'])
 })
 
 test('paragraphs that need the reader are recognized', async () => {

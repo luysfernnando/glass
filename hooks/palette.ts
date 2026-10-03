@@ -178,7 +178,7 @@ const water: Palette = {
   sub: '#3bb8d8', // brandAlt
   flag: '#009a8b', // brandSecondary
   str: '#e65f2a', // amber
-  path: '#de7c00', // warning: the warm, calm one
+  path: '#9cce8b', // tidepool's olive, the owner's green (2026-10-03): warn keeps the orange to itself
   op: '#8e8ca1', // textSecondary
   num: '#3bb8d8', // info
   var: '#009a8b',

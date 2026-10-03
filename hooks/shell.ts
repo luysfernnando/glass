@@ -298,6 +298,12 @@ const STOP_WORDS = new Set(
 )
 // in prose, bare non-subcommand words tolerated before giving up
 const MAX_BARE = 3
+// command words that are also plain English: a number after one (`sleep 5
+// seconds`, `code across 13 files`) is the sentence, not an argument, so it
+// does not count as evidence on its own; a flag, a path or an operator still does
+const ENGLISH = new Set(
+  'code sleep time watch open sort find cut tree kill touch make head tail less man diff patch which env source echo tee go kind dig ping stat zip tar cat'.split(' '),
+)
 // text right before a command that marks it as a command line rather than prose
 const RUNNER_PREFIXES = ['Ran', 'Run', 'Running', 'Bash(', '$']
 // chars that may not precede a command word
@@ -436,8 +442,11 @@ export function proseSpans(text: string): ProseSpan[] {
         default:
           color = kind
       }
-      // operators only count once something real follows them
-      if (kind !== 'sub' && kind !== 'word' && kind !== 'chain' && kind !== 'redirect') evidence = true
+      // operators only count once something real follows them; a bare
+      // number after an English-word command is not evidence
+      if (kind !== 'sub' && kind !== 'word' && kind !== 'chain' && kind !== 'redirect') {
+        if (!(kind === 'num' && ENGLISH.has(cmd))) evidence = true
+      }
       // a bare word followed by sentence punctuation ends the span
       if (TRIMMABLE.has(kind) && word.length > 1 && isSentencePunct(word[word.length - 1]!)) {
         out.push({ start, end: end - 1, kind: color })

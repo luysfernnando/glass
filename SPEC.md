@@ -38,8 +38,12 @@ design panel and an investigation round on 2026-10-02.
   - Command spans in prose paint only with evidence: a known command word
     followed by a flag, path, string, number or operator, or preceded by a
     runner prefix (`Ran`, `$`). `git push --follow-tags` paints; `git
-    status` in a sentence, `make sure`, `go ahead` do not. Stop words and a
-    three-bare-word budget end a span. (`proseSpans` in `hooks/shell.ts`.)
+    status` in a sentence, `make sure`, `go ahead` do not. For command
+    words that are also plain English (`sleep`, `code`, `time`, `open`,
+    `find`...) a bare number is not evidence: `each sleep 5 seconds` and
+    `code across 13 files` stay prose; `Ran sleep 5` and `code -r` paint.
+    Stop words and a three-bare-word budget end a span. (`proseSpans` in
+    `hooks/shell.ts`.)
   - Paths anywhere: rooted (`/`, `./`, `../`, `~/`), a known extension
     (`README.md`) or a dotfile (`.gitignore`) in `path` underlined; a
     `:line` or `:line:col` suffix in `num`. URLs (`https`, `ssh://`,
