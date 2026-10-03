@@ -1,25 +1,53 @@
 import { atom, read, update } from 'claude-code'
-import type { Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
-import type { GlassTurn } from '../types'
+import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
+import { isEditTool, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import type { ChangedFile, Hunk } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
 import { paletteNamed } from './palette'
 import { writeIntent } from './prose'
-import { renderReply, renderToolHeader, renderToolOutput } from './render'
+import { renderReply } from './render'
 
 // The turns this session, newest last. A footer row finds its own turn in
 // here: a `read` while a render hook runs subscribes that row, so every
 // `update` draws every footer again, and each must still find its data.
 const turns = atom({ plugin: 'glass', key: 'turns' } as const, [] as GlassTurn[])
+// the prompts the person submitted, newest last: a user row finds its turn
+// by text, and the assistant header appears once the turn starts
+const prompts = atom({ plugin: 'glass', key: 'prompts' } as const, [] as GlassPrompt[])
+// every main-loop call by turn: the dots line, the tree's times, and which
+// rows a folded turn hides
+const calls = atom({ plugin: 'glass', key: 'calls' } as const, {} as Record<string, GlassCall[]>)
+// turns whose tree shows: the live one, and any the person unfolded
+const folded = atom({ plugin: 'glass', key: 'folded' } as const, [] as string[])
+// the engine's folded groups the person opened with the fold row's button
+const expanded = atom({ plugin: 'glass', key: 'expanded' } as const, [] as string[])
+// /expand: every folded group of reads and searches opens; /collapse undoes it
+const expandAll = atom({ plugin: 'glass', key: 'expandAll' } as const, false as boolean)
+// subagents still running, for the band above the prompt
+const agents = atom({ plugin: 'glass', key: 'agents' } as const, [] as GlassAgent[])
+const band = atom({ plugin: 'glass', key: 'band' } as const, 'open' as 'open' | 'closed')
+
 const HISTORY = 48
+const ANSWER_MAX = 20000
 
 const ESC = String.fromCodePoint(0x1b)
 // the engine shows this many output lines before folding the rest behind ctrl+o
 const MAX_PAINTED_LINES = 3
 
-// `3:31 PM` in the machine's locale
-const clockTime = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
+// one main-loop call recorded under its turn, replacing an earlier record
+// of the same id
+async function setCall($: EngineInterface, turnId: string, call: GlassCall) {
+  await update($, calls, r => {
+    const record = { ...(r ?? {}) }
+    const list = record[turnId] ?? []
+    const i = list.findIndex(c => c.id === call.id)
+    record[turnId] = i < 0 ? [...list, call] : [...list.slice(0, i), call, ...list.slice(i + 1)]
+    return record
+  })
+}
 
 export const register: Register = (on, options) => {
   const opts = (options ?? {}) as { palette?: unknown }
@@ -27,6 +55,50 @@ export const register: Register = (on, options) => {
   // gutter marks are off for a turn whose prompt asked for writing: the
   // reply is then the thing itself and asks nothing of the reader
   let marks = true
+  // the slash commands this session has, for the footer's actions
+  let commands = new Set<string>()
+
+  // the live main-loop turn; a hot reload resets it, which only affects the
+  // footer of the turn that reloaded
+  const live = { turnId: '', startedAt: 0, tools: 0, edits: 0, failed: 0, lastToolId: null as string | null, costStart: null as number | null }
+
+  // which turn a main-loop call belongs to, from the calls record
+  const turnOf = (record: Record<string, GlassCall[]>, id: string): string | null => {
+    for (const [turnId, list] of Object.entries(record)) if (list.some(c => c.id === id)) return turnId
+    return null
+  }
+
+  on('session.start', async ($, e, next) => {
+    try {
+      commands = new Set((await $.command.list()).map(c => c.name))
+    } catch {
+      commands = new Set()
+    }
+    await $.command.register({ name: 'fold', description: 'glass: fold the tool trees of every finished turn' })
+    await $.command.register({ name: 'unfold', description: 'glass: open the tool trees of every turn' })
+    await $.command.register({ name: 'expand', description: 'glass: open every folded run of reads and searches' })
+    await $.command.register({ name: 'collapse', description: 'glass: fold the runs of reads and searches again' })
+    return next(e)
+  })
+  on('command.run', { command: 'expand' }, async $ => {
+    await update($, expandAll, () => true)
+    return { text: 'Every folded run is open. /collapse folds them again.' }
+  })
+  on('command.run', { command: 'collapse' }, async $ => {
+    await update($, expandAll, () => false)
+    return { text: 'Runs of reads and searches fold again.' }
+  })
+
+  // ---- folding on demand -------------------------------------------------
+  on('command.run', { command: 'fold' }, async $ => {
+    const ids = ((await read($, turns)) ?? []).map(h => h.turnId)
+    await update($, folded, () => ids.slice(-HISTORY))
+    return { text: ids.length ? `Folded ${ids.length} turn${ids.length === 1 ? '' : 's'}. /unfold opens them again.` : 'Nothing to fold yet.' }
+  })
+  on('command.run', { command: 'unfold' }, async $ => {
+    await update($, folded, () => [])
+    return { text: 'Every turn is open.' }
+  })
 
   // ---- reply renderer ----------------------------------------------------
   on('ui.render', { component: 'AssistantMessage' }, ($, e, next) => {
@@ -34,106 +106,323 @@ export const register: Register = (on, options) => {
     const text = e.props.text
     if (text.trim() === '') return next(e)
     const t = $.ui.resolve(e)
+    // no bullet: the assistant header under the user row carries it
     return renderReply(t, parseMarkdown(text), palette, {
-      bullet: e.props.isFirstOfReply,
+      bullet: false,
+      first: e.props.isFirstOfReply,
       columns: e.viewport?.columns ?? 80,
       marks,
     })
   })
 
-  // ---- tool row header ---------------------------------------------------
-  // Draws the header line only; the result body stays the engine's. Open
-  // question: in an expanded group (ctrl+o, --verbose) the engine draws the
-  // result inline in this row, and this header-only tree may drop it there.
-  // The props cannot tell a grouped row from a standalone one, so no preview
-  // is drawn until that is verified live.
-  on('ui.render', { component: 'ToolUse' }, ($, e, next) => {
+  // ---- user row, assistant header, dots line -----------------------------
+  on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
     const t = $.ui.resolve(e)
-    return renderToolHeader(t, palette, e.props)
+    const kind = e.props.origin.kind
+    // a background task's notification: one tree row, the body under it
+    // when the view is expanded (a short one is expanded from the start)
+    if (kind === 'task-notification') return renderEventRow(t, palette, e.props.text, e.props.task, e.props.isExpanded)
+    // any other row (another agent's message, a scheduled trigger, a
+    // bridge): one muted row; ctrl+o keeps the engine's body
+    if (kind !== 'composer') {
+      if (e.props.isExpanded) return next(e)
+      return renderMessageRow(t, palette, e.props.from?.name ?? kind)
+    }
+    const text = e.props.text
+    if (text.trim() === '') return next(e)
+    const known = [...((await read($, prompts)) ?? [])].reverse().find(p => p.text === text) ?? null
+    const turnId = known?.turnId ?? null
+    let turn = null
+    if (turnId) {
+      const list = ((await read($, calls)) ?? {})[turnId] ?? []
+      const done = ((await read($, turns)) ?? []).find(h => h.turnId === turnId) ?? null
+      turn = {
+        turnId,
+        calls: list,
+        done,
+        onCopy: done ? (press: { surface: 'terminal' | 'desktop' | 'vscode' | 'mobile' }) => void $.ui.copy({ text: done.answer, surface: press.surface }) : null,
+      }
+    }
+    return renderUserRow(t, palette, {
+      text,
+      submittedAt: known?.submittedAt ?? null,
+      startedAt: known?.startedAt ?? null,
+      turn,
+      columns: e.viewport?.columns ?? 80,
+    })
+  })
+
+  // ---- tool tree ---------------------------------------------------------
+  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    if (e.surface !== 'terminal') return next(e)
+    const id = e.props.tool_use_id
+    const record = (await read($, calls)) ?? {}
+    const turnId = turnOf(record, id)
+    // a folded turn hides its rows; a row of a turn glass never saw stays
+    if (turnId && ((await read($, folded)) ?? []).includes(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
+    const call = turnId ? record[turnId]!.find(c => c.id === id) : undefined
+    const history = (await read($, turns)) ?? []
+    const t = $.ui.resolve(e)
+    return renderTreeRow(t, palette, e.props, {
+      last: history.some(h => h.lastToolId === id),
+      durationMs: call?.ms ?? null,
+    })
+  })
+
+  // the engine's folded run of reads and searches: one tree row with a
+  // button that unfolds it where it is
+  on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
+    if (e.surface !== 'terminal' || e.props.isExpanded) return next(e)
+    const record = (await read($, calls)) ?? {}
+    const first = e.props.calls.find((c: { tool_use_id?: string }) => typeof c.tool_use_id === 'string')
+    const turnId = first?.tool_use_id ? turnOf(record, first.tool_use_id) : null
+    if (turnId && ((await read($, folded)) ?? []).includes(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
+    const id = e.requestId
+    // open when asked (/expand or this group's id), or on its own when a
+    // call in it failed: a red mark must never hide behind a count
+    const failed = e.props.calls.some((c: { isErrored?: boolean; isInterrupted?: boolean }) => c.isErrored || c.isInterrupted)
+    const all = (await read($, expandAll)) ?? false
+    if (all || failed || ((await read($, expanded)) ?? []).includes(id)) return next({ ...e, props: { ...e.props, isExpanded: true } })
+    const t = $.ui.resolve(e)
+    return renderGroupRow(t, palette, e.props.calls, {
+      isActive: e.props.isActive,
+      key: `expand:${id}`,
+      onExpand: () => {
+        void update($, expanded, xs => [...(xs ?? []).filter(x => x !== id), id].slice(-HISTORY))
+      },
+    })
   })
 
   // Bash output body, painted the way claude-hl painted it. The engine
   // strips escape codes from a rewritten result, so the body is drawn as
   // Text, and only when it is short enough that the engine would show it
   // whole: longer output keeps the engine's collapsed body and ctrl+o.
-  on('ui.render', { component: 'ToolResult' }, ($, e, next) => {
-    if (e.surface !== 'terminal' || e.props.tool !== 'Bash' || e.props.isErrored) return next(e)
-    const out = e.props.output as { stdout?: unknown; stderr?: unknown; interrupted?: unknown } | undefined
+  on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
+    if (e.surface !== 'terminal') return next(e)
+    const turnId = turnOf((await read($, calls)) ?? {}, e.props.tool_use_id)
+    if (turnId && ((await read($, folded)) ?? []).includes(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
+    // an Edit's or a Write's diff, drawn as glass draws it (owner's request, 2026-10-03)
+    if ((e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isErrored) {
+      const out = e.props.output as { structuredPatch?: unknown; filePath?: unknown } | undefined
+      const patch = out?.structuredPatch
+      const hunks = Array.isArray(patch) ? (patch as Hunk[]).filter(h => h && typeof h.oldStart === 'number' && typeof h.newStart === 'number' && Array.isArray(h.lines)) : []
+      if (hunks.length === 0) return next(e)
+      const input = e.props.input as { file_path?: unknown } | undefined
+      const path = typeof out?.filePath === 'string' ? out.filePath : typeof input?.file_path === 'string' ? input.file_path : ''
+      const last = ((await read($, turns)) ?? []).some(h => h.lastToolId === e.props.tool_use_id)
+      return renderDiff($.ui.resolve(e), palette, hunks, { path, columns: e.viewport?.columns ?? 80, last })
+    }
+    if (e.props.tool !== 'Bash') return next(e)
+    const cols = e.viewport?.columns ?? 80
+    const last = ((await read($, turns)) ?? []).some(h => h.lastToolId === e.props.tool_use_id)
+    // a failed command: the text the model read, painted (error words red)
+    if (e.props.isErrored) {
+      if (typeof e.props.output !== 'string' || e.props.output.trim() === '') return next(e)
+      const lines = e.props.output.replace(/\s+$/, '').split('\n')
+      return renderToolOutput($.ui.resolve(e), palette, lines, { columns: cols, maxLines: MAX_PAINTED_LINES, last })
+    }
+    const out = e.props.output as { stdout?: unknown; stderr?: unknown; interrupted?: unknown; bashEditDiff?: unknown } | undefined
     if (!out || typeof out.stdout !== 'string' || out.interrupted === true) return next(e)
     const stderr = typeof out.stderr === 'string' ? out.stderr : ''
     const text = [out.stdout, stderr].filter(s => s.trim() !== '').join('\n').replace(/\s+$/, '')
+    const lines = text === '' ? [] : text.split('\n')
+    // a command that rewrote files: glass draws the whole body, the
+    // output folded past the painted lines, then one diff card per file
+    const diff = out.bashEditDiff as { files?: unknown; moreFiles?: unknown } | undefined
+    const files = Array.isArray(diff?.files)
+      ? (diff!.files as ChangedFile[]).filter(f => f && typeof f.filePath === 'string' && Array.isArray(f.hunks)).map(f => ({ ...f, hunks: f.hunks.filter(h => h && typeof h.oldStart === 'number' && typeof h.newStart === 'number' && Array.isArray(h.lines)) }))
+      : []
+    if (files.length > 0) {
+      const moreFiles = typeof diff?.moreFiles === 'number' ? diff.moreFiles : 0
+      return renderBashResult($.ui.resolve(e), palette, lines, files, { maxLines: MAX_PAINTED_LINES, moreFiles, columns: cols, last })
+    }
     if (text === '' || text.includes(ESC)) return next(e)
-    const lines = text.split('\n')
-    const cols = e.viewport?.columns ?? 80
-    // short and narrow: the engine would neither collapse nor wrap it much
-    if (lines.length > MAX_PAINTED_LINES || lines.some(l => l.length > cols * 2)) return next(e)
-    return renderToolOutput($.ui.resolve(e), palette, lines)
+    // every other body is glass's: the first lines painted, the rest a
+    // count, the trunk through all of it
+    return renderToolOutput($.ui.resolve(e), palette, lines, { columns: cols, maxLines: MAX_PAINTED_LINES, last })
   })
 
-  // ---- turn footer -------------------------------------------------------
-  // main-loop tool calls this turn; a hot reload resets it, which only
-  // affects the footer of the turn that reloaded
-  let tools = 0
-
-  on('prompt.submit', ($, e, next) => {
-    tools = 0
+  // ---- the turn's bookkeeping --------------------------------------------
+  on('prompt.submit', async ($, e, next) => {
     marks = !writeIntent(e.text)
+    const now = await $.clock.now()
+    await update($, prompts, ps => [...(ps ?? []), { text: e.text, submittedAt: now, startedAt: null, turnId: null }].slice(-HISTORY))
     return next(e)
   })
 
-  on('tool.call', ($, e, next) => {
-    if (!e.agentId) tools += 1
+  on('turn.start', async ($, e, next) => {
+    live.turnId = e.turnId
+    live.startedAt = await $.clock.now()
+    live.tools = 0
+    live.edits = 0
+    live.failed = 0
+    live.lastToolId = null
+    live.costStart = null
+    try {
+      live.costStart = (await $.session.usage()).cost?.usd ?? null
+    } catch {
+      live.costStart = null
+    }
+    const { turnId, startedAt } = live
+    // the newest prompt with this text gets its turn, which draws the
+    // assistant header and the dots line under the user row
+    await update($, prompts, ps => {
+      const list = [...(ps ?? [])]
+      for (let i = list.length - 1; i >= 0; i--) {
+        const p = list[i]!
+        if (p.text === e.text && p.turnId === null) {
+          list[i] = { ...p, startedAt, turnId }
+          break
+        }
+      }
+      return list
+    })
+    await update($, calls, r => {
+      const entries = Object.entries(r ?? {}).filter(([k]) => k !== turnId).slice(-(HISTORY - 1))
+      return Object.fromEntries([...entries, [turnId, []]])
+    })
+    // a new turn always shows its tree
+    await update($, folded, xs => (xs ?? []).filter(x => x !== turnId))
     return next(e)
+  })
+
+  on('tool.call', async ($, e, next) => {
+    const main = !e.agentId
+    const id = e.tool_use_id ?? ''
+    const turnId = live.turnId
+    if (main) {
+      live.tools += 1
+      if (id) live.lastToolId = id
+      if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: 'running', ms: null })
+    } else if (e.agentId) {
+      const agentId = e.agentId
+      const stage = e.tool
+      const args = e as unknown as Record<string, unknown>
+      const file = typeof args.file_path === 'string' ? args.file_path : typeof args.path === 'string' ? args.path : null
+      void update($, agents, as => (as ?? []).map(a => (a.agentId === agentId ? { ...a, stage, file: file ?? a.file } : a)))
+    }
+    if (isEditTool(e.tool)) live.edits += 1
+    const t0 = await $.clock.now()
+    const r = await next(e)
+    if (main) {
+      const ms = (await $.clock.now()) - t0
+      if (r.isError) live.failed += 1
+      if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: r.isError ? 'failed' : 'ok', ms })
+    }
+    return r
+  })
+
+  // a subagent's model requests: its tokens and effort for the band. The
+  // event streams, so the hook is a generator relaying every chunk; the
+  // stop chunk carries the usage.
+  on('turn.step', async function* ($, e, next) {
+    const stream = next(e)
+    let usage: { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number } | null = null
+    let step = await stream.next()
+    while (!step.done) {
+      const chunk = step.value
+      if (chunk.kind === 'stop') usage = chunk.usage
+      yield chunk
+      step = await stream.next()
+    }
+    if (e.agentId) {
+      const agentId = e.agentId
+      const effort = e.effort === undefined ? '' : String(e.effort)
+      const u = usage
+      const used = u ? u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens + u.output_tokens : 0
+      void update($, agents, as => (as ?? []).map(a => (a.agentId === agentId ? { ...a, effort: effort || a.effort, tokens: a.tokens + used } : a)))
+    }
+    return step.value
+  })
+
+  on('agent.spawn', async ($, e, next) => {
+    const r = await next(e)
+    if (r.agentId) {
+      const agent: GlassAgent = {
+        agentId: r.agentId,
+        description: e.description,
+        kind: e.subagentType,
+        model: r.model,
+        effort: '',
+        stage: 'thinking' + G.ellipsis,
+        file: '',
+        tokens: 0,
+        startedAt: await $.clock.now(),
+      }
+      await update($, agents, as => [...(as ?? []).filter(a => a.agentId !== agent.agentId), agent])
+    }
+    return r
   })
 
   on('turn.complete', async ($, e, next) => {
-    if (!e.agentId) {
-      const u = e.usage
-      const turn: GlassTurn = {
-        durationMs: e.durationMs,
-        tools,
-        inTokens: u ? u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens : 0,
-        outTokens: u ? u.output_tokens : 0,
-        finishedAt: await $.clock.now(),
-      }
-      await update($, turns, h => [...(h ?? []), turn].slice(-HISTORY))
+    if (e.agentId) {
+      const agentId = e.agentId
+      await update($, agents, as => (as ?? []).filter(a => a.agentId !== agentId))
+      return next(e)
     }
+    const u = e.usage
+    let costUsd: number | null = null
+    if (live.costStart !== null) {
+      try {
+        const now = (await $.session.usage()).cost?.usd
+        if (typeof now === 'number') costUsd = Math.max(0, now - live.costStart)
+      } catch {
+        costUsd = null
+      }
+    }
+    const finishedAt = await $.clock.now()
+    const turn: GlassTurn = {
+      turnId: e.turnId,
+      durationMs: e.durationMs,
+      tools: live.tools,
+      edits: live.edits,
+      failed: live.failed,
+      inTokens: u ? u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens : 0,
+      cacheTokens: u ? u.cache_read_input_tokens : 0,
+      outTokens: u ? u.output_tokens : 0,
+      costUsd,
+      lastToolId: live.lastToolId,
+      answer: e.answer.slice(0, ANSWER_MAX),
+      startedAt: live.startedAt || finishedAt - e.durationMs,
+      finishedAt,
+    }
+    await update($, turns, h => [...(h ?? []), turn].slice(-HISTORY))
+    // a finished turn stays open: the tree is the evidence of what the
+    // prompt did (owner's call, 2026-10-03; /fold tucks old turns away)
     return next(e)
   })
 
-  on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
+  // ---- footer ------------------------------------------------------------
+  // The engine's `Baked for 12s` line is dropped by request: the dots line
+  // under the user row carries the counts and Copy, and the turn's cost and
+  // tokens stay in state for anything that wants them later.
+  on('ui.render', { component: 'TurnDuration' }, ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
-    const { Box, Text } = $.ui.resolve(e)
-    const durationMs = e.props.durationMs
-    const history = (await read($, turns)) ?? []
-    // this row's own turn: the engine formats the same durationMs the event
-    // carried; a near miss covers the line drawing before turn.complete lands
-    const turn = history.find(h => h.durationMs === durationMs)
-      ?? [...history].reverse().find(h => Math.abs(h.durationMs - durationMs) < 5000)
-      ?? null
-    const count = turn?.tools ?? 0
-    if (durationMs < 3000 && count === 0) return Box({ display: 'none', children: [] })
-    const parts = [fmtDuration(durationMs)]
-    if (count > 0) parts.push(`${count} ${count === 1 ? 'tool' : 'tools'}`)
-    // input is mostly cache reads of the whole context, so call it ctx
-    if (turn && turn.inTokens > 0) parts.push(`${fmtTokens(turn.inTokens)} ctx`, `${fmtTokens(turn.outTokens)} out`)
-    // when the turn ended, as the engine's own line said it
-    if (turn) parts.push(`done ${clockTime.format(turn.finishedAt)}`)
-    return Box({ marginLeft: 2, marginTop: 1, children: [Text({ dimColor: true, children: [parts.join(` ${G.middot} `)] })] })
+    return $.ui.resolve(e).Box({ display: 'none', children: [] })
   })
-}
 
-function fmtDuration(ms: number): string {
-  const s = Math.round(ms / 1000)
-  if (s < 60) return `${s}s`
-  const m = Math.floor(s / 60)
-  return `${m}m ${String(s % 60).padStart(2, '0')}s`
-}
+  // ---- spinner: the action count while tools run -------------------------
+  on('ui.render', { component: 'Spinner' }, ($, e, next) => {
+    if (e.surface !== 'terminal' || e.props.mode !== 'tool-use' || live.tools === 0) return next(e)
+    const n = live.tools
+    return next({ ...e, props: { ...e.props, suffix: `${G.ellipsis} ${G.middot} ${n} ${n === 1 ? 'action' : 'actions'}` } })
+  })
 
-function fmtTokens(n: number): string {
-  if (n < 1000) return String(n)
-  if (n < 10_000) return `${(n / 1000).toFixed(1)}k`
-  if (n < 1e6) return `${Math.round(n / 1000)}k`
-  return `${(n / 1e6).toFixed(1)}M`
+  // ---- background band ---------------------------------------------------
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
+    const list = (await read($, agents)) ?? []
+    const t = $.ui.resolve(e)
+    if (list.length === 0) return t.Box({ display: 'none', children: [] })
+    const state = (await read($, band)) ?? 'open'
+    return renderBand(t, palette, {
+      agents: list,
+      now: await $.clock.now(),
+      columns: e.props.bodyColumns,
+      open: state === 'open',
+      onToggle: () => void update($, band, s => (s === 'closed' ? 'open' : 'closed')),
+      tasksCommand: commands.has('tasks') ? 'tasks' : commands.has('bashes') ? 'bashes' : null,
+    })
+  })
 }

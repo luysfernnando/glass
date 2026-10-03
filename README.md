@@ -29,17 +29,37 @@ stored or what the model reads.
 - **Private notes.** A paragraph opening with `Private` or `Privately`
   draws italic and quiet.
 - **Code cards.** Fences on a tinted card sized to the code, a dim language
-  header, a line count and gutter past eight lines. The engine's own
-  highlighter does the coloring.
+  header, a line count and gutter past eight lines. glass's own
+  highlighter does the coloring, in the palette's code keys.
+- **Diff cards.** An Edit, Write or file-changing Bash result as a rounded
+  card: one number column, `+` and `-` rows on a quiet tint, the code
+  painted the same way, and the frame sitting on the tree trunk so the
+  line never breaks.
 - **Headings, lists, quotes, tables.** Bold colored headings with no rules,
   `•` `◦` `☐` `☑` markers, a quote bar, borderless tables with aligned
   columns and right-aligned numbers.
-- **Tool rows.** A status dot, the tool name, and the command tokenized,
-  one command per line for `&&` chains. Bash output gets paths, numbers,
-  error and success words and git status codes painted; collapse and
-  ctrl+o keep working.
-- **Turn footer.** `12s · 3 tools · 322k ctx · 1.6k out`, hidden for
-  trivial turns.
+- **Turn headers.** `◆ You · 1:11 PM` over your prompt, then `◉ Claude ·
+  1:14 PM` once the turn starts, with a dots line under it: one dot per
+  tool call, grouped by tool, green, red or hollow while running, then
+  `Bash ×3 · Read ×2 ▸`. A finished turn folds its tree away; the chevron
+  unfolds it and the line reads `5 actions · 2 edits · 1 failed ▾`. `⧉
+  Copy` sits at the right.
+- **A tool tree.** While a turn runs, every call is one row: `├─ ✓ Bash
+  git status · 3 lines` with its wall time at the right, `○` while it
+  runs, `✗` in red when it fails, `└─` on the turn's last call. Done
+  commands step down to a quiet color. Rows light under the pointer. The
+  engine's folded runs become `├─ ◉ +17 completed [3 edits] · Click to
+  expand`. Short Bash output is painted as before.
+- **Turn footer.** `■ 2m 26s · $0.58 · 1.8M in · 5.3k out · 90% cached`,
+  then `◎ Review · ↻ Till pass · ⑂ Fork · ⧉ Copy` at the right. The
+  first three fill the prompt with the matching slash command and show
+  only when the session has it. Hidden for trivial turns.
+- **Background band.** While subagents run, a rounded frame above the
+  prompt lists them with a face, model and effort, current tool, tokens
+  and the file they last touched, five at a time. The chevron folds it to
+  one strip of faces.
+- **Event rows.** A background task's notification draws as one tree row
+  with its duration; a message from another agent draws as one muted row.
 
 Every width is measured the way the engine measures cells, so emoji and
 CJK in tables stay aligned.
@@ -52,7 +72,9 @@ claude plugin install glass@glass
 ```
 
 Restart Claude Code. Pick a palette with `/config` under Glass: `tidepool`
-(default), `codex` or `rose`. The palettes assume a dark terminal.
+(default), `water` (Empryo's own proxysoul-water tokens), `undertow` (sampled from
+Empryo's desktop video), `codex` or `rose`.
+The palettes assume a dark terminal.
 
 To try it from a clone without installing:
 

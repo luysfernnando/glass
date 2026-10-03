@@ -4,10 +4,10 @@
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
 import { G } from './glyphs'
+import { CODE_COLOR, highlight } from './highlight'
 import { inlineText } from './markdown'
 import type { Align, Block, CalloutRow, Inline, ListItem } from './markdown'
 import type { Palette } from './palette'
-import { paintLine } from './output'
 import { bareWord, isUrl, pathLike } from './paths'
 import { isPrivateNote, needsAttention } from './prose'
 import { proseSpans, shellSpans } from './shell'
@@ -28,6 +28,8 @@ type Ctx = {
 export type RenderOptions = {
   /** draw the bullet that opens a reply */
   bullet: boolean
+  /** the first text block of a reply: keeps a blank row above, bullet or not */
+  first?: boolean
   columns: number
   /** gutter marks beside paragraphs that need the reader; off when the prompt asked for writing */
   marks: boolean
@@ -93,8 +95,9 @@ export function renderReply(t: Table, blocks: Block[], p: Palette, o: RenderOpti
       )
     } else {
       // one rhythm rule: a blank above every block except the first and any
-      // block right under a heading
-      const marginTop = i === 0 || prev === 'heading' ? 0 : 1
+      // block right under a heading; the reply's first block keeps the blank
+      // the bullet row had, so it never sits glued to the tool rows above
+      const marginTop = i === 0 ? (o.first ? 1 : 0) : prev === 'heading' ? 0 : 1
       // a paragraph that asks something of the reader gets a gutter mark in
       // the two cells every other block leaves blank
       const marked = o.marks && b.kind === 'paragraph' && !isPrivateNote(inlineText(b.inlines)) && needsAttention(inlineText(b.inlines))
@@ -150,16 +153,17 @@ function renderBlock(c: Ctx, b: Block): RenderElement {
 }
 
 // tinted card sized to its code: dim language left and line count right in
-// the header row, the engine's highlighter below, a gutter once long
+// the header row, glass's own highlighter below, a gutter once long
 function renderFence(c: Ctx, lang: string, source: string): RenderElement {
   const { t, p } = c
   const code = source.replace(/\n$/, '')
   const codeLines = code === '' ? [] : code.split('\n')
   const lines = codeLines.length
   const gutter = lines > 8
+  const digits = String(lines).length
   const widest = Math.max(0, ...codeLines.map(cellWidth))
   const header = cellWidth(lang) + (gutter ? cellWidth(`${lines} lines`) + 2 : 0)
-  const width = cardWidth(c, Math.max(widest, header) + 2 + (gutter ? String(lines).length + 2 : 0))
+  const width = cardWidth(c, Math.max(widest + (gutter ? digits + 2 : 0), header) + 2)
   const children: RenderElement[] = []
   if (lang || gutter) {
     children.push(
@@ -173,19 +177,26 @@ function renderFence(c: Ctx, lang: string, source: string): RenderElement {
       }),
     )
   }
-  // the API caps a Code source at MAX_TEXT: split long sources at line
-  // boundaries into consecutive elements, the gutter numbering carrying on
-  let start = 1
-  for (const chunk of chunkLines(code, MAX_TEXT)) {
+  // the body is glass's own highlighter (hooks/highlight.ts), one row per
+  // line, the gutter in `faint` once over 8 lines: the engine's `Code`
+  // paints with a theme the owner rejected (2026-10-03)
+  highlight(code, lang.toLowerCase()).forEach((spans, i) => {
+    const body = t.Text({
+      wrap: 'wrap',
+      children: spans.map(s => (s.kind === 'plain' ? s.text : t.Text({ color: p[CODE_COLOR[s.kind]], children: [s.text] }))),
+    })
     children.push(
-      t.Code({
-        source: chunk,
-        ...(lang ? { language: lang } : {}),
-        ...(gutter ? { startLine: start } : {}),
-      }),
+      gutter
+        ? t.Box({
+            flexDirection: 'row',
+            children: [
+              t.Text({ color: p.faint, children: [String(i + 1).padStart(digits) + '  '] }),
+              t.Box({ flexGrow: 1, flexShrink: 1, children: [body] }),
+            ],
+          })
+        : body,
     )
-    start += chunk.split('\n').length
-  }
+  })
   return t.Box({
     flexDirection: 'column',
     width,
@@ -196,22 +207,6 @@ function renderFence(c: Ctx, lang: string, source: string): RenderElement {
   })
 }
 
-function chunkLines(text: string, max: number): string[] {
-  if (text.length <= max) return [text]
-  const out: string[] = []
-  let buf = ''
-  for (const line of text.split('\n')) {
-    const next = buf ? `${buf}\n${line}` : line
-    if (next.length > max && buf) {
-      out.push(buf)
-      buf = line.slice(0, max)
-    } else {
-      buf = next.length > max ? next.slice(0, max) : next
-    }
-  }
-  if (buf) out.push(buf)
-  return out
-}
 
 function renderList(c: Ctx, items: ListItem[]): RenderElement {
   const { t, p, m } = c
@@ -429,86 +424,6 @@ function renderCallout(c: Ctx, title: string, rows: CalloutRow[]): RenderElement
   return t.Box({
     flexDirection: 'column',
     children: [t.Text({ bold: true, color: p.calloutBar, children: [title] }), card],
-  })
-}
-
-export type ToolRow = {
-  tool: string
-  input: unknown
-  isRunning: boolean
-  isErrored: boolean
-  isInterrupted: boolean
-}
-
-// A tool row's header, drawn the way the engine and claude-hl draw it:
-// status dot, then `Tool(subject)` as one wrapping line, the tool name in
-// its color and the parentheses dim. Bash commands are tokenized like
-// inline code; file tools show their path. A blank row above, as the
-// engine's own row keeps, so consecutive tool rows do not run together.
-// The engine stops drawing its own dot once a hook draws the row, so the
-// dot is ours and carries the status.
-export function renderToolHeader(t: Table, p: Palette, row: ToolRow): RenderElement {
-  const { tool, input } = row
-  const dot = row.isRunning ? p.comment : row.isErrored || row.isInterrupted ? p.err : p.ok
-  const args = (input ?? {}) as Record<string, unknown>
-  const str = (k: string) => (typeof args[k] === 'string' ? (args[k] as string) : null)
-
-  const subject: RenderNode[] = []
-  const command = tool === 'Bash' ? str('command') : null
-  if (command) {
-    const spans = shellSpans(command, true) ?? [{ text: command, kind: 'plain' as const }]
-    for (const s of spans) subject.push(s.kind === 'plain' ? s.text : t.Text({ color: p[s.kind], children: [s.text] }))
-  } else {
-    const path = str('file_path') ?? str('path') ?? str('notebook_path')
-    const url = str('url')
-    const other = str('pattern') ?? str('query') ?? str('description') ?? str('skill') ?? str('prompt') ?? str('command')
-    if (other && !path) subject.push(other)
-    if (path) subject.push(t.Text({ color: p.path, children: [path] }))
-    if (url) subject.push(t.Text({ color: p.url, underline: true, children: [url] }))
-    if (other && path) subject.push(t.Text({ dimColor: true, children: [', ' + other] }))
-  }
-  const paren = (s: string) => t.Text({ dimColor: true, children: [s] })
-  return t.Box({
-    flexDirection: 'row',
-    marginTop: 1,
-    children: [
-      t.Text({ color: dot, children: [G.bullet + ' '] }),
-      t.Box({
-        flexGrow: 1,
-        flexShrink: 1,
-        children: [
-          t.Text({
-            wrap: 'wrap',
-            children: [t.Text({ color: p.tool, children: [tool] }), ...(subject.length ? [paren('('), ...subject, paren(')')] : [])],
-          }),
-        ],
-      }),
-    ],
-  })
-}
-
-// The engine's Bash result body, redrawn so the output can be painted (the
-// engine strips escape codes from a rewritten result, so colors have to be
-// Text). Only for output the engine would show whole: longer output keeps
-// the engine's own collapsed body and its ctrl+o expansion.
-export function renderToolOutput(t: Table, p: Palette, lines: string[]): RenderElement {
-  return t.Box({
-    flexDirection: 'row',
-    marginLeft: 2,
-    children: [
-      t.Text({ dimColor: true, children: [G.connector + '  '] }),
-      t.Box({
-        flexDirection: 'column',
-        flexGrow: 1,
-        flexShrink: 1,
-        children: lines.map(line =>
-          t.Text({
-            wrap: 'wrap',
-            children: paintLine(line).map(s => (s.color ? t.Text({ color: p[s.color], children: [s.text] }) : t.Text({ dimColor: true, children: [s.text] }))),
-          }),
-        ),
-      }),
-    ],
   })
 }
 
