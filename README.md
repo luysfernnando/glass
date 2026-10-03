@@ -2,7 +2,7 @@
 
 A desktop-app look for Claude Code's terminal transcript, as a mod.
 
-https://github.com/user-attachments/assets/342ff452-03e9-434d-a52b-2569f37e38fd
+https://github.com/user-attachments/assets/4df63d9c-c524-4773-b140-86252701bd92
 
 Claude Code draws replies in one markdown style: inline code in a fixed
 lavender, no color for commands, tables in boxes, tool rows in gray. glass
