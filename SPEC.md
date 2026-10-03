@@ -501,3 +501,11 @@ finished turn; these rules replace the ones above where they differ.
   spawned draws `display: none`; ctrl+o still shows it, and a peer's stays.
 - Unpainted Bash output draws in `meta`, apart from the `faint` scaffolding.
 - `water`: `rule #5a5870` (was 1.69:1 and vanished), `delBg #33222e`.
+- Tree rows (`ToolUse`, `ToolResult`, `ToolGroup`) read no atom (2026-10-03):
+  a read in a render hook subscribes the row, so each call's state write
+  redrew every row of the turn and stranded duplicate rows above the
+  viewport. They read module records (call -> turn, call -> wall time, folded
+  turns, /expand) written in the hooks; /fold, /unfold, /expand, /collapse
+  call `$.ui.invalidate('ui.render')`. The `└─` elbow goes: knowing the last
+  call needs that subscription. A hot reload empties the records until the
+  next turn. The user row's dots line still subscribes (one row).

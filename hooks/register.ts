@@ -63,6 +63,13 @@ export const register: Register = (on, options) => {
   // the names and types of subagents this session spawned: their folded
   // `Message from` rows hide, since the finished row says the same
   const spawned = new Set<string>()
+  // Tree rows read these module records, never an atom: a read in a render
+  // hook subscribes the row, and every write then redraws every row of the
+  // turn, which strands duplicate rows above the viewport (2026-10-03).
+  const callTurn = new Map<string, string>()
+  const callMs = new Map<string, number>()
+  let foldedTurns = new Set<string>()
+  let expandAllNow = false
 
   // the live main-loop turn; a hot reload resets it, which only affects the
   // footer of the turn that reloaded
@@ -99,10 +106,14 @@ export const register: Register = (on, options) => {
   })
   on('command.run', { command: 'expand' }, async $ => {
     await update($, expandAll, () => true)
+    expandAllNow = true
+    $.ui.invalidate('ui.render')
     return { text: 'Every folded run is open. /collapse folds them again.' }
   })
   on('command.run', { command: 'collapse' }, async $ => {
     await update($, expandAll, () => false)
+    expandAllNow = false
+    $.ui.invalidate('ui.render')
     return { text: 'Runs of reads and searches fold again.' }
   })
 
@@ -110,10 +121,14 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'fold' }, async $ => {
     const ids = ((await read($, turns)) ?? []).map(h => h.turnId)
     await update($, folded, () => ids.slice(-HISTORY))
+    foldedTurns = new Set(ids.slice(-HISTORY))
+    $.ui.invalidate('ui.render')
     return { text: ids.length ? `Folded ${ids.length} turn${ids.length === 1 ? '' : 's'}. /unfold opens them again.` : 'Nothing to fold yet.' }
   })
   on('command.run', { command: 'unfold' }, async $ => {
     await update($, folded, () => [])
+    foldedTurns = new Set()
+    $.ui.invalidate('ui.render')
     return { text: 'Every turn is open.' }
   })
 
@@ -175,32 +190,26 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
     const id = e.props.tool_use_id
-    const record = (await read($, calls)) ?? {}
-    const turnId = turnOf(record, id)
+    const turnId = callTurn.get(id)
     // a folded turn hides its rows; a row of a turn glass never saw stays
-    if (turnId && ((await read($, folded)) ?? []).includes(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
-    const call = turnId ? record[turnId]!.find(c => c.id === id) : undefined
-    const history = (await read($, turns)) ?? []
+    if (turnId && foldedTurns.has(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     const t = $.ui.resolve(e)
-    return renderTreeRow(t, palette, e.props, {
-      last: history.some(h => h.lastToolId === id),
-      durationMs: call?.ms ?? null,
-    })
+    // no elbow: knowing the last call needs a subscription to the turn
+    return renderTreeRow(t, palette, e.props, { last: false, durationMs: callMs.get(id) ?? null })
   })
 
   // the engine's folded run of reads and searches: one tree row with a
   // button that unfolds it where it is
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || e.props.isExpanded) return next(e)
-    const record = (await read($, calls)) ?? {}
     const first = e.props.calls.find((c: { tool_use_id?: string }) => typeof c.tool_use_id === 'string')
-    const turnId = first?.tool_use_id ? turnOf(record, first.tool_use_id) : null
-    if (turnId && ((await read($, folded)) ?? []).includes(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
+    const turnId = first?.tool_use_id ? callTurn.get(first.tool_use_id) ?? null : null
+    if (turnId && foldedTurns.has(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     const id = e.requestId
     // open when asked (/expand or this group's id), or on its own when a
     // call in it failed: a red mark must never hide behind a count
     const failed = e.props.calls.some((c: { isErrored?: boolean; isInterrupted?: boolean }) => c.isErrored || c.isInterrupted)
-    const all = (await read($, expandAll)) ?? false
+    const all = expandAllNow
     if (all || failed || ((await read($, expanded)) ?? []).includes(id)) return next({ ...e, props: { ...e.props, isExpanded: true } })
     const t = $.ui.resolve(e)
     return renderGroupRow(t, palette, e.props.calls, {
@@ -218,8 +227,8 @@ export const register: Register = (on, options) => {
   // whole: longer output keeps the engine's collapsed body and ctrl+o.
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
-    const turnId = turnOf((await read($, calls)) ?? {}, e.props.tool_use_id)
-    if (turnId && ((await read($, folded)) ?? []).includes(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
+    const turnId = callTurn.get(e.props.tool_use_id)
+    if (turnId && foldedTurns.has(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     // an Edit's or a Write's diff, drawn as glass draws it (owner's request, 2026-10-03)
     if ((e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isErrored) {
       const out = e.props.output as { structuredPatch?: unknown; filePath?: unknown } | undefined
@@ -228,12 +237,12 @@ export const register: Register = (on, options) => {
       if (hunks.length === 0) return next(e)
       const input = e.props.input as { file_path?: unknown } | undefined
       const path = typeof out?.filePath === 'string' ? out.filePath : typeof input?.file_path === 'string' ? input.file_path : ''
-      const last = ((await read($, turns)) ?? []).some(h => h.lastToolId === e.props.tool_use_id)
+      const last = false
       return renderDiff($.ui.resolve(e), palette, hunks, { path, columns: e.viewport?.columns ?? 80, last })
     }
     if (e.props.tool !== 'Bash') return next(e)
     const cols = e.viewport?.columns ?? 80
-    const last = ((await read($, turns)) ?? []).some(h => h.lastToolId === e.props.tool_use_id)
+    const last = false
     // a failed command: the text the model read, painted (error words red)
     if (e.props.isErrored) {
       if (typeof e.props.output !== 'string' || e.props.output.trim() === '') return next(e)
@@ -302,6 +311,7 @@ export const register: Register = (on, options) => {
     })
     // a new turn always shows its tree
     await update($, folded, xs => (xs ?? []).filter(x => x !== turnId))
+    foldedTurns.delete(turnId)
     return next(e)
   })
 
@@ -312,6 +322,7 @@ export const register: Register = (on, options) => {
     if (main) {
       live.tools += 1
       if (id) live.lastToolId = id
+      if (id && turnId) callTurn.set(id, turnId)
       if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: 'running', ms: null })
     } else if (e.agentId) {
       const agentId = e.agentId
@@ -326,6 +337,7 @@ export const register: Register = (on, options) => {
     if (main) {
       const ms = (await $.clock.now()) - t0
       if (r.isError) live.failed += 1
+      if (id) callMs.set(id, ms)
       if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: r.isError ? 'failed' : 'ok', ms })
     }
     return r
