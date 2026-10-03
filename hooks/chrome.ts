@@ -474,28 +474,18 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
   const titleWidth = cellWidth((o.verb ? o.verb + ' ' : '') + name + counts) + 2
   const cap = Math.max(20, o.columns - 2 * TREE_INSET)
   const width = Math.min(cap, Math.max(DIFF_MIN, widest + digits + 3 + 4, titleWidth + 6))
+  // the file and its counts head the card, inside the frame: the engine
+  // clips a child off the border row and counts offsets from inside it, so
+  // a title cannot sit on the border (live, 2026-10-03, 0.3.7 covered code)
   if (o.path) {
-    rows.push(
-      t.Box({
-        // offsets count from the card's outer edge (live, 2026-10-03: `top: -1`
-        // landed above the card and was clipped), so row 0 is the top border
-        // and column 1 the cell after its corner
-        position: 'absolute',
-        top: 0,
-        left: 1,
+    rows.unshift(
+      t.Text({
+        wrap: 'truncate-end',
         children: [
-          t.Text({
-            wrap: 'truncate-end',
-            children: [
-              t.Text({ color: p.faint, children: [G.rule] }),
-              ' ',
-              ...(o.verb ? [t.Text({ color: p.meta, children: [o.verb + ' '] })] : []),
-              t.Text({ color: p.path, children: [clip(name, width - 8)] }),
-              ...(add > 0 ? [' ', t.Text({ color: p.ok, children: [`+${add}`] })] : []),
-              ...(del > 0 ? [' ', t.Text({ color: p.err, children: [`-${del}`] })] : []),
-              ' ',
-            ],
-          }),
+          ...(o.verb ? [t.Text({ color: p.meta, children: [o.verb + ' '] })] : []),
+          t.Text({ color: p.path, children: [clip(name, width - 8)] }),
+          ...(add > 0 ? [' ', t.Text({ color: p.ok, children: [`+${add}`] })] : []),
+          ...(del > 0 ? [' ', t.Text({ color: p.err, children: [`-${del}`] })] : []),
         ],
       }),
     )

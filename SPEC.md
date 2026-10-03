@@ -479,11 +479,14 @@ finished turn; these rules replace the ones above where they differ.
 
 - Paths under the session's directory draw relative (`SPEC.md`): `$.session.cwd()`
   read at `session.start`, applied in tree subjects, group rows, diff titles.
-- The diff card names its file in its top border: `╭─ SPEC.md +1 -1 ──╮`, an
-  absolutely placed Text over the border row (`Created`/`Deleted` before the path
-  when so). The `Updated <path> +a -b` header row under a Bash edit goes; a file
-  with no hunks keeps it. One context line before a hunk's first change and one
-  after its last; context between changes stays; the numbers keep counting.
+- The diff card's first row, inside the frame, names its file: `SPEC.md +1 -1`
+  (`Created`/`Deleted` before the path when so). The `Updated <path> +a -b`
+  header row under a Bash edit goes; a file with no hunks keeps it. One context
+  line before a hunk's first change and one after its last; context between
+  changes stays; the numbers keep counting. (A title on the top border was
+  tried twice, 2026-10-03: an absolute Text at `top: -1` was clipped, at
+  `top: 0` it covered the first code row. The engine counts offsets from
+  inside the border and never lets a child paint the border row.)
 - A folded group names what it touched: the tools with counts in `tool`, then
   each subject once. `ctrl+o to expand` goes (it never opened a group live).
 - A finished agent is one row: `✓ Agent  <description>` with its duration in
@@ -491,7 +494,3 @@ finished turn; these rules replace the ones above where they differ.
   spawned draws `display: none`; ctrl+o still shows it, and a peer's stays.
 - Unpainted Bash output draws in `meta`, apart from the `faint` scaffolding.
 - `water`: `rule #5a5870` (was 1.69:1 and vanished), `delBg #33222e`.
-- The title's offsets count from the card's outer edge: `top: 0, left: 1`, a
-  `faint` rule cell first so the corner reads `╭─ SPEC.md`. (`top: -1`, from
-  the inner edge, drew nothing live: the row above the card is outside the
-  site and clipped. 2026-10-03.)

@@ -299,7 +299,7 @@ test('a Bash result that rewrote files: the body folded past the painted lines, 
   expect(text).not.toContain('four')
   expect(text).toContain(G.ellipsis + ' +2 lines')
   expect(text).not.toContain('Updated')
-  expect(text).toContain(' /x/hooks/a.ts +2 -1 ')
+  expect(text).toContain('/x/hooks/a.ts +2 -11   const a = 1')
   expect(text).toContain('2 - const b = 2')
   expect(text).toContain('2 + const b = 3')
   expect(text).toContain('Created /x/README.md')
