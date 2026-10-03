@@ -491,5 +491,7 @@ finished turn; these rules replace the ones above where they differ.
   spawned draws `display: none`; ctrl+o still shows it, and a peer's stays.
 - Unpainted Bash output draws in `meta`, apart from the `faint` scaffolding.
 - `water`: `rule #5a5870` (was 1.69:1 and vanished), `delBg #33222e`.
-- Live check: the title lands on the border row, not above it. If the engine
-  measures the offset from the outer edge, set `top: 0`.
+- The title's offsets count from the card's outer edge: `top: 0, left: 1`, a
+  `faint` rule cell first so the corner reads `╭─ SPEC.md`. (`top: -1`, from
+  the inner edge, drew nothing live: the row above the card is outside the
+  site and clipped. 2026-10-03.)

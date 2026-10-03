@@ -477,13 +477,17 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
   if (o.path) {
     rows.push(
       t.Box({
+        // offsets count from the card's outer edge (live, 2026-10-03: `top: -1`
+        // landed above the card and was clipped), so row 0 is the top border
+        // and column 1 the cell after its corner
         position: 'absolute',
-        top: -1,
+        top: 0,
         left: 1,
         children: [
           t.Text({
             wrap: 'truncate-end',
             children: [
+              t.Text({ color: p.faint, children: [G.rule] }),
               ' ',
               ...(o.verb ? [t.Text({ color: p.meta, children: [o.verb + ' '] })] : []),
               t.Text({ color: p.path, children: [clip(name, width - 8)] }),
