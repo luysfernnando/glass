@@ -2,7 +2,7 @@
 
 A desktop-app look for Claude Code's terminal transcript, as a mod.
 
-![glass rendering a reply: a Bottom line card, colored shell commands in prose, a code card, a borderless table and a quote](docs/demo.png)
+https://github.com/user-attachments/assets/342ff452-03e9-434d-a52b-2569f37e38fd
 
 Claude Code draws replies in one markdown style: inline code in a fixed
 lavender, no color for commands, tables in boxes, tool rows in gray. glass
@@ -34,7 +34,7 @@ stored or what the model reads.
 - **Diff cards.** An Edit, Write or file-changing Bash result as a rounded
   card: one number column, `+` and `-` rows on a quiet tint, the code
   painted the same way, and the frame sitting on the tree trunk so the
-  line never breaks.
+  line never breaks, even beside a wrapped row of the diff.
 - **Headings, lists, quotes, tables.** Bold colored headings with no rules,
   `•` `◦` `☐` `☑` markers, a quote bar, borderless tables with aligned
   columns and right-aligned numbers.
