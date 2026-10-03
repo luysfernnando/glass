@@ -509,3 +509,7 @@ finished turn; these rules replace the ones above where they differ.
   call `$.ui.invalidate('ui.render')`. The `└─` elbow goes: knowing the last
   call needs that subscription. A hot reload empties the records until the
   next turn. The user row's dots line still subscribes (one row).
+- A single quote opens a string only at a word's start, and an apostrophe
+  between two letters never closes one (2026-10-03: `diff card's frame ...
+  card's room` in a commit message painted `diff` as a command and the
+  rest as a string). Real shell quotes paint as before.

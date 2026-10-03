@@ -102,8 +102,12 @@ function nextArg(t: string, i: number): Tok | null {
       else if (t[j] === '"') return { kind: 'str', start: i, end: j + 1 }
       else j++
     }
-  } else if (b === "'") {
-    const k = t.indexOf("'", i + 1)
+  } else if (b === "'" && !(i > 0 && /[A-Za-z0-9]/.test(t[i - 1]!))) {
+    // a quote opens only at a word's start, and closes on a quote that is
+    // not followed by a letter: the apostrophes in "the card's frame ...
+    // the card's room" are English, not a string (live, 2026-10-03)
+    let k = t.indexOf("'", i + 1)
+    while (k >= 0 && k + 1 < n && /[A-Za-z]/.test(t[k + 1]!) && /[A-Za-z]/.test(t[k - 1] ?? '')) k = t.indexOf("'", k + 1)
     if (k >= 0) return { kind: 'str', start: i, end: k + 1 }
   }
   for (const op of ['&&', '||', '|', ';']) {

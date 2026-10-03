@@ -160,3 +160,12 @@ test('mounted: the quote bar is one glyph column as tall as the quote', async $ 
   expect(bar).toBeDefined()
   await ui.unmount()
 })
+
+test("an apostrophe inside a word is English, not a quote: diff card's stays prose", async () => {
+  const { paintLine } = await import('../hooks/output')
+  const painted = (l: string) => paintLine(l).filter(s => s.color && s.color !== 'num')
+  expect(painted("0.3.9: the diff card's frame row by row, at the card's room")).toEqual([])
+  expect(painted("0.3.8: the diff card's title; 0.3.7's border title")).toEqual([])
+  const { shellSpans } = await import('../hooks/shell')
+  expect(shellSpans("grep -n 'a b' x.ts")?.some(s => s.kind === 'str' && s.text === "'a b'")).toBe(true)
+})
