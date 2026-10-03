@@ -51,7 +51,10 @@ async function setCall($: EngineInterface, turnId: string, call: GlassCall) {
 
 export const register: Register = (on, options) => {
   const opts = (options ?? {}) as { palette?: unknown }
-  const palette = paletteNamed(opts.palette)
+  // the palette follows /config live: every hook reads this binding at
+  // draw time, and the config.set hook below swaps it (rows already drawn
+  // keep their colors until something redraws them)
+  let palette = paletteNamed(opts.palette)
   // gutter marks are off for a turn whose prompt asked for writing: the
   // reply is then the thing itself and asks nothing of the reader
   let marks = true
@@ -67,6 +70,12 @@ export const register: Register = (on, options) => {
     for (const [turnId, list] of Object.entries(record)) if (list.some(c => c.id === id)) return turnId
     return null
   }
+
+  on('config.set', { key: 'glass.palette' }, async ($, e, next) => {
+    const result = await next(e)
+    palette = paletteNamed(e.value)
+    return result
+  })
 
   on('session.start', async ($, e, next) => {
     try {

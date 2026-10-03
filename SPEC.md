@@ -161,6 +161,11 @@ foreground remap (the mod draws its own colors), the extra themes
 (catppuccin, tokyonight, dracula, gruvbox, nord: add on request), and
 `CLAUDE_HL_COMMANDS` vocabulary growth (edit `COMMANDS` in `hooks/shell.ts`).
 
+The palette option follows `/config` live: a `config.set` hook on
+`glass.palette` swaps the module's palette after the engine stores the
+value, so the next row drawn takes the new colors (it was read once at
+load before, 2026-10-03). Rows already on screen keep theirs.
+
 ## Verification
 
 - `claude plugin validate .`, `npx tsc -p .`, the ASCII grep above.
