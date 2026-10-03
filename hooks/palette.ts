@@ -178,7 +178,7 @@ const water: Palette = {
   sub: '#3bb8d8', // brandAlt
   flag: '#009a8b', // brandSecondary
   str: '#e65f2a', // amber
-  path: '#a4a1e8', // periwinkle: water's secondary-text hue with the saturation lifted, so paths sit apart from the cyan code and the mint ok (owner's pick 2026-10-03; sea glass #6ec9ab blurred into both)
+  path: '#948ff0', // periwinkle: water's secondary-text hue with the saturation lifted, so paths sit apart from the cyan code, the mint ok and the grey body text (owner's pick 2026-10-03; #a4a1e8 sat too near the text, sea glass #6ec9ab blurred into code and ok)
   op: '#8e8ca1', // textSecondary
   num: '#3bb8d8', // info
   var: '#009a8b',
