@@ -460,3 +460,27 @@ test('a quoted short fence with a language is as tall as its code: short fences 
   if (blocks[0]?.kind !== 'quote') throw new Error('expected a quote')
   expect(quoteRows(blocks[0].blocks, 60)).toBe(2)
 })
+
+// a fence drew as a diagram when its rows are cut, not wrapped
+const drawnAsDiagram = (lang: string, rows: string[]) => {
+  const card = fenceCard(reply('```' + lang + '\n' + rows.join('\n') + '\n```'))!
+  return JSON.stringify(card).includes('"truncate-end"')
+}
+
+test('plain ASCII diagrams draw as typed: boxes, arrows, trees', async () => {
+  expect(drawnAsDiagram('', ['+-------+     +---------+', '| Order | --> | Payment |', '+-------+     +---------+', '    |', '    v', '+--------+', '| Settle |', '+--------+'])).toBe(true)
+  expect(drawnAsDiagram('text', ['client ==> api', 'api --> db', 'db <-- cache'])).toBe(true)
+  expect(drawnAsDiagram('', ['.', '|-- hooks', '|   |-- render.ts', '|   `-- chrome.ts', '`-- tests'])).toBe(true)
+})
+
+test('code, prose and shell output in a bare fence stay code', async () => {
+  // one-dash arrows are code's
+  expect(drawnAsDiagram('', ['const f = (a) => a + 1', 'p->next = q', 'const g = () => f(2)'])).toBe(false)
+  // a pipe in prose, and flags with two dashes
+  expect(drawnAsDiagram('', ['cat a.log | grep error', 'git push --force-with-lease', 'npm test -- --watch'])).toBe(false)
+  // a diffstat: plus runs then minus runs are not box corners
+  expect(drawnAsDiagram('', [' hooks/render.ts     | 57 +++++++++++++++++++++-----', ' tests/parse.test.ts | 24 ++++++++++', ' 2 files changed, 64 insertions(+), 17 deletions(-)'])).toBe(false)
+  // a rust error: an arrow and gutter bars, but under half its rows
+  expect(drawnAsDiagram('', ['error[E0308]: mismatched types', ' --> src/main.rs:4:18', '  |', '4 |     let x: i32 = "a";', '  |            ---   ^^^ expected `i32`', '  |            |', '  |            expected due to this'])).toBe(false)
+})
+

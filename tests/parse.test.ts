@@ -149,6 +149,30 @@ test('a quote bar covers every row: wrapped paragraph, blank, list items', async
   expect(quoteRows(blocks[0].blocks, 80)).toBe(4)
 })
 
+test('a quote bar is as tall as each kind of fence draws', async () => {
+  const bar = (lang: string, code: string[]) => {
+    const blocks = parseMarkdown(['> ```' + lang, ...code.map(l => '> ' + l), '> ```'].join('\n'))
+    if (blocks[0]?.kind !== 'quote') throw new Error('expected a quote')
+    return quoteRows(blocks[0].blocks, 60)
+  }
+  const ten = Array.from({ length: 10 }, (_, i) => `const a${i} = ${i}`)
+  const box = [cp(0x250c) + cp(0x2500).repeat(4) + cp(0x2510), cp(0x2502) + ' ab ' + cp(0x2502), cp(0x2514) + cp(0x2500).repeat(4) + cp(0x2518)]
+  // short code: no header row
+  expect(bar('ts', ['const a = 1', 'const b = 2'])).toBe(2)
+  // long code: the header row, then a row per line
+  expect(bar('ts', ten)).toBe(11)
+  // a diagram: its rows, no header, even past 8 lines
+  expect(bar('', [...box, ...box, ...box, ...box])).toBe(12)
+  // a diagram wider than the card is cut, so still one row a line
+  expect(bar('', [cp(0x250c) + cp(0x2500).repeat(90) + cp(0x2510), cp(0x2514) + cp(0x2500).repeat(90) + cp(0x2518)])).toBe(2)
+  // a code line wider than the card wraps: 120 cells at 56 is 3 rows
+  expect(bar('ts', ['x'.repeat(120), 'const b = 2'])).toBe(4)
+  // an indent counts toward the wrap: 6 + 52 cells is past 56
+  expect(bar('ts', [' '.repeat(6) + 'y'.repeat(52)])).toBe(2)
+  // an empty fence still draws a row
+  expect(bar('ts', [])).toBe(1)
+})
+
 test('mounted: the quote bar is one glyph column as tall as the quote', async $ => {
   const ui = await $.ui.mount({
     plugin: 'glass',

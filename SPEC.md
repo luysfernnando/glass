@@ -91,8 +91,11 @@ design panel and an investigation round on 2026-10-02.
   line 1 once over 8 lines. A diagram draws as typed: a fence with no
   language (or `text`, `txt`, `ascii`, `diagram`) whose non-empty rows are
   at least half arrow, box-drawing, block or shape glyphs (U+2190 to
-  U+21FF, U+2500 to U+25FF) has no header and no gutter, and its rows cut
-  at the card edge (`truncate-end`) instead of wrapping. (The engine's
+  U+21FF, U+2500 to U+25FF), or their ASCII stand-ins (`+--`, `|--`,
+  `--+`, `-->`, `<==`, a row boxed in `|`, a connector row of `|` `v` `^`),
+  has no header and no gutter, and its rows cut at the card edge
+  (`truncate-end`) instead of wrapping. One-dash arrows (`->`, `=>`) and a
+  diffstat's `+++---` are code's and never count. (The engine's
   `Code` paints with its own theme,
   which the owner rejected 2026-10-03; its `Markdown` leaf was tried
   next and dropped for the same reason.)
@@ -600,4 +603,12 @@ finished turn; these rules replace the ones above where they differ.
   a short fence with a language drew no header but the bar still counted
   one, so it hung a row below the quote.
 - Real code is unchanged, and a `text` fence of prose with a stray arrow
-  stays text. Plain ASCII diagrams (`+--+`, `-->`) are not detected yet.
+  stays text.
+
+### 0.4.10 (2026-10-04): one fence shape, ASCII diagrams
+
+- `fenceShape` works out what a fence draws (diagram, gutter and header,
+  card width) once, for both the card and the quote bar's row count, so the
+  two cannot drift again. The bar now also counts a code line that wraps:
+  a quoted fence with a long line drew its bar short.
+- Plain ASCII diagrams draw as typed, like the Unicode ones (see Fence).

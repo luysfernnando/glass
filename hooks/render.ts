@@ -70,8 +70,8 @@ function inlineWidth(inlines: Inline[]): number {
 }
 
 // a card hugs its content: the widest row plus padding, floored, capped
-function cardWidth(c: Ctx, content: number): number {
-  return Math.min(c.m, Math.max(CARD_MIN, content))
+function cardWidth(m: number, content: number): number {
+  return Math.min(m, Math.max(CARD_MIN, content))
 }
 
 export function renderReply(t: Table, blocks: Block[], p: Palette, o: RenderOptions): RenderElement {
@@ -153,18 +153,70 @@ function renderBlock(c: Ctx, b: Block): RenderElement {
 }
 
 // a fence with no language (or a plain-text one) whose rows are mostly
-// arrows, box-drawing, block or shape glyphs is a picture, not code
+// arrows, box-drawing, block or shape glyphs, or their ASCII stand-ins, is
+// a picture, not code
 const DIAGRAM_LANGS = new Set(['', 'text', 'txt', 'ascii', 'diagram'])
 
 function isDrawingGlyph(code: number): boolean {
   return (code >= 0x2190 && code <= 0x21ff) || (code >= 0x2500 && code <= 0x25ff)
 }
 
+// the same pictures drawn in plain ASCII: a corner or tree branch (`+--`,
+// `|--`, `` `-- ``), a line into a corner (`--+`), a two-dash arrow (`-->`,
+// `<==`), a row boxed at both ends, or a connector row of `|`, `v`, `^`.
+// One dash is code's (`->`, `=>`), so it never counts, nor a corner after a
+// `+` (a diffstat's `+++---`)
+const ASCII_DRAWN = [
+  /(?<!\+)[+|`\\][-=]{2,}/,
+  /[-=]{2,}[+|]/,
+  /<[-=]{2,}|[-=]{2,}>/,
+  /^\s*\|.*\|\s*$/,
+  /^[\s|v^]*[|v^][\s|v^]*$/,
+]
+
+function isDrawnRow(row: string): boolean {
+  return [...row].some(ch => isDrawingGlyph(ch.codePointAt(0)!)) || ASCII_DRAWN.some(re => re.test(row))
+}
+
 function isDiagram(lang: string, source: string): boolean {
   if (!DIAGRAM_LANGS.has(lang.toLowerCase())) return false
   const rows = source.split('\n').filter(l => l.trim() !== '')
-  const drawn = rows.filter(l => [...l].some(ch => isDrawingGlyph(ch.codePointAt(0)!))).length
+  const drawn = rows.filter(isDrawnRow).length
   return rows.length > 0 && drawn * 2 >= rows.length
+}
+
+// what a fence draws, worked out once for renderFence and blockRows so the
+// quote bar cannot drift from the card (0.4.0 dropped the short header in
+// renderFence alone, and the bar ran a row long until 0.4.9)
+interface FenceShape {
+  code: string
+  lines: string[]
+  diagram: boolean
+  gutter: boolean // the numbered gutter and the header row, past 8 lines
+  digits: number
+  width: number // the card, padding included
+}
+
+function fenceShape(lang: string, source: string, m: number): FenceShape {
+  const code = source.replace(/\n$/, '')
+  const lines = code === '' ? [] : code.split('\n')
+  const diagram = isDiagram(lang, code)
+  const gutter = !diagram && lines.length > 8
+  const digits = String(lines.length).length
+  const widest = Math.max(0, ...lines.map(cellWidth))
+  const header = cellWidth(lang) + (gutter ? cellWidth(`${lines.length} lines`) + 2 : 0)
+  const width = cardWidth(m, Math.max(widest + (gutter ? digits + 2 : 0), header) + 2)
+  return { code, lines, diagram, gutter, digits, width }
+}
+
+// rows a fence draws: the header, then a row per line, more where a code
+// line wraps (its indent counts, the engine keeps leading spaces); a
+// diagram's rows are cut, never wrapped
+function fenceRows(s: FenceShape): number {
+  const text = s.width - 2 - (s.gutter ? s.digits + 2 : 0)
+  const wrapped = (l: string) => wrappedLines([{ kind: 'text', text: l.replace(/^ +/, i => 'x'.repeat(i.length)) }], text)
+  const body = s.diagram ? s.lines.length : s.lines.reduce((n, l) => n + wrapped(l), 0)
+  return (s.gutter ? 1 : 0) + Math.max(1, body)
 }
 
 // tinted card sized to its code: dim language left and line count right in
@@ -173,15 +225,8 @@ function isDiagram(lang: string, source: string): boolean {
 // since a wrapped row breaks every box and arrow below it
 function renderFence(c: Ctx, lang: string, source: string): RenderElement {
   const { t, p } = c
-  const code = source.replace(/\n$/, '')
-  const codeLines = code === '' ? [] : code.split('\n')
+  const { code, lines: codeLines, diagram, gutter, digits, width } = fenceShape(lang, source, c.m)
   const lines = codeLines.length
-  const diagram = isDiagram(lang, code)
-  const gutter = !diagram && lines > 8
-  const digits = String(lines).length
-  const widest = Math.max(0, ...codeLines.map(cellWidth))
-  const header = cellWidth(lang) + (gutter ? cellWidth(`${lines} lines`) + 2 : 0)
-  const width = cardWidth(c, Math.max(widest + (gutter ? digits + 2 : 0), header) + 2)
   const children: RenderElement[] = []
   // a short fence has no header row: the highlighter colors by the
   // language and the code says what it is (proposal 14, 2026-10-04)
@@ -297,12 +342,8 @@ function blockRows(b: Block, m: number): number {
     case 'paragraph':
     case 'heading':
       return wrappedLines(b.inlines, m)
-    case 'code': {
-      const code = b.source.replace(/\n$/, '')
-      const lines = code === '' ? 0 : code.split('\n').length
-      if (isDiagram(b.lang, code)) return Math.max(1, lines)
-      return (lines > 8 ? 1 : 0) + Math.max(1, lines)
-    }
+    case 'code':
+      return fenceRows(fenceShape(b.lang, b.source, m))
     case 'list': {
       const ordered = b.items.filter(it => /^\d/.test(it.marker))
       const numWidth = Math.max(0, ...ordered.map(it => cellWidth(it.marker)))
@@ -404,7 +445,7 @@ function wrappedLines(inlines: Inline[], width: number): number {
 function renderCallout(c: Ctx, title: string, rows: CalloutRow[]): RenderElement {
   const { t, p } = c
   const rowWidth = (r: CalloutRow) => 2 + LABEL_WIDTH + 2 + inlineWidth(r.inlines) + 1
-  const width = cardWidth(c, Math.max(0, ...rows.map(rowWidth)))
+  const width = cardWidth(c.m, Math.max(0, ...rows.map(rowWidth)))
   const textWidth = width - 2 - LABEL_WIDTH - 2 - 1
   const lines = rows.map(r => wrappedLines(r.inlines, textWidth))
   // each row's wrapped lines; the title is outside the card
