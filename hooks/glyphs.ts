@@ -62,6 +62,8 @@ export const G = {
   copy: cp(0x29c9),
   /** DOWNWARDS ARROW U+2193: the engine's `down to manage` key */
   arrowDown: cp(0x2193),
+  /** LEFTWARDS ARROW U+2190: the engine's `left for agents` key */
+  arrowLeft: cp(0x2190),
   eye: cp(0x25ce),
   loop: cp(0x21bb),
   fork: cp(0x2442),
