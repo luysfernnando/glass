@@ -130,11 +130,12 @@ function dots(t: Table, p: Palette, calls: GlassCall[]): RenderNode[] {
   const out: RenderNode[] = []
   let prev: string | null = null
   for (const c of calls) {
-    if (prev !== null && c.tool !== prev) out.push(' ')
+    if (prev !== null && c.tool !== prev) out.push(t.Text({ children: [' '] }))
     prev = c.tool
     const mark = c.status === 'running' ? G.hollow : c.status === 'failed' ? G.cross : G.disc
     const color = c.status === 'failed' ? p.err : c.status === 'ok' ? p.ok : p.meta
-    out.push(t.Text({ color, children: [mark] }))
+    // the dot and its tree row light together under the pointer
+    out.push(t.Text({ color, hover: { scope: callScope(c.id), backgroundColor: p.rowHover }, children: [mark] }))
   }
   return out
 }
@@ -203,9 +204,12 @@ export function renderUserRow(t: Table, p: Palette, r: UserRow): RenderElement {
       const failed = v.calls.filter(c => c.status === 'failed').length
       if (failed > 0) summary.push(sep, t.Text({ color: p.err, children: [plural(failed, 'failed', 'failed')] }))
     }
-    const left = t.Text({
-      wrap: 'truncate-end',
-      children: [...dots(t, p, v.calls), '  ', t.Text({ color: v.done ? p.meta : p.bold, children: summary })],
+    // dots as sibling Texts, so each can light its row (a Text nested in a
+    // Text follows its hover group but cannot heat it)
+    const left = t.Box({
+      flexDirection: 'row',
+      flexShrink: 1,
+      children: [...dots(t, p, v.calls), t.Text({ children: ['  '] }), t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: v.done ? p.meta : p.bold, children: summary })] })],
     })
     // no chevron: a Button in a transcript row never received its press
     // live (2026-10-03), so folding moved to /fold and /unfold
@@ -247,6 +251,8 @@ export type TreeOptions = {
   durationMs: number | null
   /** a trunk row above; false inside a run of the same tool (2026-10-04) */
   air?: boolean
+  /** while running: the clock's first cells (clockCells); a ticker blits the rest */
+  clock?: string
 }
 
 function str(args: Record<string, unknown>, k: string): string | null {
@@ -305,7 +311,7 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
   return spaced(t, p, t.Box({
     key: `row:${row.tool_use_id}`,
     flexDirection: 'row',
-    hover: { backgroundColor: p.rowHover },
+    hover: { scope: callScope(row.tool_use_id), backgroundColor: p.rowHover },
     children: [
       t.Text({ color: p.faint, children: [(o.last ? G.elbow : G.tee) + G.rule + ' '] }),
       t.Text({ color: markColor, children: [mark + ' '] }),
@@ -319,7 +325,11 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
           }),
         ],
       }),
-      ...(right ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: live ? p.meta : p.faint, children: [right] })] })] : []),
+      ...(live && o.clock && 'Raster' in t
+        ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Raster({ key: 'clock', columns: CLOCK_CELLS, rows: 1, cells: o.clock })] })]
+        : right
+          ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: live ? p.meta : p.faint, children: [right] })] })]
+          : []),
     ],
   }), o.air ?? true)
 }
@@ -859,4 +869,44 @@ function a11(s: string): string {
 export function renderAgentLaunch(t: Table, p: Palette, remote: boolean): RenderElement {
   const text = remote ? `running remotely${sep}/tasks` : `running in the background${sep}${G.arrowDown} to manage`
   return trunked(t, p, 1, [t.Text({ color: p.faint, wrap: 'truncate-end', children: [text] })])
+}
+
+// ---- live clock ----------------------------------------------------------
+
+/** the hover group a call's dot and its tree row share */
+export function callScope(id: string): string {
+  return ('glass:' + id).slice(0, 64)
+}
+
+/** cells the running row's clock takes: `12m 04s` at most */
+export const CLOCK_CELLS = 7
+
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+function base64(bytes: Uint8Array): string {
+  let out = ''
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i]!
+    const b = i + 1 < bytes.length ? bytes[i + 1]! : 0
+    const c = i + 2 < bytes.length ? bytes[i + 2]! : 0
+    const n = (a << 16) | (b << 8) | c
+    out += B64[(n >> 18) & 63]! + B64[(n >> 12) & 63]!
+    out += i + 1 < bytes.length ? B64[(n >> 6) & 63]! : '='
+    out += i + 2 < bytes.length ? B64[n & 63]! : '='
+  }
+  return out
+}
+
+// A Raster's cells for the elapsed time, right-aligned in CLOCK_CELLS: each
+// cell a [codePoint, fg, bg] triplet of little-endian u32, the background
+// the terminal's own (bit 24 alone). ASCII digits and letters only.
+export function clockCells(ms: number, fg: string): string {
+  const text = fmtDuration(Math.max(0, ms)).slice(-CLOCK_CELLS).padStart(CLOCK_CELLS)
+  const color = /^#[0-9a-f]{6}$/i.test(fg) ? parseInt(fg.slice(1), 16) : 0x01000000
+  const words = new Uint32Array(CLOCK_CELLS * 3)
+  for (let i = 0; i < CLOCK_CELLS; i++) {
+    words[i * 3] = text.charCodeAt(i)
+    words[i * 3 + 1] = color
+    words[i * 3 + 2] = 0x01000000
+  }
+  return base64(new Uint8Array(words.buffer))
 }

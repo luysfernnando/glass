@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
-import { isEditTool, setCwd, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { clockCells, fmtDuration, isEditTool, setCwd, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -39,6 +39,39 @@ const ESC = String.fromCodePoint(0x1b)
 const MAX_PAINTED_LINES = 3
 // tools whose row never carries a body: a run of them packs without air rows
 const COMPACT = new Set(['Read'])
+
+// Live things, ticked once a second: main-loop calls still running (their
+// row's clock is a Raster the ticker blits, no redraw) and subagents still
+// running (the status line under the prompt). Module state, read by no
+// render hook, so a tick redraws nothing in the transcript (2026-10-04).
+const liveCalls = new Map<string, { tool: string; t0: number }>()
+const liveAgents = new Map<string, { t0: number }>()
+let ticker: { cancel: () => void } | null = null
+
+async function tick($: EngineInterface, p: Palette): Promise<void> {
+  const now = await $.clock.now()
+  for (const [id, c] of liveCalls) {
+    void $.ui.blit({ requestId: id, key: 'clock', cells: clockCells(now - c.t0, p.meta) }).catch(() => undefined)
+  }
+  const parts: string[] = []
+  const calls = [...liveCalls.values()]
+  if (calls.length > 0) {
+    const oldest = calls.reduce((a, b) => (a.t0 <= b.t0 ? a : b))
+    parts.push(`${oldest.tool} ${fmtDuration(now - oldest.t0)}` + (calls.length > 1 ? ` +${calls.length - 1}` : ''))
+  }
+  const agentsLive = [...liveAgents.values()]
+  if (agentsLive.length > 0) {
+    const t0 = Math.min(...agentsLive.map(a => a.t0))
+    parts.push(`${agentsLive.length} agent${agentsLive.length === 1 ? '' : 's'} ${fmtDuration(now - t0)}`)
+  }
+  if (parts.length === 0) {
+    ticker?.cancel()
+    ticker = null
+    $.ui.status(undefined)
+    return
+  }
+  $.ui.status(['glass', ...parts].join(` ${G.middot} `))
+}
 
 // A Bash call's body as glass draws it, or null where the engine's stays.
 // Drawn under the ToolUse row from its own `output` (2026-10-04): calls run
@@ -234,7 +267,9 @@ export const register: Register = (on, options) => {
     // after a body, a card, prose or another tool keeps its air (2026-10-04).
     const air = !(order && at > 0 && COMPACT.has(e.props.tool) && order[at - 1]!.tool === e.props.tool && !order[at]!.afterText)
     // no elbow: knowing the last call needs a subscription to the turn
-    const row = renderTreeRow(t, palette, e.props, { last: false, durationMs: callMs.get(id) ?? null, air })
+    const started = liveCalls.get(id)
+    const clock = e.props.isRunning && started ? clockCells((await $.clock.now()) - started.t0, palette.meta) : undefined
+    const row = renderTreeRow(t, palette, e.props, { last: false, durationMs: callMs.get(id) ?? null, air, ...(clock ? { clock } : {}) })
     if (e.props.tool !== 'Bash' || e.props.isRunning || e.props.output === undefined) return row
     const body = bashBody(t, palette, e.props.output, e.props.isErrored, e.viewport?.columns ?? 80)
     return body ? t.Box({ flexDirection: 'column', children: [row, body] }) : row
@@ -350,6 +385,8 @@ export const register: Register = (on, options) => {
       if (id && turnId) turnOrder.set(turnId, [...(turnOrder.get(turnId) ?? []).filter(c => c.id !== id), { id, tool: e.tool, afterText: textSinceCall }])
       textSinceCall = false
       if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: 'running', ms: null })
+      if (id) liveCalls.set(id, { tool: e.tool, t0: await $.clock.now() })
+      if (!ticker) ticker = $.clock.every(1000, () => void tick($, palette))
     } else if (e.agentId) {
       const agentId = e.agentId
       const stage = e.tool
@@ -359,11 +396,17 @@ export const register: Register = (on, options) => {
     }
     if (isEditTool(e.tool)) live.edits += 1
     const t0 = await $.clock.now()
-    const r = await next(e)
+    let r
+    try {
+      r = await next(e)
+    } finally {
+      if (main && id) liveCalls.delete(id)
+    }
     if (main) {
       const ms = (await $.clock.now()) - t0
       if (r.isError) live.failed += 1
       if (id) callMs.set(id, ms)
+      if (id) liveCalls.delete(id)
       if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: r.isError ? 'failed' : 'ok', ms })
     }
     return r
@@ -410,6 +453,8 @@ export const register: Register = (on, options) => {
         startedAt: await $.clock.now(),
       }
       await update($, agents, as => [...(as ?? []).filter(a => a.agentId !== agent.agentId), agent])
+      liveAgents.set(r.agentId, { t0: agent.startedAt })
+      if (!ticker) ticker = $.clock.every(1000, () => void tick($, palette))
     }
     return r
   })
@@ -417,6 +462,7 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     if (e.agentId) {
       const agentId = e.agentId
+      liveAgents.delete(agentId)
       await update($, agents, as => (as ?? []).filter(a => a.agentId !== agentId))
       return next(e)
     }

@@ -1,7 +1,7 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { renderAgentLaunch, fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, safeText } from '../hooks/chrome'
+import { CLOCK_CELLS, callScope, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, safeText } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { highlight, langOf } from '../hooks/highlight'
 import type { CodeSpan } from '../hooks/highlight'
@@ -331,4 +331,65 @@ test('0.4.1: no air inside a run, no time under a tenth, one row per output line
   expect(flat(renderAgentLaunch(t, p, false))).toContain('running in the background')
   const group = flat(renderGroupRow(t, p, [{ tool: 'Bash', input: { command: 'git status --short' }, isRunning: false, isErrored: false, isInterrupted: false }], { isActive: false, key: null, onExpand: null }))
   expect(group).toContain('git status --short')
+})
+
+test('0.4.2: the clock cells decode to the elapsed time, a running row carries the Raster, a dot and its row share a hover scope', async () => {
+  const cells = clockCells(64_000, '#8e8ca1')
+  const bin = atob(cells)
+  const bytes = Uint8Array.from(bin, ch => ch.charCodeAt(0))
+  const words = new Uint32Array(bytes.buffer)
+  expect(words.length).toBe(CLOCK_CELLS * 3)
+  expect(Array.from({ length: CLOCK_CELLS }, (_, i) => String.fromCharCode(words[i * 3]!)).join('')).toBe(' 1m 04s')
+  expect(words[1]).toBe(0x8e8ca1)
+  expect(words[2]).toBe(0x01000000)
+  const tr = { ...t, Raster: el('Raster') } as unknown as Elements['terminal']
+  const running = renderTreeRow(tr, p, { tool_use_id: 'toolu_x', tool: 'Bash', input: { command: 'sleep 9' }, isRunning: true, isErrored: false, isInterrupted: false }, { last: false, durationMs: null, clock: cells })
+  const found: { type: string; props: Record<string, unknown> }[] = []
+  const walk = (n: RenderNode) => {
+    if (typeof n === 'string') return
+    found.push(n as never)
+    ;(((n as { props?: { children?: RenderNode[] } }).props?.children) ?? []).forEach(walk)
+  }
+  walk(running)
+  expect(found.some(n => n.type === 'Raster' && n.props.columns === CLOCK_CELLS && n.props.key === 'clock')).toBe(true)
+  expect(found.some(n => n.type === 'Box' && (n.props.hover as { scope?: string } | undefined)?.scope === callScope('toolu_x'))).toBe(true)
+  const row = renderUserRow(t, p, { text: 'hi', submittedAt: 0, startedAt: 0, turn: { turnId: 'x', calls: [{ id: 'toolu_x', tool: 'Bash', status: 'running', ms: null }], done: null, onCopy: null }, columns: 80 })
+  const dots: { type: string; props: Record<string, unknown> }[] = []
+  const walk2 = (n: RenderNode) => {
+    if (typeof n === 'string') return
+    dots.push(n as never)
+    ;(((n as { props?: { children?: RenderNode[] } }).props?.children) ?? []).forEach(walk2)
+  }
+  walk2(row)
+  expect(dots.some(n => n.type === 'Text' && (n.props.hover as { scope?: string } | undefined)?.scope === callScope('toolu_x'))).toBe(true)
+})
+
+test('mounted live: a running row with its Raster clock validates, and the ticker blits it', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000_000 })
+  // the world beneath glass: note the call's id, hold the call open
+  let id = ''
+  let release = () => {}
+  const held = new Promise<void>(resolve => (release = resolve))
+  on('tool.call', async (_$, e) => {
+    id = e.tool_use_id
+    await held
+    return { isError: false, result: { stdout: 'ok', stderr: '', interrupted: false } } as never
+  })
+  const running = Promise.resolve($.tool.call({ tool: 'Bash', command: 'sleep 2' } as never)).catch((err: unknown) => err)
+  for (let i = 0; i < 50 && id === ''; i++) await new Promise(resolve => setTimeout(resolve, 10))
+  expect(id).not.toBe('')
+  const row = await $.ui.mount({
+    plugin: 'glass',
+    surface: 'terminal',
+    component: 'ToolUse',
+    props: { tool_use_id: id, tool: 'Bash', input: { command: 'sleep 2' }, isRunning: true, isErrored: false, isInterrupted: false },
+  })
+  expect(await row.find({ type: 'Raster' })).toBeDefined()
+  expect(await row.find({ type: 'Text', text: /Bash/ })).toBeDefined()
+  // three ticks: each blits the mounted clock; the row stays glass's
+  await clock.advance(3000)
+  expect(await row.find({ type: 'Raster' })).toBeDefined()
+  await row.unmount()
+  release()
+  await running
 })

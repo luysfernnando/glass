@@ -545,3 +545,24 @@ finished turn; these rules replace the ones above where they differ.
   corner bracket broke the trunk.
 - The band stops four cells short of `bodyColumns`, so the engine's `[-]`
   mark sits beside its top-right arc, not over it. Unverified live.
+
+### 0.4.2 (2026-10-04): live things
+
+- Running rows tick. While a main-loop call runs, the row's right column is
+  a `Raster` keyed `clock`, 7 cells, the elapsed time in `meta` right-aligned
+  (`fmtDuration`). One ticker, `$.clock.every(1000)`, blits every running
+  call's clock by its `tool_use_id` (`RasterBlitArgs.requestId` names a tool
+  row as a site): no redraw, no state write. It starts at the first live
+  call or agent and cancels itself once nothing runs. Unverified live:
+  whether the validator accepts a Raster in a transcript row; a refused tree
+  would put the engine's own row back.
+- The status line under the prompt (`$.ui.status`) says what runs, plain:
+  `glass · Bash 12s +1 · 2 agents 1m 04s`. The oldest running call, the
+  count of others, the live subagents and the oldest one's elapsed. Cleared
+  once nothing runs. No counts of actions or failures (the footer rejection
+  holds). It sits outside the transcript, so its repaint moves no row.
+- A call's dot on the dots line and its tree row share a hover scope
+  (`glass:<tool_use_id>`): the pointer on either lights both with the same
+  `rowHover` tint; the dot keeps its own color (an inverted dot was tried
+  and rejected, 2026-10-04: a red block that matched nothing). The dots are sibling Texts in a Box row,
+  since a Text nested in a Text follows a hover group but cannot heat it.
