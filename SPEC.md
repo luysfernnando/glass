@@ -557,7 +557,8 @@ finished turn; these rules replace the ones above where they differ.
   whether the validator accepts a Raster in a transcript row; a refused tree
   would put the engine's own row back.
 - The status line under the prompt (`$.ui.status`) says what runs, plain:
-  `glass · Bash 12s +1 · 2 agents 1m 04s`. The oldest running call, the
+  `Bash 12s +1 · 2 agents 1m 04s`; the engine adds `glass:` in front (a
+  `glass ·` prefix of glass's own doubled it, live 2026-10-04). The oldest running call, the
   count of others, the live subagents and the oldest one's elapsed. Cleared
   once nothing runs. No counts of actions or failures (the footer rejection
   holds). It sits outside the transcript, so its repaint moves no row.

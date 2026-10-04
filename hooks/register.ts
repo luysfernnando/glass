@@ -70,7 +70,8 @@ async function tick($: EngineInterface, p: Palette): Promise<void> {
     $.ui.status(undefined)
     return
   }
-  $.ui.status(['glass', ...parts].join(` ${G.middot} `))
+  // the engine prefixes a plugin's status line with its name (`glass:`)
+  $.ui.status(parts.join(` ${G.middot} `))
 }
 
 // A Bash call's body as glass draws it, or null where the engine's stays.
