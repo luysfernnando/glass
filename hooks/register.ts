@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
-import { cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { clockCells, fmtDuration, isEditTool, setCwd, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -491,13 +491,6 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'TurnDuration' }, ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
     return $.ui.resolve(e).Box({ display: 'none', children: [] })
-  })
-
-  // ---- the hint line under the prompt: key reminders dropped ---------------
-  on('ui.render', { component: 'PromptHint' }, ($, e, next) => {
-    if (e.surface !== 'terminal') return next(e)
-    const h = cleanHint(e.props.hint)
-    return h ? renderHint($.ui.resolve(e), palette, h) : next(e)
   })
 
   // ---- spinner: the action count while tools run -------------------------
