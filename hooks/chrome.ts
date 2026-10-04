@@ -88,8 +88,8 @@ function fit(s: string, n: number): string {
 // the right column was flush with the terminal's edge), the same 2 the
 // prose measure leaves on the right.
 const TREE_INSET = 2
-function spaced(t: Table, p: Palette, row: RenderElement): RenderElement {
-  return t.Box({ flexDirection: 'column', marginLeft: TREE_INSET, marginRight: TREE_INSET, children: [t.Text({ color: p.faint, children: [G.pipe] }), row] })
+function spaced(t: Table, p: Palette, row: RenderElement, air = true): RenderElement {
+  return t.Box({ flexDirection: 'column', marginLeft: TREE_INSET, marginRight: TREE_INSET, children: air ? [t.Text({ color: p.faint, children: [G.pipe] }), row] : [row] })
 }
 
 // the session's directory: paths under it draw relative (`SPEC.md`, not
@@ -245,6 +245,8 @@ export type TreeOptions = {
   last: boolean
   /** wall time once known */
   durationMs: number | null
+  /** a trunk row above; false inside a run of the same tool (2026-10-04) */
+  air?: boolean
 }
 
 function str(args: Record<string, unknown>, k: string): string | null {
@@ -298,7 +300,8 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
     const n = outputLines(row.output)
     if (n !== null && n > 0) tail.push(t.Text({ color: p.faint, children: [sep + plural(n, 'line')] }))
   }
-  const right = o.durationMs === null ? '' : fmtToolTime(o.durationMs)
+  // under a tenth of a second the time says nothing (`0.0s`): none
+  const right = o.durationMs === null || o.durationMs < 100 ? '' : fmtToolTime(o.durationMs)
   return spaced(t, p, t.Box({
     key: `row:${row.tool_use_id}`,
     flexDirection: 'row',
@@ -318,7 +321,7 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
       }),
       ...(right ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: live ? p.meta : p.faint, children: [right] })] })] : []),
     ],
-  }))
+  }), o.air ?? true)
 }
 
 // cells a body row leaves for the trunk column before its content
@@ -362,10 +365,12 @@ export type OutputOptions = {
 // tree's line, owner's request 2026-10-03.)
 export function renderToolOutput(t: Table, p: Palette, lines: string[], o: OutputOptions = { columns: 80, maxLines: lines.length }): RenderElement {
   const shown = lines.slice(0, o.maxLines)
+  // one row per output line, clipped: a long line no longer doubles the
+  // body's height, and ctrl+o has the whole output (2026-10-04)
   const rows = shown.map(line =>
-    trunked(t, p, rowsOf(line, o.columns), [
+    trunked(t, p, 1, [
       t.Text({
-        wrap: 'wrap',
+        wrap: 'truncate-end',
         children: paintLine(line).map(s => (s.color ? t.Text({ color: p[s.color], children: [s.text] }) : t.Text({ color: p.meta, children: [s.text] }))),
       }),
     ], o.last),
@@ -618,7 +623,7 @@ export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupC
   const tools = [...counts].map(([tool, n]) => (n > 1 ? `${tool} ${G.times}${n}` : tool)).join(sep)
   const subjects = [...new Set(calls.map(c => {
     const a = (c.input ?? {}) as Record<string, unknown>
-    const s = str(a, 'file_path') ?? str(a, 'path') ?? str(a, 'pattern') ?? str(a, 'query') ?? str(a, 'url') ?? ''
+    const s = str(a, 'file_path') ?? str(a, 'path') ?? str(a, 'pattern') ?? str(a, 'query') ?? str(a, 'url') ?? clip((str(a, 'command') ?? '').replace(/\s+/g, ' '), 60)
     return safeText(rel(s).replace(/\s+/g, ' '), 200)
   }).filter(s => s !== ''))]
   const parts: RenderNode[] = [t.Text({ color: p.tool, children: [tools] })]
@@ -728,7 +733,9 @@ function shortModel(model: string): string {
 // Closed, one strip: the title, the faces, the newest agent's stage.
 export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement {
   const { agents, now } = o
-  const w = Math.max(40, o.columns)
+  // the engine draws its `[-]` collapse mark over the band's top-right
+  // cells; the frame stops four short of it (2026-10-04)
+  const w = Math.max(40, o.columns - 4)
   const oldest = agents.reduce((n, a) => Math.min(n, a.startedAt), now)
   const elapsed = fmtDuration(Math.max(0, now - oldest))
   const titleText = `background${sep}${agents.length}`
@@ -845,4 +852,11 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
 // a description as one printable line
 function a11(s: string): string {
   return safeText(s.replace(/\s+/g, ' ').trim(), 120)
+}
+
+// A backgrounded Agent's result, in place of the engine's body (its corner
+// bracket broke the trunk, 2026-10-04): one trunked line in `faint`.
+export function renderAgentLaunch(t: Table, p: Palette, remote: boolean): RenderElement {
+  const text = remote ? `running remotely${sep}/tasks` : `running in the background${sep}${G.arrowDown} to manage`
+  return trunked(t, p, 1, [t.Text({ color: p.faint, wrap: 'truncate-end', children: [text] })])
 }

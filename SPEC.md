@@ -527,3 +527,21 @@ finished turn; these rules replace the ones above where they differ.
 - On a tinted diff row the gutter number is `meta`, not `faint`.
 - A fence under nine lines draws no header row; from nine lines the header
   keeps the language and the line count.
+
+### 0.4.1 (2026-10-04, from the live check of 0.4.0)
+
+- Air: every tree row keeps its trunk row above, except a bare row that
+  continues a run of the same bodiless tool (`Read`) with no prose between
+  (`turn.step` text chunks mark prose). A row after a body, a card, prose,
+  an Agent line or another tool always has air.
+- A Bash body draws under its ToolUse row from the row's own `output`; the
+  ToolResult row then draws nothing. Calls run in parallel drew their row
+  with no ToolResult, so the body went missing (live, 2026-10-03).
+- Output lines clip to one row each (`truncate-end`); ctrl+o has them whole.
+- No duration under 100 ms (`0.0s` said nothing).
+- A folded group names a Bash call by its command, clipped to 60 cells.
+- A backgrounded Agent's result is one trunked `faint` line, `running in
+  the background · ↓ to manage`, in place of the engine's body, whose
+  corner bracket broke the trunk.
+- The band stops four cells short of `bodyColumns`, so the engine's `[-]`
+  mark sits beside its top-right arc, not over it. Unverified live.

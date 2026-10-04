@@ -1,12 +1,13 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
-import { isEditTool, setCwd, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { isEditTool, setCwd, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
 import { paletteNamed } from './palette'
+import type { Palette } from './palette'
 import { writeIntent } from './prose'
 import { renderReply } from './render'
 
@@ -36,6 +37,34 @@ const ANSWER_MAX = 20000
 const ESC = String.fromCodePoint(0x1b)
 // the engine shows this many output lines before folding the rest behind ctrl+o
 const MAX_PAINTED_LINES = 3
+// tools whose row never carries a body: a run of them packs without air rows
+const COMPACT = new Set(['Read'])
+
+// A Bash call's body as glass draws it, or null where the engine's stays.
+// Drawn under the ToolUse row from its own `output` (2026-10-04): calls run
+// in parallel drew their row with no ToolResult under it, so the body went
+// missing; the ToolResult row then draws nothing where this is non-null.
+function bashBody(t: Elements['terminal'], p: Palette, output: unknown, isErrored: boolean, cols: number): RenderElement | null {
+  if (isErrored) {
+    if (typeof output !== 'string' || output.trim() === '') return null
+    return renderToolOutput(t, p, output.replace(/\s+$/, '').split('\n'), { columns: cols, maxLines: MAX_PAINTED_LINES })
+  }
+  const out = output as { stdout?: unknown; stderr?: unknown; interrupted?: unknown; bashEditDiff?: unknown } | undefined
+  if (!out || typeof out !== 'object' || typeof out.stdout !== 'string' || out.interrupted === true) return null
+  const stderr = typeof out.stderr === 'string' ? out.stderr : ''
+  const text = [out.stdout, stderr].filter(s => s.trim() !== '').join('\n').replace(/\s+$/, '')
+  const lines = text === '' ? [] : text.split('\n')
+  const diff = out.bashEditDiff as { files?: unknown; moreFiles?: unknown } | undefined
+  const files = Array.isArray(diff?.files)
+    ? (diff!.files as ChangedFile[]).filter(f => f && typeof f.filePath === 'string' && Array.isArray(f.hunks)).map(f => ({ ...f, hunks: f.hunks.filter(h => h && typeof h.oldStart === 'number' && typeof h.newStart === 'number' && Array.isArray(h.lines)) }))
+    : []
+  if (files.length > 0) {
+    const moreFiles = typeof diff?.moreFiles === 'number' ? diff.moreFiles : 0
+    return renderBashResult(t, p, lines, files, { maxLines: MAX_PAINTED_LINES, moreFiles, columns: cols })
+  }
+  if (text === '' || text.includes(ESC)) return null
+  return renderToolOutput(t, p, lines, { columns: cols, maxLines: MAX_PAINTED_LINES })
+}
 
 // one main-loop call recorded under its turn, replacing an earlier record
 // of the same id
@@ -68,6 +97,10 @@ export const register: Register = (on, options) => {
   // turn, which strands duplicate rows above the viewport (2026-10-03).
   const callTurn = new Map<string, string>()
   const callMs = new Map<string, number>()
+  // each turn's main-loop calls in order, and whether Claude wrote text
+  // since the call before: the air rule below reads both
+  const turnOrder = new Map<string, { id: string; tool: string; afterText: boolean }[]>()
+  let textSinceCall = false
   let foldedTurns = new Set<string>()
   let expandAllNow = false
 
@@ -194,8 +227,17 @@ export const register: Register = (on, options) => {
     // a folded turn hides its rows; a row of a turn glass never saw stays
     if (turnId && foldedTurns.has(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     const t = $.ui.resolve(e)
+    const order = turnId ? turnOrder.get(turnId) : undefined
+    const at = order ? order.findIndex(c => c.id === id) : -1
+    // Air above every row, except a bare row that continues a run of the
+    // same bodiless tool with no prose between (Read, Read, Read). A row
+    // after a body, a card, prose or another tool keeps its air (2026-10-04).
+    const air = !(order && at > 0 && COMPACT.has(e.props.tool) && order[at - 1]!.tool === e.props.tool && !order[at]!.afterText)
     // no elbow: knowing the last call needs a subscription to the turn
-    return renderTreeRow(t, palette, e.props, { last: false, durationMs: callMs.get(id) ?? null })
+    const row = renderTreeRow(t, palette, e.props, { last: false, durationMs: callMs.get(id) ?? null, air })
+    if (e.props.tool !== 'Bash' || e.props.isRunning || e.props.output === undefined) return row
+    const body = bashBody(t, palette, e.props.output, e.props.isErrored, e.viewport?.columns ?? 80)
+    return body ? t.Box({ flexDirection: 'column', children: [row, body] }) : row
   })
 
   // the engine's folded run of reads and searches: one tree row with a
@@ -240,34 +282,16 @@ export const register: Register = (on, options) => {
       const last = false
       return renderDiff($.ui.resolve(e), palette, hunks, { path, columns: e.viewport?.columns ?? 80, last })
     }
+    // a backgrounded agent: one trunked line in place of the engine's body
+    if (e.props.tool === 'Agent' || e.props.tool === 'Task') {
+      const status = (e.props.output as { status?: unknown } | undefined)?.status
+      if (status === 'async_launched' || status === 'remote_launched') return renderAgentLaunch($.ui.resolve(e), palette, status === 'remote_launched')
+      return next(e)
+    }
     if (e.props.tool !== 'Bash') return next(e)
-    const cols = e.viewport?.columns ?? 80
-    const last = false
-    // a failed command: the text the model read, painted (error words red)
-    if (e.props.isErrored) {
-      if (typeof e.props.output !== 'string' || e.props.output.trim() === '') return next(e)
-      const lines = e.props.output.replace(/\s+$/, '').split('\n')
-      return renderToolOutput($.ui.resolve(e), palette, lines, { columns: cols, maxLines: MAX_PAINTED_LINES, last })
-    }
-    const out = e.props.output as { stdout?: unknown; stderr?: unknown; interrupted?: unknown; bashEditDiff?: unknown } | undefined
-    if (!out || typeof out.stdout !== 'string' || out.interrupted === true) return next(e)
-    const stderr = typeof out.stderr === 'string' ? out.stderr : ''
-    const text = [out.stdout, stderr].filter(s => s.trim() !== '').join('\n').replace(/\s+$/, '')
-    const lines = text === '' ? [] : text.split('\n')
-    // a command that rewrote files: glass draws the whole body, the
-    // output folded past the painted lines, then one diff card per file
-    const diff = out.bashEditDiff as { files?: unknown; moreFiles?: unknown } | undefined
-    const files = Array.isArray(diff?.files)
-      ? (diff!.files as ChangedFile[]).filter(f => f && typeof f.filePath === 'string' && Array.isArray(f.hunks)).map(f => ({ ...f, hunks: f.hunks.filter(h => h && typeof h.oldStart === 'number' && typeof h.newStart === 'number' && Array.isArray(h.lines)) }))
-      : []
-    if (files.length > 0) {
-      const moreFiles = typeof diff?.moreFiles === 'number' ? diff.moreFiles : 0
-      return renderBashResult($.ui.resolve(e), palette, lines, files, { maxLines: MAX_PAINTED_LINES, moreFiles, columns: cols, last })
-    }
-    if (text === '' || text.includes(ESC)) return next(e)
-    // every other body is glass's: the first lines painted, the rest a
-    // count, the trunk through all of it
-    return renderToolOutput($.ui.resolve(e), palette, lines, { columns: cols, maxLines: MAX_PAINTED_LINES, last })
+    // the ToolUse row draws the body glass owns; this row draws nothing then
+    const body = bashBody($.ui.resolve(e), palette, e.props.output, e.props.isErrored, e.viewport?.columns ?? 80)
+    return body ? $.ui.resolve(e).Box({ display: 'none', children: [] }) : next(e)
   })
 
   // ---- the turn's bookkeeping --------------------------------------------
@@ -323,6 +347,8 @@ export const register: Register = (on, options) => {
       live.tools += 1
       if (id) live.lastToolId = id
       if (id && turnId) callTurn.set(id, turnId)
+      if (id && turnId) turnOrder.set(turnId, [...(turnOrder.get(turnId) ?? []).filter(c => c.id !== id), { id, tool: e.tool, afterText: textSinceCall }])
+      textSinceCall = false
       if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: 'running', ms: null })
     } else if (e.agentId) {
       const agentId = e.agentId
@@ -353,6 +379,7 @@ export const register: Register = (on, options) => {
     while (!step.done) {
       const chunk = step.value
       if (chunk.kind === 'stop') usage = chunk.usage
+      if (chunk.kind === 'text' && !e.agentId) textSinceCall = true
       yield chunk
       step = await stream.next()
     }

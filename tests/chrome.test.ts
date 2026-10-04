@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, safeText } from '../hooks/chrome'
+import { renderAgentLaunch, fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, safeText } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { highlight, langOf } from '../hooks/highlight'
 import type { CodeSpan } from '../hooks/highlight'
@@ -116,7 +116,7 @@ test('the band: a frame the band wide with five agents and a fold, or one strip 
   const rows = lines(box)
   // top edge, five agents, the fold, bottom edge
   expect(rows.length).toBe(8)
-  for (const row of rows) expect(cellWidth(row)).toBe(100)
+  for (const row of rows) expect(cellWidth(row)).toBe(96)
   expect(rows[0]).toContain('background')
   expect(rows[0]).toContain('7')
   expect(rows[0]).toContain('1m 00s')
@@ -132,7 +132,7 @@ test('the band: a frame the band wide with five agents and a fold, or one strip 
   expect(rows[7]).toContain('/tasks')
   expect(rows[7]!.endsWith(G.arcBR)).toBe(true)
   const strip = flat(renderBand(t, p, { agents, now: 60_000, columns: 100, open: false, onToggle: () => {}, tasksCommand: null }))
-  expect(cellWidth(strip)).toBe(100)
+  expect(cellWidth(strip)).toBe(96)
   expect(strip).toContain('background')
   expect(strip).toContain('Hunt 6')
   expect(strip).toContain('1m 00s')
@@ -318,4 +318,17 @@ test('a Bash result that rewrote files: the body folded past the painted lines, 
   expect(text).toContain('2 + const b = 3')
   expect(text).toContain('Created /x/README.md')
   expect(text).toContain(G.ellipsis + ' +2 more files')
+})
+
+test('0.4.1: no air inside a run, no time under a tenth, one row per output line, the agent launch line, a Bash group names its command', async () => {
+  const base = { tool_use_id: 't1', tool: 'Read', input: { file_path: 'a.ts' }, isRunning: false, isErrored: false, isInterrupted: false }
+  const tight = flat(renderTreeRow(t, p, base, { last: false, durationMs: 40, air: false }))
+  expect(tight.startsWith(G.tee)).toBe(true)
+  expect(tight).not.toContain('0.0s')
+  expect(flat(renderTreeRow(t, p, base, { last: false, durationMs: 300 })).startsWith(G.pipe + G.tee)).toBe(true)
+  const body = renderToolOutput(t, p, ['x'.repeat(300), 'b'], { columns: 80, maxLines: 3 })
+  expect(lines(body).length).toBe(2)
+  expect(flat(renderAgentLaunch(t, p, false))).toContain('running in the background')
+  const group = flat(renderGroupRow(t, p, [{ tool: 'Bash', input: { command: 'git status --short' }, isRunning: false, isErrored: false, isInterrupted: false }], { isActive: false, key: null, onExpand: null }))
+  expect(group).toContain('git status --short')
 })

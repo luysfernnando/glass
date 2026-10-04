@@ -60,6 +60,8 @@ export const G = {
   smile: cp(0x203f),
   /** action icons: TWO JOINED SQUARES U+29C9 (copy), BULLSEYE U+25CE (review, open), CLOCKWISE OPEN CIRCLE ARROW U+21BB (loop), OCR FORK U+2442 */
   copy: cp(0x29c9),
+  /** DOWNWARDS ARROW U+2193: the engine's `down to manage` key */
+  arrowDown: cp(0x2193),
   eye: cp(0x25ce),
   loop: cp(0x21bb),
   fork: cp(0x2442),
