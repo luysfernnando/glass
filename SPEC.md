@@ -80,15 +80,20 @@ design panel and an investigation round on 2026-10-02.
   `bullet`. Ordered numbers in `orderedNum`, padded to the widest marker.
   Items are `M - depth*2` wide, indented `depth*2`. Zero rows between items.
 - Fence: a `blockBg` card, `paddingX 1`, sized to its widest line (floor
-  60, cap M). Header row only when a language is present or the block
-  exceeds 8 lines: dim uppercase language left, dim `N lines` right. The
+  60, cap M). Header row only when the block exceeds 8 lines: dim
+  uppercase language left, dim `N lines` right. The
   body is glass's own highlighter (`hooks/highlight.ts`): one row per
   line, keywords in `codeKw`, calls in `codeFn`, types in `codeType`,
   strings in `codeStr`, numbers and constants in `codeNum`, comments in
   `comment`; shell fences through `shellSpans`; prose files and fences
   (`md`, `txt`, `rst`, `adoc`...) paint nothing, since a README diff is
   English. A `faint` gutter from
-  line 1 once over 8 lines. (The engine's `Code` paints with its own theme,
+  line 1 once over 8 lines. A diagram draws as typed: a fence with no
+  language (or `text`, `txt`, `ascii`, `diagram`) whose non-empty rows are
+  at least half arrow, box-drawing, block or shape glyphs (U+2190 to
+  U+21FF, U+2500 to U+25FF) has no header and no gutter, and its rows cut
+  at the card edge (`truncate-end`) instead of wrapping. (The engine's
+  `Code` paints with its own theme,
   which the owner rejected 2026-10-03; its `Markdown` leaf was tried
   next and dropped for the same reason.)
 - Table: no vertical borders. Bold `bold` header, one `rule` row of `─`
@@ -585,3 +590,14 @@ finished turn; these rules replace the ones above where they differ.
   (2026-10-04, after 0.4.7 tried the engine's own line again).
 - Merging the line into the owner's status line is out of glass's reach: the
   status line is the owner's own script (settings `statusLine`).
+
+### 0.4.9 (2026-10-04): diagrams in fences (PR #2, Sarthak Jha)
+
+- A fence diagram draws as typed: no header row, no gutter, rows cut at the
+  card edge. A wrapped row broke every box and arrow below it, and a
+  gutter numbered a picture.
+- A quote's bar counts a fence header only when one is drawn. Since 0.4.0
+  a short fence with a language drew no header but the bar still counted
+  one, so it hung a row below the quote.
+- Real code is unchanged, and a `text` fence of prose with a stray arrow
+  stays text. Plain ASCII diagrams (`+--+`, `-->`) are not detected yet.
