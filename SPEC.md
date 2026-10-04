@@ -572,8 +572,10 @@ finished turn; these rules replace the ones above where they differ.
 
 - The engine's hint loses its key reminders, `(shift+tab to cycle)` and
   `· ← for agents` (owner's request: keep the line under the prompt clean).
-  What stays: the vim mode (`-- INSERT --`, dim) and the permission mode
-  (`⏵⏵ auto mode on`, in `warn`, the engine's pill being amber). A hint with
+  What stays, vim mode first wherever the engine put it (live, the hint
+  reads `⏵⏵ auto mode on · -- INSERT --`): `-- INSERT --` in `accentUser`,
+  then the permission mode by meaning, auto and bypass `warn`, plan `accent`,
+  accepting edits `ok`, else `meta` (owner's request: the glass palette). A hint with
   nothing to drop (`? for shortcuts`, `esc to interrupt`) keeps the engine's
   own line and its live pills. A rewritten line is glass's Text, so the
   pills there are no longer the engine's. Unverified live: that the hint

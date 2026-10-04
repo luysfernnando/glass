@@ -176,6 +176,9 @@ test('the hint line drops its key reminders and keeps the vim and permission mod
   expect(cleanHint(`-- INSERT -- ${auto} (shift+tab to cycle) ${mid} ${left} for agents`)).toEqual({ vim: '-- INSERT --', rest: auto })
   expect(cleanHint(`${auto} (shift+tab to cycle)`)).toEqual({ vim: '', rest: auto })
   // nothing to drop: the engine keeps its own line
+  // live order: the mode first, the vim mode after a middot
+  expect(cleanHint(`${auto} ${mid} -- INSERT --`)).toEqual({ vim: '-- INSERT --', rest: auto })
+  expect(cleanHint(`${auto} (shift+tab to cycle) ${mid} -- INSERT -- ${mid} ${left} for agents`)).toEqual({ vim: '-- INSERT --', rest: auto })
   expect(cleanHint('? for shortcuts')).toBeNull()
   expect(cleanHint('esc to interrupt')).toBeNull()
 })

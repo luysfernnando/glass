@@ -915,26 +915,36 @@ export function clockCells(ms: number, fg: string): string {
 
 // The engine's hint, its key reminders dropped (owner's request, 2026-10-04:
 // keep the line under the prompt clean): `(shift+tab to cycle)` and
-// `<left arrow> for agents` go; `-- INSERT --` and the mode stay. Null when
-// nothing was dropped, so the engine keeps its own line and its live pills.
+// `<left arrow> for agents` go. The vim mode comes first, wherever the engine
+// put it (live: `<mode> . -- INSERT --`), then the permission mode. Null when
+// the hint has neither and nothing was dropped (`? for shortcuts`), so the
+// engine keeps its own line.
 export function cleanHint(hint: string): { vim: string; rest: string } | null {
-  const cleaned = hint
+  const dropped = hint
     .replace(/\s*\((?:shift|ctrl|alt|meta)\+[a-z]+ to cycle\)/gi, '')
     .replace(new RegExp('\\s*' + G.middot + '?\\s*' + G.arrowLeft + '\\s*for agents', 'g'), '')
-    .replace(/\s+$/, '')
-  if (cleaned === hint.replace(/\s+$/, '')) return null
-  const m = /^(--\s*[A-Z]+\s*--)\s*/.exec(cleaned)
-  return m ? { vim: m[1]!, rest: cleaned.slice(m[0].length) } : { vim: '', rest: cleaned }
+  const vimMatch = /--\s*[A-Z]+\s*--/.exec(dropped)
+  const vim = vimMatch ? vimMatch[0] : ''
+  const sepRe = new RegExp('^[\\s' + G.middot + ']+|[\\s' + G.middot + ']+$', 'g')
+  const rest = (vim ? dropped.replace(vim, ' ') : dropped).replace(new RegExp('\\s*' + G.middot + '\\s*' + G.middot + '\\s*', 'g'), ' ' + G.middot + ' ').replace(sepRe, '')
+  const changed = dropped !== hint
+  if (!changed && !vim && !MODE_RE.test(rest)) return null
+  return { vim, rest }
 }
 
-// `-- INSERT --` dim, the mode in `warn` (the engine's own pill is amber)
+const MODE_RE = /mode on|accept edits on|plan mode/i
+
+// the vim mode in `accentUser` (the person's own color: typing is theirs),
+// the permission mode colored by what it means: auto and bypass `warn`, plan
+// `accent`, accepting edits `ok`; anything else `meta`
 export function renderHint(t: Table, p: Palette, h: { vim: string; rest: string }): RenderElement {
+  const modeColor = /auto|bypass/i.test(h.rest) ? p.warn : /plan/i.test(h.rest) ? p.accent : /accept/i.test(h.rest) ? p.ok : p.meta
   return t.Text({
     wrap: 'truncate-end',
     children: [
-      ...(h.vim ? [t.Text({ dimColor: true, children: [h.vim] })] : []),
+      ...(h.vim ? [t.Text({ color: /INSERT/.test(h.vim) ? p.accentUser : p.meta, children: [h.vim] })] : []),
       ...(h.vim && h.rest ? ['  '] : []),
-      ...(h.rest ? [t.Text({ ...(/mode on/.test(h.rest) ? { color: p.warn } : { dimColor: true }), children: [h.rest] })] : []),
+      ...(h.rest ? [t.Text({ color: modeColor, children: [h.rest] })] : []),
     ],
   })
 }
