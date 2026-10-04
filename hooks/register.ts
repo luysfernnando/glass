@@ -45,7 +45,6 @@ const COMPACT = new Set(['Read'])
 // running (the status line under the prompt). Module state, read by no
 // render hook, so a tick redraws nothing in the transcript (2026-10-04).
 const liveCalls = new Map<string, { tool: string; t0: number }>()
-const liveAgents = new Map<string, { t0: number }>()
 let ticker: { cancel: () => void } | null = null
 
 async function tick($: EngineInterface, p: Palette): Promise<void> {
@@ -53,25 +52,12 @@ async function tick($: EngineInterface, p: Palette): Promise<void> {
   for (const [id, c] of liveCalls) {
     void $.ui.blit({ requestId: id, key: 'clock', cells: clockCells(now - c.t0, p.meta) }).catch(() => undefined)
   }
-  const parts: string[] = []
-  const calls = [...liveCalls.values()]
-  if (calls.length > 0) {
-    const oldest = calls.reduce((a, b) => (a.t0 <= b.t0 ? a : b))
-    parts.push(`${oldest.tool} ${fmtDuration(now - oldest.t0)}` + (calls.length > 1 ? ` +${calls.length - 1}` : ''))
-  }
-  const agentsLive = [...liveAgents.values()]
-  if (agentsLive.length > 0) {
-    const t0 = Math.min(...agentsLive.map(a => a.t0))
-    parts.push(`${agentsLive.length} agent${agentsLive.length === 1 ? '' : 's'} ${fmtDuration(now - t0)}`)
-  }
-  if (parts.length === 0) {
+  // nothing runs: the ticker stops (no status line: the owner found it noise
+  // under the prompt, 2026-10-04)
+  if (liveCalls.size === 0) {
     ticker?.cancel()
     ticker = null
-    $.ui.status(undefined)
-    return
   }
-  // the engine prefixes a plugin's status line with its name (`glass:`)
-  $.ui.status(parts.join(` ${G.middot} `))
 }
 
 // A Bash call's body as glass draws it, or null where the engine's stays.
@@ -155,6 +141,8 @@ export const register: Register = (on, options) => {
   })
 
   on('session.start', async ($, e, next) => {
+    // 0.4.2 to 0.4.5 pinned a status line; clear one a reload left behind
+    $.ui.status(undefined)
     try {
       setCwd(await $.session.cwd())
     } catch {
@@ -454,8 +442,6 @@ export const register: Register = (on, options) => {
         startedAt: await $.clock.now(),
       }
       await update($, agents, as => [...(as ?? []).filter(a => a.agentId !== agent.agentId), agent])
-      liveAgents.set(r.agentId, { t0: agent.startedAt })
-      if (!ticker) ticker = $.clock.every(1000, () => void tick($, palette))
     }
     return r
   })
@@ -463,7 +449,6 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     if (e.agentId) {
       const agentId = e.agentId
-      liveAgents.delete(agentId)
       await update($, agents, as => (as ?? []).filter(a => a.agentId !== agentId))
       return next(e)
     }

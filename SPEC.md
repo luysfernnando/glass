@@ -556,12 +556,10 @@ finished turn; these rules replace the ones above where they differ.
   call or agent and cancels itself once nothing runs. Unverified live:
   whether the validator accepts a Raster in a transcript row; a refused tree
   would put the engine's own row back.
-- The status line under the prompt (`$.ui.status`) says what runs, plain:
-  `Bash 12s +1 · 2 agents 1m 04s`; the engine adds `glass:` in front (a
-  `glass ·` prefix of glass's own doubled it, live 2026-10-04). The oldest running call, the
-  count of others, the live subagents and the oldest one's elapsed. Cleared
-  once nothing runs. No counts of actions or failures (the footer rejection
-  holds). It sits outside the transcript, so its repaint moves no row.
+- (Removed in 0.4.6, owner's request: noise under the prompt.) A status
+  line under the prompt (`$.ui.status`) said what ran, `Bash 12s · 2 agents
+  1m 04s`. The ticker now only blits running rows' clocks; `session.start`
+  clears a status line a reload left behind.
 - A call's dot on the dots line and its tree row share a hover scope
   (`glass:<tool_use_id>`): the pointer on either lights both with the same
   `rowHover` tint; the dot keeps its own color (an inverted dot was tried
