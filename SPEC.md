@@ -567,3 +567,16 @@ finished turn; these rules replace the ones above where they differ.
   `rowHover` tint; the dot keeps its own color (an inverted dot was tried
   and rejected, 2026-10-04: a red block that matched nothing). The dots are sibling Texts in a Box row,
   since a Text nested in a Text follows a hover group but cannot heat it.
+
+### 0.4.4 (2026-10-04): the hint line under the prompt
+
+- The engine's hint loses its key reminders, `(shift+tab to cycle)` and
+  `· ← for agents` (owner's request: keep the line under the prompt clean).
+  What stays: the vim mode (`-- INSERT --`, dim) and the permission mode
+  (`⏵⏵ auto mode on`, in `warn`, the engine's pill being amber). A hint with
+  nothing to drop (`? for shortcuts`, `esc to interrupt`) keeps the engine's
+  own line and its live pills. A rewritten line is glass's Text, so the
+  pills there are no longer the engine's. Unverified live: that the hint
+  string carries `-- INSERT --` as the screen shows it.
+- Merging the line into the owner's status line is out of glass's reach: the
+  status line is the owner's own script (settings `statusLine`).

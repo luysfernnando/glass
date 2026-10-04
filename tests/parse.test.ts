@@ -8,6 +8,7 @@ import { pathLike } from '../hooks/paths'
 import { needsAttention, writeIntent } from '../hooks/prose'
 import { proseSpans, shellSpans } from '../hooks/shell'
 import { cellWidth } from '../hooks/width'
+import { cleanHint } from '../hooks/chrome'
 
 const cp = (n: number) => String.fromCodePoint(n)
 
@@ -166,4 +167,15 @@ test("an apostrophe inside a word is English, not a quote: diff card's stays pro
   expect(painted("0.3.9: the diff card's frame row by row, at the card's room")).toEqual([])
   expect(painted("0.3.8: the diff card's title; 0.3.7's border title")).toEqual([])
   expect(shellSpans("grep -n 'a b' x.ts")?.some(s => s.kind === 'str' && s.text === "'a b'")).toBe(true)
+})
+
+test('the hint line drops its key reminders and keeps the vim and permission modes', async () => {
+  const left = String.fromCodePoint(0x2190)
+  const mid = String.fromCodePoint(0xb7)
+  const auto = String.fromCodePoint(0x23f5, 0x23f5) + ' auto mode on'
+  expect(cleanHint(`-- INSERT -- ${auto} (shift+tab to cycle) ${mid} ${left} for agents`)).toEqual({ vim: '-- INSERT --', rest: auto })
+  expect(cleanHint(`${auto} (shift+tab to cycle)`)).toEqual({ vim: '', rest: auto })
+  // nothing to drop: the engine keeps its own line
+  expect(cleanHint('? for shortcuts')).toBeNull()
+  expect(cleanHint('esc to interrupt')).toBeNull()
 })

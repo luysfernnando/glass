@@ -910,3 +910,31 @@ export function clockCells(ms: number, fg: string): string {
   }
   return base64(new Uint8Array(words.buffer))
 }
+
+// ---- the hint line under the prompt ----------------------------------------
+
+// The engine's hint, its key reminders dropped (owner's request, 2026-10-04:
+// keep the line under the prompt clean): `(shift+tab to cycle)` and
+// `<left arrow> for agents` go; `-- INSERT --` and the mode stay. Null when
+// nothing was dropped, so the engine keeps its own line and its live pills.
+export function cleanHint(hint: string): { vim: string; rest: string } | null {
+  const cleaned = hint
+    .replace(/\s*\((?:shift|ctrl|alt|meta)\+[a-z]+ to cycle\)/gi, '')
+    .replace(new RegExp('\\s*' + G.middot + '?\\s*' + G.arrowLeft + '\\s*for agents', 'g'), '')
+    .replace(/\s+$/, '')
+  if (cleaned === hint.replace(/\s+$/, '')) return null
+  const m = /^(--\s*[A-Z]+\s*--)\s*/.exec(cleaned)
+  return m ? { vim: m[1]!, rest: cleaned.slice(m[0].length) } : { vim: '', rest: cleaned }
+}
+
+// `-- INSERT --` dim, the mode in `warn` (the engine's own pill is amber)
+export function renderHint(t: Table, p: Palette, h: { vim: string; rest: string }): RenderElement {
+  return t.Text({
+    wrap: 'truncate-end',
+    children: [
+      ...(h.vim ? [t.Text({ dimColor: true, children: [h.vim] })] : []),
+      ...(h.vim && h.rest ? ['  '] : []),
+      ...(h.rest ? [t.Text({ ...(/mode on/.test(h.rest) ? { color: p.warn } : { dimColor: true }), children: [h.rest] })] : []),
+    ],
+  })
+}
