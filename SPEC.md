@@ -513,3 +513,17 @@ finished turn; these rules replace the ones above where they differ.
   between two letters never closes one (2026-10-03: `diff card's frame ...
   card's room` in a commit message painted `diff` as a command and the
   rest as a string). Real shell quotes paint as before.
+
+### Fourth pass (2026-10-04, the panel's remaining visual proposals)
+
+- The turn boundary is one titled rule: `◆ You · 3:20 PM ───` in `faint` to
+  the measure, a blank row above, none below. It replaces the bare rule
+  with a blank row each side (two rows saved per turn).
+- The dots line: a failed call's dot is `✗` in `err`; a live line appends
+  `· N failed`; a done turn's summary steps to `meta`. The `⧉ Copy` Button
+  goes (it never received a press); the engine's own `/copy` copies the
+  last reply.
+- A folded group's mark is `▸` in `meta`; `◉` is the Claude header's alone.
+- On a tinted diff row the gutter number is `meta`, not `faint`.
+- A fence under nine lines draws no header row; from nine lines the header
+  keeps the language and the line count.

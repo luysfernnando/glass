@@ -165,7 +165,9 @@ function renderFence(c: Ctx, lang: string, source: string): RenderElement {
   const header = cellWidth(lang) + (gutter ? cellWidth(`${lines} lines`) + 2 : 0)
   const width = cardWidth(c, Math.max(widest + (gutter ? digits + 2 : 0), header) + 2)
   const children: RenderElement[] = []
-  if (lang || gutter) {
+  // a short fence has no header row: the highlighter colors by the
+  // language and the code says what it is (proposal 14, 2026-10-04)
+  if (gutter) {
     children.push(
       t.Box({
         flexDirection: 'row',

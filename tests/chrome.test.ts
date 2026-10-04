@@ -50,7 +50,9 @@ const turn = {
 
 test('a user row: its time, then the assistant header and the dots line once the turn runs', async () => {
   const before = flat(renderUserRow(t, p, { text: 'hello', submittedAt: null, startedAt: null, turn: null, columns: 80 }))
-  expect(before.startsWith(G.rule.repeat(78) + G.diamond + ' You')).toBe(true)
+  // one titled rule: the name, then the rule out to the measure
+  expect(before.startsWith(G.diamond + ' You ' + G.rule)).toBe(true)
+  expect(cellWidth(before.split('hello')[0]!)).toBe(78)
   expect(before).toContain('hello')
   expect(before).not.toContain('Claude')
   const calls = [
@@ -61,14 +63,15 @@ test('a user row: its time, then the assistant header and the dots line once the
   // live: the counts by tool, no chevron, no Copy
   const liveRow = flat(renderUserRow(t, p, { text: 'hello', submittedAt: 0, startedAt: 60_000, turn: { turnId: 'x', calls, done: null, onCopy: null }, columns: 80 }))
   expect(liveRow).toContain(G.fisheye + ' Claude')
-  expect(liveRow).toContain(G.disc + G.disc + ' ' + G.hollow)
+  expect(liveRow).toContain(G.disc + G.cross + ' ' + G.hollow)
+  expect(liveRow).toContain('1 failed')
   expect(liveRow).toContain('Bash ' + G.times + '2')
   expect(liveRow).not.toContain(G.down)
   expect(liveRow).not.toContain(G.right)
   expect(liveRow).not.toContain('Copy')
   // done: the totals and Copy
   const unfolded = flat(renderUserRow(t, p, { text: 'hello', submittedAt: 0, startedAt: 60_000, turn: { turnId: 'x', calls, done: turn, onCopy: () => {} }, columns: 80 }))
-  expect(unfolded).toContain('Copy')
+  expect(unfolded).not.toContain('Copy')
   expect(unfolded).toContain('17 actions')
   expect(unfolded).toContain('3 edits')
   expect(unfolded).toContain('2 failed')

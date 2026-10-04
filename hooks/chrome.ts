@@ -132,7 +132,7 @@ function dots(t: Table, p: Palette, calls: GlassCall[]): RenderNode[] {
   for (const c of calls) {
     if (prev !== null && c.tool !== prev) out.push(' ')
     prev = c.tool
-    const mark = c.status === 'running' ? G.hollow : G.disc
+    const mark = c.status === 'running' ? G.hollow : c.status === 'failed' ? G.cross : G.disc
     const color = c.status === 'failed' ? p.err : c.status === 'ok' ? p.ok : p.meta
     out.push(t.Text({ color, children: [mark] }))
   }
@@ -158,14 +158,18 @@ export function renderUserRow(t: Table, p: Palette, r: UserRow): RenderElement {
     // a turn separator: one blank row, a faint rule the measure wide, one
     // more blank row, so a new prompt stands apart from the reply above
     // (owner's request, 2026-10-03)
-    t.Box({ marginTop: 1, children: [t.Text({ color: p.faint, children: [G.rule.repeat(m)] })] }),
+    // the turn boundary is one titled rule: `<diamond> You . 3:20 PM ---`
+    // to the measure, a blank row above it (proposal 7, 2026-10-04: it
+    // replaces a bare rule with a blank row each side, two rows saved)
     t.Box({
       marginTop: 1,
       children: [
         t.Text({
+          wrap: 'truncate-end',
           children: [
             t.Text({ color: p.accentUser, bold: true, children: [G.diamond + ' You'] }),
             ...(r.submittedAt === null ? [] : [t.Text({ color: p.meta, children: [sep + clockTime(r.submittedAt)] })]),
+            t.Text({ color: p.faint, children: [' ' + G.rule.repeat(Math.max(1, m - cellWidth(G.diamond + ' You' + (r.submittedAt === null ? '' : sep + clockTime(r.submittedAt))) - 1))] }),
           ],
         }),
       ],
@@ -196,15 +200,17 @@ export function renderUserRow(t: Table, p: Palette, r: UserRow): RenderElement {
       if (v.done.failed > 0) summary.push(sep, t.Text({ color: p.err, children: [plural(v.done.failed, 'failed', 'failed')] }))
     } else {
       summary.push(toolCounts(v.calls))
+      const failed = v.calls.filter(c => c.status === 'failed').length
+      if (failed > 0) summary.push(sep, t.Text({ color: p.err, children: [plural(failed, 'failed', 'failed')] }))
     }
     const left = t.Text({
       wrap: 'truncate-end',
-      children: [...dots(t, p, v.calls), '  ', t.Text({ color: p.bold, children: summary })],
+      children: [...dots(t, p, v.calls), '  ', t.Text({ color: v.done ? p.meta : p.bold, children: summary })],
     })
     // no chevron: a Button in a transcript row never received its press
     // live (2026-10-03), so folding moved to /fold and /unfold
     const right: RenderElement[] = []
-    if (v.done && v.onCopy) right.push(t.Button({ key: `copy:${v.turnId}`, label: G.copy + ' Copy', plain: true, dimColor: true, onPress: v.onCopy }))
+    if (false as boolean) right.push(t.Button({ key: `copy:${v.turnId}`, label: G.copy + ' Copy', plain: true, dimColor: true, onPress: v.onCopy }))
     rows.push(
       t.Box({
         key: `dots:${v.turnId}`,
@@ -490,7 +496,7 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
       const used = part.reduce((w, x) => w + cellWidth(x.text), 0)
       const head: RenderNode[] =
         n === 0 && l.num !== null
-          ? [t.Text({ color: p.faint, children: [String(l.num).padStart(digits) + ' '] }), t.Text({ color: markColor, children: [mark + ' '] })]
+          ? [t.Text({ color: bg ? p.meta : p.faint, children: [String(l.num).padStart(digits) + ' '] }), t.Text({ color: markColor, children: [mark + ' '] })]
           : [' '.repeat(gutter)]
       out.push(
         t.Box({
@@ -628,7 +634,7 @@ export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupC
     flexDirection: 'row',
     children: [
       t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }),
-      t.Text({ color: p.meta, children: [G.fisheye + ' '] }),
+      t.Text({ color: p.meta, children: [G.right + ' '] }),
       t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.faint, children: [...parts, tail] })] }),
       ...(button ? [t.Box({ flexShrink: 0, children: [button] })] : []),
     ],
