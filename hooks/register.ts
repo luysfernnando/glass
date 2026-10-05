@@ -117,6 +117,9 @@ export const register: Register = (on, options) => {
   // turn, which strands duplicate rows above the viewport (2026-10-03).
   const callTurn = new Map<string, string>()
   const callMs = new Map<string, number>()
+  // rows of a group the engine unfolded: no ToolResult of their own, so the
+  // ToolUse hook draws an Edit's or a Write's card under the row
+  const grouped = new Set<string>()
   // each turn's main-loop calls in order, and whether Claude wrote text
   // since the call before: the air rule below reads both
   const turnOrder = new Map<string, { id: string; tool: string; afterText: boolean }[]>()
@@ -259,6 +262,10 @@ export const register: Register = (on, options) => {
     const started = liveCalls.get(id)
     const clock = e.props.isRunning && started ? clockCells((await $.clock.now()) - started.t0, palette.meta) : undefined
     const row = renderTreeRow(t, palette, e.props, { last: false, durationMs: callMs.get(id) ?? null, air, ...(clock ? { clock } : {}) })
+    if (grouped.has(id) && (e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isRunning && !e.props.isErrored) {
+      const card = editCard(t, palette, e.props.output, e.props.input, e.viewport?.columns ?? 80)
+      if (card) return t.Box({ flexDirection: 'column', children: [row, card] })
+    }
     if (e.props.tool !== 'Bash' || e.props.isRunning || e.props.output === undefined) return row
     const body = bashBody(t, palette, e.props.output, e.props.isErrored, e.viewport?.columns ?? 80)
     return body ? t.Box({ flexDirection: 'column', children: [row, body] }) : row
@@ -267,7 +274,11 @@ export const register: Register = (on, options) => {
   // the engine's folded run of reads and searches: one tree row with a
   // button that unfolds it where it is
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
-    if (e.surface !== 'terminal' || e.props.isExpanded) return next(e)
+    if (e.surface !== 'terminal') return next(e)
+    if (e.props.isExpanded) {
+      remember(grouped, e.props.calls)
+      return next(e)
+    }
     const first = e.props.calls.find((c: { tool_use_id?: string }) => typeof c.tool_use_id === 'string')
     const turnId = first?.tool_use_id ? callTurn.get(first.tool_use_id) ?? null : null
     if (turnId && foldedTurns.has(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
@@ -276,7 +287,10 @@ export const register: Register = (on, options) => {
     // call in it failed: a red mark must never hide behind a count
     const failed = e.props.calls.some((c: { isErrored?: boolean; isInterrupted?: boolean }) => c.isErrored || c.isInterrupted)
     const all = expandAllNow
-    if (all || failed || ((await read($, expanded)) ?? []).includes(id)) return next({ ...e, props: { ...e.props, isExpanded: true } })
+    if (all || failed || ((await read($, expanded)) ?? []).includes(id)) {
+      remember(grouped, e.props.calls)
+      return next({ ...e, props: { ...e.props, isExpanded: true } })
+    }
     const t = $.ui.resolve(e)
     return renderGroupRow(t, palette, e.props.calls, {
       isActive: e.props.isActive,
@@ -297,14 +311,7 @@ export const register: Register = (on, options) => {
     if (turnId && foldedTurns.has(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     // an Edit's or a Write's diff, drawn as glass draws it (owner's request, 2026-10-03)
     if ((e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isErrored) {
-      const out = e.props.output as { structuredPatch?: unknown; filePath?: unknown } | undefined
-      const patch = out?.structuredPatch
-      const hunks = Array.isArray(patch) ? (patch as Hunk[]).filter(h => h && typeof h.oldStart === 'number' && typeof h.newStart === 'number' && Array.isArray(h.lines)) : []
-      if (hunks.length === 0) return next(e)
-      const input = e.props.input as { file_path?: unknown } | undefined
-      const path = typeof out?.filePath === 'string' ? out.filePath : typeof input?.file_path === 'string' ? input.file_path : ''
-      const last = false
-      return renderDiff($.ui.resolve(e), palette, hunks, { path, columns: e.viewport?.columns ?? 80, last })
+      return editCard($.ui.resolve(e), palette, e.props.output, (e.props as { input?: unknown }).input, e.viewport?.columns ?? 80) ?? next(e)
     }
     // a backgrounded agent: one trunked line in place of the engine's body
     if (e.props.tool === 'Agent' || e.props.tool === 'Task') {
@@ -526,4 +533,26 @@ export const register: Register = (on, options) => {
       tasksCommand: commands.has('tasks') ? 'tasks' : commands.has('bashes') ? 'bashes' : null,
     })
   })
+}
+
+/** Keeps the tool_use_ids of an unfolded group's calls. */
+function remember(ids: Set<string>, calls: ReadonlyArray<{ tool_use_id?: string }>): void {
+  for (const c of calls) if (typeof c.tool_use_id === 'string') ids.add(c.tool_use_id)
+}
+
+/**
+ * An Edit's or a Write's result as glass's diff card, null when there is
+ * nothing to draw. A Write that created the file has no patch: its whole
+ * content draws as added lines under `Created`.
+ */
+function editCard(t: Elements['terminal'], palette: Palette, output: unknown, input: unknown, columns: number): RenderElement | null {
+  const out = output as { structuredPatch?: unknown; filePath?: unknown; type?: unknown; content?: unknown } | undefined
+  const patch = out?.structuredPatch
+  const patched = Array.isArray(patch) ? (patch as Hunk[]).filter(h => h && typeof h.oldStart === 'number' && typeof h.newStart === 'number' && Array.isArray(h.lines)) : []
+  const created = patched.length === 0 && out?.type === 'create' && typeof out.content === 'string'
+  const hunks = created ? [{ oldStart: 0, newStart: 1, lines: (out.content as string).replace(/\n$/, '').split('\n').map(l => `+${l}`) }] : patched
+  if (hunks.length === 0) return null
+  const args = input as { file_path?: unknown } | undefined
+  const path = typeof out?.filePath === 'string' ? out.filePath : typeof args?.file_path === 'string' ? args.file_path : ''
+  return renderDiff(t, palette, hunks, { path, columns, last: false, ...(created ? { verb: 'Created' } : {}) })
 }
