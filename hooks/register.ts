@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
-import { FLAT_TOOLS, cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, setHome, lineCounts, rel, spaced, trunked, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { FLAT_TOOLS, editRunKeys, cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, setHome, lineCounts, rel, spaced, trunked, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk, TreeOptions, TreeRow } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -137,19 +137,22 @@ export const register: Register = (on, options) => {
   // every row to draw again; rows read these records, never an atom.
   const closedAnswers = new Set<string>()
   const closedTools = new Set<string>()
-  // each turn's done edits in call order: a file's edits draw as one row
+  // each turn's done edits in call order: a file's edits, and edits called
+  // back to back, draw as one row
   const turnEdits = new Map<string, EditDone[]>()
   /**
-   * The turn's edits of the file the edit `key` changed, null when it is the
-   * file's only one. The row can draw before `tool.call` records the edit:
-   * then `output` names the file, and the edit counts last.
+   * The edits that draw as one row with the edit `key` (`editRunKeys`), null
+   * when it stands alone. The row can draw before `tool.call` records the
+   * edit: then `output` names the file, and the edit counts last.
    */
   const editRun: RunOf = (key, id, output) => {
-    const all = turnEdits.get(callTurn.get(id) ?? '') ?? []
+    const turnId = callTurn.get(id) ?? ''
+    const all = [...(turnEdits.get(turnId) ?? [])]
     const file = all.find(x => x.key === key)?.file ?? (output as { filePath?: unknown } | undefined)?.filePath
     if (typeof file !== 'string') return null
-    const run = all.filter(x => x.file === file)
-    if (!run.some(x => x.key === key)) run.push({ id, key, file, output, input: { file_path: file } })
+    if (!all.some(x => x.key === key)) all.push({ id, key, file, output, input: { file_path: file } })
+    const keys = new Set(editRunKeys(all, turnOrder.get(turnId) ?? [], key))
+    const run = all.filter(x => keys.has(x.key))
     return run.length > 1 ? run : null
   }
   let textSinceCall = false
@@ -520,9 +523,9 @@ export const register: Register = (on, options) => {
         const before = turnEdits.get(turnId) ?? []
         turnEdits.set(turnId, [...before, ...made])
         if (turnEdits.size > HISTORY) turnEdits.delete(turnEdits.keys().next().value!)
-        // the file's first row counts this edit now: rows read module
+        // the run's first row counts this edit now: rows read module
         // records, not an atom, so they redraw only when asked
-        if (made.some(m => before.some(x => x.file === m.file))) $.ui.invalidate('ui.render')
+        if (before.length > 0) $.ui.invalidate('ui.render')
       }
     }
     return r
@@ -709,10 +712,16 @@ async function foldedCard($: EngineInterface, t: Elements['terminal'], palette: 
     const l = lineCounts(x.output)
     return { add: n.add + l.add, del: n.del + l.del }
   }, { add: 0, del: 0 })
-  const name = editName(output, input) + (edits.length > 1 ? ` ${G.times}${edits.length}` : '')
+  // several files: `Edit x3  a.ts, b.ts`, each file by its name once
+  const files = [...new Set(edits.map(x => x.file))]
+  const many = files.length > 1
+  const names = files.map(f => f.split(/[\\/]/).pop() ?? f).join(', ')
+  // off the tree (an unfolded group's row) the count goes with the names
+  const name = many ? (isTreeRow ? names : `${G.times}${edits.length} ${names}`) : editName(output, input) + (edits.length > 1 ? ` ${G.times}${edits.length}` : '')
+  const tool = many ? `Edit ${G.times}${edits.length}  ` : 'Edit  '
   const key = `card:${id}`
   const isOpen = isAllOpen || ((await read($, expanded)) ?? []).includes(key)
-  return foldRow($, t, palette, key, name, countCells(palette, lines), isOpen, card, columns, isTreeRow, isLast)
+  return foldRow($, t, palette, key, name, countCells(palette, lines), isOpen, card, columns, isTreeRow, isLast, tool)
 }
 
 /**
@@ -788,7 +797,7 @@ function countCells(palette: Palette, lines: { add: number; del: number }): Arra
 
 // A card's one folded line (mark, name, tail cells: an edit's +N -M) with
 // the card under it once open; the press toggles `key` in the expanded list.
-function foldRow($: EngineInterface, t: Elements['terminal'], palette: Palette, key: string, name: string, tail: ReadonlyArray<[string, string]>, isOpen: boolean, card: RenderElement, columns: number, isTreeRow = false, isLast = false): RenderElement {
+function foldRow($: EngineInterface, t: Elements['terminal'], palette: Palette, key: string, name: string, tail: ReadonlyArray<[string, string]>, isOpen: boolean, card: RenderElement, columns: number, isTreeRow = false, isLast = false, tool = 'Edit  '): RenderElement {
   const toggle = () => void update($, expanded, xs => ((xs ?? []).includes(key) ? (xs ?? []).filter(x => x !== key) : [...(xs ?? []), key].slice(-HISTORY)))
   // A Button's label takes no color: the mark, the tool and the counts are
   // Text in the tree row's colors, and the press sits on the path, dim as a
@@ -805,7 +814,7 @@ function foldRow($: EngineInterface, t: Elements['terminal'], palette: Palette, 
     key: `${key}:${k}`, plain: true, ...(dim ? { dimColor: true } : {}), label, onPress: toggle,
     hover: { color, backgroundColor: palette.rowHover, inverse: false, dimColor: false },
   })
-  const used = 3 + 2 + (isTreeRow ? 6 : 0) + name.length + tail.reduce((n, [label]) => n + label.length, 0)
+  const used = 3 + 2 + (isTreeRow ? tool.length : 0) + name.length + tail.reduce((n, [label]) => n + label.length, 0)
   const head = t.Box({
     key: `row:${key}`,
     hover: { backgroundColor: palette.rowHover },
@@ -813,7 +822,7 @@ function foldRow($: EngineInterface, t: Elements['terminal'], palette: Palette, 
     children: [
       ...(isTreeRow ? [t.Text({ color: palette.faint, children: [(isLast ? G.arcBL : G.tee) + G.rule + ' '] })] : []),
       press('mark', (isOpen ? G.down : G.right) + ' ', palette.meta),
-      ...(isTreeRow ? [press('tool', 'Edit  ', palette.bold)] : []),
+      ...(isTreeRow ? [press('tool', tool, palette.bold)] : []),
       press('name', name, palette.path, true),
       ...tail.map(([label, color], i) => press(`tail${i}`, label, color)),
       press('rest', ' '.repeat(Math.max(1, columns - 6 - used)), palette.faint),

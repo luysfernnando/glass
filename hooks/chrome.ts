@@ -631,6 +631,43 @@ export function renderBashResult(t: Table, p: Palette, lines: string[], files: R
   return t.Box({ flexDirection: 'column', children: rows })
 }
 
+// ---- edit runs -----------------------------------------------------------
+
+/**
+ * The keys of the turn's edits that draw as one row with the edit `key`, in
+ * call order: edits of one file, and edits called back to back (no text, no
+ * other tool between: owner's request, 2026-10-05, `Edit x3 a.ts, b.ts`),
+ * chained. `order` is the turn's main-loop calls; a Bash edit links by file.
+ */
+export function editRunKeys(edits: ReadonlyArray<{ id: string; key: string; file: string }>, order: ReadonlyArray<{ id: string; tool: string; afterText: boolean }>, key: string): string[] {
+  const streak = new Map<string, number>()
+  let s = 0
+  let prevEdit = false
+  for (const c of order) {
+    const isEdit = c.tool === 'Edit' || c.tool === 'Write'
+    if (!isEdit || c.afterText || !prevEdit) s++
+    if (isEdit) streak.set(c.id, s)
+    prevEdit = isEdit
+  }
+  const root = edits.map((_, i) => i)
+  const find = (i: number): number => (root[i] === i ? i : (root[i] = find(root[i]!)))
+  const byFile = new Map<string, number>()
+  const byStreak = new Map<number, number>()
+  edits.forEach((x, i) => {
+    const f = byFile.get(x.file)
+    if (f === undefined) byFile.set(x.file, i)
+    else root[find(i)] = find(f)
+    const n = x.key === x.id ? streak.get(x.id) : undefined
+    if (n === undefined) return
+    const at = byStreak.get(n)
+    if (at === undefined) byStreak.set(n, i)
+    else root[find(i)] = find(at)
+  })
+  const mine = edits.findIndex(x => x.key === key)
+  if (mine < 0) return []
+  return edits.filter((_, i) => find(i) === find(mine)).map(x => x.key)
+}
+
 // ---- folded group --------------------------------------------------------
 
 export type GroupCall = { tool: string; input?: unknown; output?: unknown; isRunning: boolean; isErrored: boolean; isInterrupted: boolean }

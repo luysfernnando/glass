@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { CLOCK_CELLS, callScope, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, rel, safeText, setCwd, setHome } from '../hooks/chrome'
+import { CLOCK_CELLS, callScope, editRunKeys, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, rel, safeText, setCwd, setHome } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { highlight, langOf } from '../hooks/highlight'
 import { parseMarkdown } from '../hooks/markdown'
@@ -497,4 +497,29 @@ test('rel: a path in the project is relative, a session temp path keeps what is 
   expect(rel('/etc/hosts')).toBe('/etc/hosts')
   setCwd('')
   setHome('')
+})
+
+test('edit runs: back-to-back edits join, text or another tool between splits, a file joins across', () => {
+  const order = [
+    { id: 'a', tool: 'Write', afterText: false },
+    { id: 'b', tool: 'Edit', afterText: false },
+    { id: 'c', tool: 'Bash', afterText: false },
+    { id: 'd', tool: 'Edit', afterText: false },
+    { id: 'e', tool: 'Edit', afterText: true },
+    { id: 'f', tool: 'Edit', afterText: false },
+  ]
+  const edits = [
+    { id: 'a', key: 'a', file: '/r/x.ts' },
+    { id: 'b', key: 'b', file: '/r/y.ts' },
+    { id: 'd', key: 'd', file: '/r/z.ts' },
+    { id: 'e', key: 'e', file: '/r/w.ts' },
+    { id: 'f', key: 'f', file: '/r/v.ts' },
+  ]
+  expect(editRunKeys(edits, order, 'a')).toEqual(['a', 'b'])
+  expect(editRunKeys(edits, order, 'd')).toEqual(['d'])
+  expect(editRunKeys(edits, order, 'e')).toEqual(['e', 'f'])
+  // a Bash edit of x.ts joins x.ts's run, and through it the streak
+  const withBash = [...edits, { id: 'c', key: 'c:/r/x.ts', file: '/r/x.ts' }]
+  expect(editRunKeys(withBash, order, 'c:/r/x.ts')).toEqual(['a', 'b', 'c:/r/x.ts'])
+  expect(editRunKeys(edits, order, 'nope')).toEqual([])
 })
