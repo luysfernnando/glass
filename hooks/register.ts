@@ -127,6 +127,21 @@ export const register: Register = (on, options) => {
   // each turn's main-loop calls in order, and whether Claude wrote text
   // since the call before: the air rule below reads both
   const turnOrder = new Map<string, { id: string; tool: string; afterText: boolean }[]>()
+  // each turn's done edits in call order: a file's edits draw as one row
+  const turnEdits = new Map<string, EditDone[]>()
+  /**
+   * The turn's edits of the file `id` edited, null when it is the only one.
+   * The row can draw before `tool.call` records the edit: then `output`
+   * names the file, and the edit counts last.
+   */
+  const editRun = (id: string, output: unknown): EditDone[] | null => {
+    const all = turnEdits.get(callTurn.get(id) ?? '') ?? []
+    const file = all.find(x => x.id === id)?.file ?? (output as { filePath?: unknown } | undefined)?.filePath
+    if (typeof file !== 'string') return null
+    const run = all.filter(x => x.file === file)
+    if (!run.some(x => x.id === id)) run.push({ id, file, output, input: { file_path: file } })
+    return run.length > 1 ? run : null
+  }
   let textSinceCall = false
   let foldedTurns = new Set<string>()
   let expandAllNow = false
@@ -319,7 +334,7 @@ export const register: Register = (on, options) => {
         },
       }))
     }
-    rows.push(...(await editRows($, t, palette, expandAllNow, e.props.calls, e.viewport?.columns ?? 80)))
+    rows.push(...(await editRows($, t, palette, expandAllNow, e.props.calls, e.viewport?.columns ?? 80, editRun)))
     if (rows.length === 0) return next(e)
     return rows.length === 1 ? rows[0]! : t.Box({ flexDirection: 'column', children: rows })
   })
@@ -335,7 +350,7 @@ export const register: Register = (on, options) => {
     // an Edit's or a Write's diff, drawn as glass draws it (owner's request, 2026-10-03)
     if ((e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isErrored) {
       const input = (e.props as { input?: unknown }).input
-      return (await foldedCard($, $.ui.resolve(e), palette, expandAllNow, e.props.tool_use_id, e.props.output, input, e.viewport?.columns ?? 80, !grouped.has(e.props.tool_use_id))) ?? next(e)
+      return (await foldedCard($, $.ui.resolve(e), palette, expandAllNow, e.props.tool_use_id, e.props.output, input, e.viewport?.columns ?? 80, !grouped.has(e.props.tool_use_id), editRun(e.props.tool_use_id, e.props.output))) ?? next(e)
     }
     // a backgrounded agent: one trunked line in place of the engine's body
     if (e.props.tool === 'Agent' || e.props.tool === 'Task') {
@@ -431,6 +446,16 @@ export const register: Register = (on, options) => {
       if (id) callMs.set(id, ms)
       if (id) liveCalls.delete(id)
       if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: r.isError ? 'failed' : 'ok', ms })
+      const args = e as unknown as Record<string, unknown>
+      if (id && turnId && !r.isError && (e.tool === 'Edit' || e.tool === 'Write') && typeof args.file_path === 'string') {
+        const file = args.file_path
+        const before = turnEdits.get(turnId) ?? []
+        turnEdits.set(turnId, [...before, { id, file, output: r.result, input: { file_path: file } }])
+        if (turnEdits.size > HISTORY) turnEdits.delete(turnEdits.keys().next().value!)
+        // the file's first row counts this edit now: rows read module
+        // records, not an atom, so they redraw only when asked
+        if (before.some(x => x.file === file)) $.ui.invalidate('ui.render')
+      }
     }
     return r
   })
@@ -596,13 +621,28 @@ function editName(output: unknown, input: unknown): string {
 
 // An Edit's or a Write's card folded to one line by default: a press on the
 // line, or /expand (`isAllOpen`), opens it. Null when there is no card.
-async function foldedCard($: EngineInterface, t: Elements['terminal'], palette: Palette, isAllOpen: boolean, id: string, output: unknown, input: unknown, columns: number, isTreeRow = false): Promise<RenderElement | null> {
-  const card = editCard(t, palette, output, input, columns)
-  if (!card) return null
+// A file's edits in one turn draw as one row (owner's request, 2026-10-05):
+// the first edit's row counts them all (`demo.txt x2 +2 -2`) and opens to
+// every card in call order; the later edits draw nothing. `run` is the
+// file's edits this turn, null when the edit is the file's only one.
+async function foldedCard($: EngineInterface, t: Elements['terminal'], palette: Palette, isAllOpen: boolean, id: string, output: unknown, input: unknown, columns: number, isTreeRow = false, run: ReadonlyArray<EditDone> | null = null): Promise<RenderElement | null> {
+  if (run && run[0]!.id !== id) return t.Box({ display: 'none', children: [] })
+  const edits = run ?? [{ id, file: '', output, input }]
+  const cards = edits.map(x => editCard(t, palette, x.output, x.input, columns)).filter((c): c is RenderElement => c !== null)
+  if (cards.length === 0) return null
+  const card = cards.length === 1 ? cards[0]! : t.Box({ flexDirection: 'column', children: cards })
+  const lines = edits.reduce((n, x) => {
+    const l = lineCounts(x.output)
+    return { add: n.add + l.add, del: n.del + l.del }
+  }, { add: 0, del: 0 })
+  const name = editName(output, input) + (edits.length > 1 ? ` ${G.times}${edits.length}` : '')
   const key = `card:${id}`
   const isOpen = isAllOpen || ((await read($, expanded)) ?? []).includes(key)
-  return foldRow($, t, palette, key, editName(output, input), countCells(palette, lineCounts(output)), isOpen, card, columns, isTreeRow)
+  return foldRow($, t, palette, key, name, countCells(palette, lines), isOpen, card, columns, isTreeRow)
 }
+
+/** A done Edit or Write of the main loop, as a file's run of edits holds it. */
+type EditDone = { id: string; file: string; output: unknown; input: unknown }
 
 // A Bash call that rewrote files draws as edits (owner's request,
 // 2026-10-05): the row names what the command did by its description, not
@@ -687,10 +727,10 @@ function isFoldableEdit(c: GroupedCall): boolean {
 }
 
 /** A group's edits, each its own folded tree row, in call order. */
-async function editRows($: EngineInterface, t: Elements['terminal'], palette: Palette, isAllOpen: boolean, calls: ReadonlyArray<GroupedCall>, columns: number): Promise<RenderElement[]> {
+async function editRows($: EngineInterface, t: Elements['terminal'], palette: Palette, isAllOpen: boolean, calls: ReadonlyArray<GroupedCall>, columns: number, runOf: (id: string, output: unknown) => EditDone[] | null): Promise<RenderElement[]> {
   const rows: RenderElement[] = []
   for (const c of calls.filter(isFoldableEdit)) {
-    const row = await foldedCard($, t, palette, isAllOpen, c.tool_use_id as string, c.output, c.input, columns, true)
+    const row = await foldedCard($, t, palette, isAllOpen, c.tool_use_id as string, c.output, c.input, columns, true, runOf(c.tool_use_id as string, c.output))
     if (row) rows.push(row)
   }
   return rows
