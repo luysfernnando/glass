@@ -249,6 +249,10 @@ sites (fence header, footer) and gains none.
   `path`. The subject wraps never: `wrap: 'truncate-end'` is allowed here
   alone, since ctrl+o shows the whole call. (This is a stated exception
   to the `Global` no-truncate rule, which protects reply text.)
+- Only the subject gives way. The connector and mark sit in one box that
+  never shrinks (`rowHead`), on tool, group, event and message rows alike:
+  a long subject once squeezed the mark's cell and its gap with it
+  (`○Bash  cat > …`, 2026-10-05).
 - Right column: the call's wall time from `tool.call` (clock around
   `await next(e)`, keyed by `tool_use_id`, main loop only), formatted
   `0.8s`, `12s`, `1m 04s`, in `meta`; Bash adds `· N lines` before it in

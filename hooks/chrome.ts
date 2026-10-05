@@ -291,6 +291,14 @@ function outputLines(output: unknown): number | null {
   return text === '' ? 0 : text.split('\n').length
 }
 
+// The connector and mark that open a tree row, in a box that never shrinks.
+// A Text in a row shrinks with its siblings: when the subject overflows, the
+// row squeezed the two-cell `o ` mark to one cell and the gap after it went
+// (`oBash  cat > ...`, seen 2026-10-05). Only the subject truncates now.
+function rowHead(t: Table, ...cells: RenderElement[]): RenderElement {
+  return t.Box({ flexDirection: 'row', flexShrink: 0, children: cells })
+}
+
 // `|- v Bash  git log --oneline . 3 lines                        0.8s`
 // Connector `faint`, mark in its status color, the name in `tool` (bold
 // while live), the subject truncating (ctrl+o has the whole call), the
@@ -313,8 +321,7 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
     flexDirection: 'row',
     hover: { scope: callScope(row.tool_use_id), backgroundColor: p.rowHover },
     children: [
-      t.Text({ color: p.faint, children: [(o.last ? G.elbow : G.tee) + G.rule + ' '] }),
-      t.Text({ color: markColor, children: [mark + ' '] }),
+      rowHead(t, t.Text({ color: p.faint, children: [(o.last ? G.elbow : G.tee) + G.rule + ' '] }), t.Text({ color: markColor, children: [mark + ' '] })),
       t.Box({
         flexGrow: 1,
         flexShrink: 1,
@@ -648,8 +655,7 @@ export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupC
     ...(o.key ? { key: `group:${o.key}`, hover: { backgroundColor: p.rowHover } } : {}),
     flexDirection: 'row',
     children: [
-      t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }),
-      t.Text({ color: p.meta, children: [G.right + ' '] }),
+      rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: p.meta, children: [G.right + ' '] })),
       t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.faint, children: [...parts, tail] })] }),
       ...(button ? [t.Box({ flexShrink: 0, children: [button] })] : []),
     ],
@@ -679,8 +685,7 @@ export function renderEventRow(t: Table, p: Palette, text: string, task: EventTa
     flexDirection: 'row',
     hover: { backgroundColor: p.rowHover },
     children: [
-      t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }),
-      t.Text({ color: failed ? p.err : p.ok, children: [(failed ? G.cross : G.tick) + ' '] }),
+      rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: failed ? p.err : p.ok, children: [(failed ? G.cross : G.tick) + ' '] })),
       t.Box({ flexGrow: 1, flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.meta, children: agent ? [t.Text({ color: p.tool, children: ['Agent'] }), '  ' + agent[1]!] : [first] })] }),
       ...(right ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.faint, children: [right] })] })] : []),
     ],
@@ -700,8 +705,7 @@ export function renderMessageRow(t: Table, p: Palette, name: string): RenderElem
     flexDirection: 'row',
     hover: { backgroundColor: p.rowHover },
     children: [
-      t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }),
-      t.Text({ color: p.faint, children: [G.ring + ' '] }),
+      rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: p.faint, children: [G.ring + ' '] })),
       t.Box({ flexGrow: 1, flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.private, children: [`Message from @${safeText(name, 80)}`] })] }),
       t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.faint, children: ['ctrl+o'] })] }),
     ],
