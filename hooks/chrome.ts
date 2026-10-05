@@ -330,16 +330,19 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
   return spaced(t, p, t.Box({
     key: `row:${row.tool_use_id}`,
     flexDirection: 'row',
-    hover: { scope: callScope(row.tool_use_id), backgroundColor: p.rowHover },
+    // a Read's row opens nothing, so it does not light under the pointer
+    ...(row.tool === 'Read' ? {} : { hover: { scope: callScope(row.tool_use_id), backgroundColor: p.rowHover } }),
     children: [
-      rowHead(t, t.Text({ color: p.faint, children: [(o.last ? G.elbow : G.tee) + G.rule + ' '] }), t.Text({ color: markColor, children: [mark + ' '] })),
+      // the turn's last row closes the tree with the rounded corner
+      // (owner's request, 2026-10-05)
+      rowHead(t, t.Text({ color: p.faint, children: [(o.last ? G.arcBL : G.tee) + G.rule + ' '] }), t.Text({ color: markColor, children: [mark + ' '] })),
       t.Box({
         flexGrow: 1,
         flexShrink: 1,
         children: [
           t.Text({
             wrap: 'truncate-end',
-            children: [t.Text({ color: p.tool, bold: live, children: [row.tool] }), ...(subject.length ? ['  ', ...subject] : []), ...tail],
+            children: [t.Text({ bold: live, children: [row.tool] }), ...(subject.length ? ['  ', ...subject] : []), ...tail],
           }),
         ],
       }),
@@ -670,7 +673,10 @@ export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupC
       const s = str(a, 'description') ?? str(a, 'file_path') ?? str(a, 'path') ?? str(a, 'pattern') ?? str(a, 'query') ?? str(a, 'url') ?? clip((str(a, 'command') ?? '').replace(/\s+/g, ' '), 60)
       return safeText(rel(s).replace(/\s+/g, ' '), 200)
     }).filter(s => s !== ''))]
-    const parts: RenderNode[] = [t.Text({ color: p.tool, children: [group.length > 1 ? `${tool} ${G.times}${group.length}` : tool] })]
+    // the tool's name in the terminal's own color, as an Edit row's Button
+    // label must be (owner's request, 2026-10-05: one color for every name)
+    const name = t.Text({ children: [group.length > 1 ? `${tool} ${G.times}${group.length}` : tool] })
+    const parts: RenderNode[] = []
     if (subjects.length) parts.push('  ' + subjects.join(sep))
     if (isEditTool(tool)) {
       const k = group.filter(c => !c.isErrored).reduce((n, c) => {
@@ -694,7 +700,7 @@ export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupC
       flexDirection: 'row',
       children: [
         rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: markColor, children: [mark + ' '] })),
-        t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.faint, children: parts })] }),
+        t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', children: [name, t.Text({ color: p.faint, children: parts })] })] }),
       ],
     }))
   })
@@ -702,7 +708,7 @@ export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupC
 }
 
 // tools a folded group lists without a fold: their line holds the whole call
-const FLAT_TOOLS = new Set(['Read', 'Glob', 'Grep'])
+export const FLAT_TOOLS: ReadonlySet<string> = new Set(['Read', 'Glob', 'Grep'])
 
 // ---- events after the turn -----------------------------------------------
 
@@ -728,7 +734,7 @@ export function renderEventRow(t: Table, p: Palette, text: string, task: EventTa
     hover: { backgroundColor: p.rowHover },
     children: [
       rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: failed ? p.err : p.ok, children: [(failed ? G.cross : G.tick) + ' '] })),
-      t.Box({ flexGrow: 1, flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.meta, children: agent ? [t.Text({ color: p.tool, children: ['Agent'] }), '  ' + agent[1]!] : [first] })] }),
+      t.Box({ flexGrow: 1, flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', children: agent ? [t.Text({ children: ['Agent'] }), t.Text({ color: p.meta, children: ['  ' + agent[1]!] })] : [t.Text({ color: p.meta, children: [first] })] })] }),
       ...(right ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.faint, children: [right] })] })] : []),
     ],
   }))

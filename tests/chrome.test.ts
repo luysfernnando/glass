@@ -87,7 +87,7 @@ test('a tree row: hollow mark while live, tick and line count once done, elbow o
   expect(live).toContain('git status')
   expect(live).not.toContain('lines')
   const done = flat(renderTreeRow(t, p, { ...base, isRunning: false, output: { stdout: 'a\nb\nc\n', stderr: '' } }, { last: true, durationMs: 800 }))
-  expect(done.startsWith(G.pipe + G.elbow + G.rule + ' ' + G.tick + ' Bash')).toBe(true)
+  expect(done.startsWith(G.pipe + G.arcBL + G.rule + ' ' + G.tick + ' Bash')).toBe(true)
   expect(done).toContain('3 lines')
   expect(done.endsWith('0.8s')).toBe(true)
   // a done Bash row keeps its command's token colors

@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
-import { cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, setHome, lineCounts, spaced, trunked, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { FLAT_TOOLS, cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, setHome, lineCounts, rel, spaced, trunked, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk, TreeOptions, TreeRow } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -39,6 +39,10 @@ const ESC = String.fromCodePoint(0x1b)
 const MAX_PAINTED_LINES = 3
 // tools whose row never carries a body: a run of them packs without air rows
 const COMPACT = new Set(['Read'])
+
+// pipes the reply's trunk holds before its box cuts them to the reply's
+// height: a reply taller than this loses the trunk below it
+const TRUNK_ROWS = 2000
 
 // Live things, ticked once a second: main-loop calls still running (their
 // row's clock is a Raster the ticker blits, no redraw) and subagents still
@@ -127,22 +131,29 @@ export const register: Register = (on, options) => {
   // each turn's main-loop calls in order, and whether Claude wrote text
   // since the call before: the air rule below reads both
   const turnOrder = new Map<string, { id: string; tool: string; afterText: boolean }[]>()
+  // What closes each finished turn's tree with the rounded corner (owner's
+  // request, 2026-10-05): its reply, by the reply's text, or its last call
+  // when no text came after it. Filled at turn.complete, which then asks
+  // every row to draw again; rows read these records, never an atom.
+  const closedAnswers = new Set<string>()
+  const closedTools = new Set<string>()
   // each turn's done edits in call order: a file's edits draw as one row
   const turnEdits = new Map<string, EditDone[]>()
   /**
-   * The turn's edits of the file `id` edited, null when it is the only one.
-   * The row can draw before `tool.call` records the edit: then `output`
-   * names the file, and the edit counts last.
+   * The turn's edits of the file the edit `key` changed, null when it is the
+   * file's only one. The row can draw before `tool.call` records the edit:
+   * then `output` names the file, and the edit counts last.
    */
-  const editRun = (id: string, output: unknown): EditDone[] | null => {
+  const editRun: RunOf = (key, id, output) => {
     const all = turnEdits.get(callTurn.get(id) ?? '') ?? []
-    const file = all.find(x => x.id === id)?.file ?? (output as { filePath?: unknown } | undefined)?.filePath
+    const file = all.find(x => x.key === key)?.file ?? (output as { filePath?: unknown } | undefined)?.filePath
     if (typeof file !== 'string') return null
     const run = all.filter(x => x.file === file)
-    if (!run.some(x => x.id === id)) run.push({ id, file, output, input: { file_path: file } })
+    if (!run.some(x => x.key === key)) run.push({ id, key, file, output, input: { file_path: file } })
     return run.length > 1 ? run : null
   }
   let textSinceCall = false
+  let hasCwd = false
   let foldedTurns = new Set<string>()
   let expandAllNow = false
 
@@ -167,6 +178,7 @@ export const register: Register = (on, options) => {
     $.ui.status(undefined)
     try {
       setCwd(await $.session.cwd())
+      hasCwd = true
     } catch {
       setCwd('')
     }
@@ -216,12 +228,45 @@ export const register: Register = (on, options) => {
     const text = e.props.text
     if (text.trim() === '') return next(e)
     const t = $.ui.resolve(e)
-    // no bullet: the assistant header under the user row carries it
-    return renderReply(t, parseMarkdown(text), palette, {
+    // no bullet: the assistant header under the user row carries it. The
+    // reply sits on the tool tree's trunk (owner's request, 2026-10-05): a
+    // left border the reply's height, at the trunk's column, so the turn
+    // reads as one tree; nothing closes it. No gutter marks: the trunk takes
+    // the cells they drew in. 5 cells: the inset 2, the bar 1, its pad 2.
+    // The bar is a Box laid over the reply's left edge, top to bottom, its
+    // column of pipes cut to the reply's height: a Box has no left-only
+    // border, and the wrapped height is the layout's to know.
+    const columns = e.viewport?.columns ?? 80
+    const reply = renderReply(t, parseMarkdown(text), palette, {
       bullet: false,
       first: e.props.isFirstOfReply,
-      columns: e.viewport?.columns ?? 80,
-      marks,
+      columns: columns - 5,
+      marks: false,
+    })
+    // The turn's last reply closes the tree on a row of its own under the
+    // text: a corner on the last text row read as one more branch
+    // (owner's call, 2026-10-05).
+    const closes = [...closedAnswers].some(a => a.endsWith(text.trim()))
+    return t.Box({
+      marginLeft: 2,
+      paddingLeft: 1,
+      ...(closes ? { paddingBottom: 1 } : {}),
+      position: 'relative',
+      children: [
+        t.Box({
+          position: 'absolute',
+          top: 0,
+          bottom: 0,
+          left: 0,
+          width: 1,
+          overflow: 'hidden',
+          children: [t.Text({ color: palette.faint, children: [Array(TRUNK_ROWS).fill(G.pipe).join('\n')] })],
+        }),
+        reply,
+        ...(closes
+          ? [t.Box({ position: 'absolute', bottom: 0, left: 0, children: [t.Text({ color: palette.faint, children: [G.arcBL + G.rule] })] })]
+          : []),
+      ],
     })
   })
 
@@ -243,23 +288,14 @@ export const register: Register = (on, options) => {
     const text = e.props.text
     if (text.trim() === '') return next(e)
     const known = [...((await read($, prompts)) ?? [])].reverse().find(p => p.text === text) ?? null
-    const turnId = known?.turnId ?? null
-    let turn = null
-    if (turnId) {
-      const list = ((await read($, calls)) ?? {})[turnId] ?? []
-      const done = ((await read($, turns)) ?? []).find(h => h.turnId === turnId) ?? null
-      turn = {
-        turnId,
-        calls: list,
-        done,
-        onCopy: done ? (press: { surface: 'terminal' | 'desktop' | 'vscode' | 'mobile' }) => void $.ui.copy({ text: done.answer, surface: press.surface }) : null,
-      }
-    }
+    // no dots line under the header: the turn's dots and counts live in
+    // agent-hud's box above the prompt (owner's request, 2026-10-05), and
+    // the row no longer reads `calls`, so a call's end redraws it no more
     return renderUserRow(t, palette, {
       text,
       submittedAt: known?.submittedAt ?? null,
       startedAt: known?.startedAt ?? null,
-      turn,
+      turn: null,
       columns: e.viewport?.columns ?? 80,
     })
   })
@@ -281,7 +317,7 @@ export const register: Register = (on, options) => {
     // no elbow: knowing the last call needs a subscription to the turn
     const started = liveCalls.get(id)
     const clock = e.props.isRunning && started ? clockCells((await $.clock.now()) - started.t0, palette.meta) : undefined
-    const row = renderTreeRow(t, palette, e.props, { last: false, durationMs: callMs.get(id) ?? null, air, ...(clock ? { clock } : {}) })
+    const row = renderTreeRow(t, palette, e.props, { last: closedTools.has(id), durationMs: callMs.get(id) ?? null, air, ...(clock ? { clock } : {}) })
     if ((e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isRunning && !e.props.isErrored) {
       // a done edit is one folded tree row its ToolResult draws (in a group,
       // the folded group's), not this row plus a second line under it
@@ -292,8 +328,8 @@ export const register: Register = (on, options) => {
     const columns = e.viewport?.columns ?? 80
     const result = e.props.isErrored ? null : bashResult(e.props.output)
     if (result && result.files.length > 0) {
-      const opts = { last: false, durationMs: callMs.get(id) ?? null, air }
-      return bashEdits($, t, palette, expandAllNow, e.props, result, columns, opts)
+      const opts = { last: closedTools.has(id), durationMs: callMs.get(id) ?? null, air }
+      return bashEdits($, t, palette, expandAllNow, e.props, result, columns, opts, editRun)
     }
     const body = bashBody(t, palette, e.props.output, e.props.isErrored, columns)
     return body ? t.Box({ flexDirection: 'column', children: [row, body] }) : row
@@ -303,7 +339,11 @@ export const register: Register = (on, options) => {
   // button that unfolds it where it is
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
-    if (e.props.isExpanded) {
+    // a run of reads and searches alone has nothing to open: its row lists
+    // every path, so a press that unfolds it draws the same rows again
+    // (owner's request, 2026-10-05); it stays folded unless a call failed
+    const flatOnly = e.props.calls.every((c: { tool: string; isErrored?: boolean; isInterrupted?: boolean }) => FLAT_TOOLS.has(c.tool) && !c.isErrored && !c.isInterrupted)
+    if (e.props.isExpanded && !flatOnly) {
       remember(grouped, e.props.calls)
       // opened, the group lists its commands alone: its edits show folded
       return next(e)
@@ -316,7 +356,7 @@ export const register: Register = (on, options) => {
     // call in it failed: a red mark must never hide behind a count
     const failed = e.props.calls.some((c: { isErrored?: boolean; isInterrupted?: boolean }) => c.isErrored || c.isInterrupted)
     const all = expandAllNow
-    if (all || failed || ((await read($, expanded)) ?? []).includes(id)) {
+    if ((all && !flatOnly) || failed || ((await read($, expanded)) ?? []).includes(id)) {
       remember(grouped, e.props.calls)
       return next({ ...e, props: { ...e.props, isExpanded: true } })
     }
@@ -347,10 +387,18 @@ export const register: Register = (on, options) => {
     if (e.surface !== 'terminal') return next(e)
     const turnId = callTurn.get(e.props.tool_use_id)
     if (turnId && foldedTurns.has(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
+    // a Read's result draws nothing: its row's path says it all, and a
+    // press that unfolded the engine's result opened an empty row
+    // (owner's request, 2026-10-05); a failed Read keeps its error
+    if (e.props.tool === 'Read' && !e.props.isErrored) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     // an Edit's or a Write's diff, drawn as glass draws it (owner's request, 2026-10-03)
     if ((e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isErrored) {
       const input = (e.props as { input?: unknown }).input
-      return (await foldedCard($, $.ui.resolve(e), palette, expandAllNow, e.props.tool_use_id, e.props.output, input, e.viewport?.columns ?? 80, !grouped.has(e.props.tool_use_id), editRun(e.props.tool_use_id, e.props.output))) ?? next(e)
+      const run = editRun(e.props.tool_use_id, e.props.tool_use_id, e.props.output)
+      // the row closes the tree when the turn's last call is this edit or
+      // one it counts
+      const isLast = (run ?? [{ id: e.props.tool_use_id }]).some(x => closedTools.has(x.id))
+      return (await foldedCard($, $.ui.resolve(e), palette, expandAllNow, e.props.tool_use_id, e.props.output, input, e.viewport?.columns ?? 80, !grouped.has(e.props.tool_use_id), run, isLast)) ?? next(e)
     }
     // a backgrounded agent: one trunked line in place of the engine's body
     if (e.props.tool === 'Agent' || e.props.tool === 'Task') {
@@ -376,6 +424,17 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.start', async ($, e, next) => {
+    // a hot reload skips session.start: without the cwd every path drew
+    // from the home folder (~/Documents/...), so each turn sets it again
+    if (!hasCwd) {
+      try {
+        setCwd(await $.session.cwd())
+        setHome((await $.env.get('HOME').catch(() => undefined)) ?? '')
+        hasCwd = true
+      } catch {
+        // the paths stay long this turn; the next one tries again
+      }
+    }
     live.turnId = e.turnId
     live.startedAt = await $.clock.now()
     live.tools = 0
@@ -447,14 +506,23 @@ export const register: Register = (on, options) => {
       if (id) liveCalls.delete(id)
       if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: r.isError ? 'failed' : 'ok', ms })
       const args = e as unknown as Record<string, unknown>
-      if (id && turnId && !r.isError && (e.tool === 'Edit' || e.tool === 'Write') && typeof args.file_path === 'string') {
-        const file = args.file_path
+      // the edits this call made: an Edit's or a Write's file, or each file
+      // a Bash command rewrote (sed, a script), keyed by call and file
+      const made: EditDone[] = []
+      if (id && !r.isError && (e.tool === 'Edit' || e.tool === 'Write') && typeof args.file_path === 'string') {
+        made.push({ id, key: id, file: args.file_path, output: r.result, input: { file_path: args.file_path } })
+      } else if (id && !r.isError && e.tool === 'Bash') {
+        for (const f of bashResult(r.result)?.files ?? []) {
+          if (f.hunks.length > 0) made.push(bashEditDone(id, f))
+        }
+      }
+      if (turnId && made.length > 0) {
         const before = turnEdits.get(turnId) ?? []
-        turnEdits.set(turnId, [...before, { id, file, output: r.result, input: { file_path: file } }])
+        turnEdits.set(turnId, [...before, ...made])
         if (turnEdits.size > HISTORY) turnEdits.delete(turnEdits.keys().next().value!)
         // the file's first row counts this edit now: rows read module
         // records, not an atom, so they redraw only when asked
-        if (before.some(x => x.file === file)) $.ui.invalidate('ui.render')
+        if (made.some(m => before.some(x => x.file === m.file))) $.ui.invalidate('ui.render')
       }
     }
     return r
@@ -538,6 +606,11 @@ export const register: Register = (on, options) => {
       finishedAt,
     }
     await update($, turns, h => [...(h ?? []), turn].slice(-HISTORY))
+    const answer = e.answer.trim()
+    if (textSinceCall && answer !== '') closedAnswers.add(answer)
+    else if (live.lastToolId) closedTools.add(live.lastToolId)
+    for (const set of [closedAnswers, closedTools]) if (set.size > HISTORY) set.delete(set.values().next().value!)
+    $.ui.invalidate('ui.render')
     // a finished turn stays open: the tree is the evidence of what the
     // prompt did (owner's call, 2026-10-03; /fold tucks old turns away)
     return next(e)
@@ -615,7 +688,8 @@ function editName(output: unknown, input: unknown): string {
   const out = output as { filePath?: unknown; type?: unknown } | undefined
   const args = input as { file_path?: unknown } | undefined
   const path = typeof out?.filePath === 'string' ? out.filePath : typeof args?.file_path === 'string' ? args.file_path : ''
-  const name = path.split(/[\\/]/).pop() || path
+  // the short path a Read's row shows, not the bare name (2026-10-05)
+  const name = rel(path)
   return out?.type === 'create' ? `Created ${name}` : name
 }
 
@@ -625,9 +699,9 @@ function editName(output: unknown, input: unknown): string {
 // the first edit's row counts them all (`demo.txt x2 +2 -2`) and opens to
 // every card in call order; the later edits draw nothing. `run` is the
 // file's edits this turn, null when the edit is the file's only one.
-async function foldedCard($: EngineInterface, t: Elements['terminal'], palette: Palette, isAllOpen: boolean, id: string, output: unknown, input: unknown, columns: number, isTreeRow = false, run: ReadonlyArray<EditDone> | null = null): Promise<RenderElement | null> {
-  if (run && run[0]!.id !== id) return t.Box({ display: 'none', children: [] })
-  const edits = run ?? [{ id, file: '', output, input }]
+async function foldedCard($: EngineInterface, t: Elements['terminal'], palette: Palette, isAllOpen: boolean, id: string, output: unknown, input: unknown, columns: number, isTreeRow = false, run: ReadonlyArray<EditDone> | null = null, isLast = false): Promise<RenderElement | null> {
+  if (run && run[0]!.key !== id) return t.Box({ display: 'none', children: [] })
+  const edits = run ?? [{ id, key: id, file: '', output, input }]
   const cards = edits.map(x => editCard(t, palette, x.output, x.input, columns)).filter((c): c is RenderElement => c !== null)
   if (cards.length === 0) return null
   const card = cards.length === 1 ? cards[0]! : t.Box({ flexDirection: 'column', children: cards })
@@ -638,39 +712,72 @@ async function foldedCard($: EngineInterface, t: Elements['terminal'], palette: 
   const name = editName(output, input) + (edits.length > 1 ? ` ${G.times}${edits.length}` : '')
   const key = `card:${id}`
   const isOpen = isAllOpen || ((await read($, expanded)) ?? []).includes(key)
-  return foldRow($, t, palette, key, name, countCells(palette, lines), isOpen, card, columns, isTreeRow)
+  return foldRow($, t, palette, key, name, countCells(palette, lines), isOpen, card, columns, isTreeRow, isLast)
 }
 
-/** A done Edit or Write of the main loop, as a file's run of edits holds it. */
-type EditDone = { id: string; file: string; output: unknown; input: unknown }
+/**
+ * A done edit of the main loop, as a file's run of edits holds it: an Edit's
+ * or a Write's (`key` its call's id), or one file a Bash command rewrote
+ * (`key` the call's id and the file). `output` is the Edit's result shape.
+ */
+type EditDone = { id: string; key: string; file: string; output: unknown; input: unknown }
+
+/** The turn's edits of an edit's file; `key`, `id`, the edit's own output. */
+type RunOf = (key: string, id: string, output: unknown) => EditDone[] | null
+
+/** One file a Bash command rewrote, as an edit of its run. */
+function bashEditDone(id: string, f: ChangedFile): EditDone {
+  return {
+    id,
+    key: `${id}:${f.filePath}`,
+    file: f.filePath,
+    output: { filePath: f.filePath, structuredPatch: f.hunks, ...(f.created ? { type: 'create' } : {}) },
+    input: { file_path: f.filePath },
+  }
+}
 
 // A Bash call that rewrote files draws as edits (owner's request,
 // 2026-10-05): the row names what the command did by its description, not
 // the command itself; its output folds to one line; each file is an Edit
 // row folded to `+N -M`, as a folded group draws its edits.
-async function bashEdits($: EngineInterface, t: Elements['terminal'], palette: Palette, isAllOpen: boolean, call: TreeRow, r: { lines: string[]; files: ChangedFile[]; moreFiles: number }, columns: number, o: TreeOptions): Promise<RenderElement> {
+async function bashEdits($: EngineInterface, t: Elements['terminal'], palette: Palette, isAllOpen: boolean, call: TreeRow, r: { lines: string[]; files: ChangedFile[]; moreFiles: number }, columns: number, o: TreeOptions, runOf: RunOf): Promise<RenderElement> {
   const open = new Set((await read($, expanded)) ?? [])
   const isOpen = (key: string) => isAllOpen || open.has(key)
   const description = (call.input as { description?: unknown } | undefined)?.description
   const shown = typeof description === 'string' && description.trim() !== '' ? { ...call, input: { description } } : call
-  const rows: RenderElement[] = [renderTreeRow(t, palette, shown, o)]
+  // A file whose edits this turn began elsewhere draws in that edit's row
+  // (owner's request, 2026-10-05: a sed, a script and an Edit of one file
+  // are one row); a file without hunks keeps a plain line.
+  const files = r.files.flatMap(f => {
+    const done = bashEditDone(call.tool_use_id, f)
+    const run = f.hunks.length > 0 ? runOf(done.key, call.tool_use_id, done.output) : null
+    return run && run[0]!.key !== done.key ? [] : [{ f, done, run }]
+  })
+  const rows: RenderElement[] = []
+  // A command that printed nothing and only rewrote files is its edits
+  // alone, no row of its own (owner's request, 2026-10-05); the row stays
+  // when there is output to fold under it. The files close the tree when
+  // the call is the turn's last, not its row.
+  if (r.lines.length > 0 || files.length === 0) rows.push(renderTreeRow(t, palette, shown, { ...o, last: o.last && files.length === 0 && r.moreFiles === 0 }))
+  const closesAt = o.last && r.moreFiles === 0 ? files.length - 1 : -1
   if (r.lines.length > 0) {
     const key = `out:${call.tool_use_id}`
     const body = renderToolOutput(t, palette, r.lines, { columns, maxLines: MAX_PAINTED_LINES })
     const count = `  ${r.lines.length} line${r.lines.length === 1 ? '' : 's'}`
     rows.push(foldRow($, t, palette, key, 'output', [[count, palette.faint]], isOpen(key), body, columns))
   }
-  for (const f of r.files) {
-    const name = (f.created ? 'Created ' : f.deleted ? 'Deleted ' : '') + (f.filePath.split(/[\\/]/).pop() || f.filePath)
+  for (const [i, { f, done, run }] of files.entries()) {
     if (f.hunks.length === 0) {
-      rows.push(spaced(t, palette, t.Text({ wrap: 'truncate-end', children: [t.Text({ color: palette.faint, children: [G.tee + G.rule + '   '] }), t.Text({ color: palette.tool, children: ['Edit  '] }), t.Text({ color: palette.path, dimColor: true, children: [name] })] })))
+      const name = (f.created ? 'Created ' : f.deleted ? 'Deleted ' : '') + rel(f.filePath)
+      const corner = i === closesAt ? G.arcBL : G.tee
+      rows.push(spaced(t, palette, t.Text({ wrap: 'truncate-end', children: [t.Text({ color: palette.faint, children: [corner + G.rule + '   '] }), t.Text({ children: ['Edit  '] }), t.Text({ color: palette.path, dimColor: true, children: [name] })] })))
       continue
     }
-    const key = `card:${call.tool_use_id}:${f.filePath}`
-    const card = renderDiff(t, palette, f.hunks, { path: f.filePath, columns, last: false, ...(f.created ? { verb: 'Created' } : f.deleted ? { verb: 'Deleted' } : {}) })
-    rows.push(foldRow($, t, palette, key, name, countCells(palette, lineCounts({ structuredPatch: f.hunks })), isOpen(key), card, columns, true))
+    const row = await foldedCard($, t, palette, isAllOpen, done.key, done.output, done.input, columns, true, run, i === closesAt)
+    if (row) rows.push(row)
   }
   if (r.moreFiles > 0) rows.push(trunked(t, palette, 1, [t.Text({ color: palette.faint, children: [G.ellipsis + ` +${r.moreFiles} more file${r.moreFiles === 1 ? '' : 's'}`] })]))
+  if (rows.length === 0) return t.Box({ display: 'none', children: [] })
   return t.Box({ flexDirection: 'column', children: rows })
 }
 
@@ -681,7 +788,7 @@ function countCells(palette: Palette, lines: { add: number; del: number }): Arra
 
 // A card's one folded line (mark, name, tail cells: an edit's +N -M) with
 // the card under it once open; the press toggles `key` in the expanded list.
-function foldRow($: EngineInterface, t: Elements['terminal'], palette: Palette, key: string, name: string, tail: ReadonlyArray<[string, string]>, isOpen: boolean, card: RenderElement, columns: number, isTreeRow = false): RenderElement {
+function foldRow($: EngineInterface, t: Elements['terminal'], palette: Palette, key: string, name: string, tail: ReadonlyArray<[string, string]>, isOpen: boolean, card: RenderElement, columns: number, isTreeRow = false, isLast = false): RenderElement {
   const toggle = () => void update($, expanded, xs => ((xs ?? []).includes(key) ? (xs ?? []).filter(x => x !== key) : [...(xs ?? []), key].slice(-HISTORY)))
   // A Button's label takes no color: the mark, the tool and the counts are
   // Text in the tree row's colors, and the press sits on the path, dim as a
@@ -704,9 +811,9 @@ function foldRow($: EngineInterface, t: Elements['terminal'], palette: Palette, 
     hover: { backgroundColor: palette.rowHover },
     flexDirection: 'row',
     children: [
-      ...(isTreeRow ? [t.Text({ color: palette.faint, children: [G.tee + G.rule + ' '] })] : []),
+      ...(isTreeRow ? [t.Text({ color: palette.faint, children: [(isLast ? G.arcBL : G.tee) + G.rule + ' '] })] : []),
       press('mark', (isOpen ? G.down : G.right) + ' ', palette.meta),
-      ...(isTreeRow ? [press('tool', 'Edit  ', palette.tool)] : []),
+      ...(isTreeRow ? [press('tool', 'Edit  ', palette.bold)] : []),
       press('name', name, palette.path, true),
       ...tail.map(([label, color], i) => press(`tail${i}`, label, color)),
       press('rest', ' '.repeat(Math.max(1, columns - 6 - used)), palette.faint),
@@ -727,10 +834,10 @@ function isFoldableEdit(c: GroupedCall): boolean {
 }
 
 /** A group's edits, each its own folded tree row, in call order. */
-async function editRows($: EngineInterface, t: Elements['terminal'], palette: Palette, isAllOpen: boolean, calls: ReadonlyArray<GroupedCall>, columns: number, runOf: (id: string, output: unknown) => EditDone[] | null): Promise<RenderElement[]> {
+async function editRows($: EngineInterface, t: Elements['terminal'], palette: Palette, isAllOpen: boolean, calls: ReadonlyArray<GroupedCall>, columns: number, runOf: RunOf): Promise<RenderElement[]> {
   const rows: RenderElement[] = []
   for (const c of calls.filter(isFoldableEdit)) {
-    const row = await foldedCard($, t, palette, isAllOpen, c.tool_use_id as string, c.output, c.input, columns, true, runOf(c.tool_use_id as string, c.output))
+    const row = await foldedCard($, t, palette, isAllOpen, c.tool_use_id as string, c.output, c.input, columns, true, runOf(c.tool_use_id as string, c.tool_use_id as string, c.output))
     if (row) rows.push(row)
   }
   return rows
