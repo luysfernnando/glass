@@ -165,6 +165,8 @@ export const register: Register = (on, options) => {
   }
   // what the run helpers read, at the moment they run
   const runCtx = (): RunCtx => ({ callTurn, turnOrder, callMs, failedCalls, closedTools, turnEdits, palette, isAllOpen: expandAllNow })
+  // the live turn's header, until its first text or call reveals it
+  let header: Header | null = null
   let textSinceCall = false
   let hasCwd = false
   let foldedTurns = new Set<string>()
@@ -475,19 +477,9 @@ export const register: Register = (on, options) => {
       live.costStart = null
     }
     const { turnId, startedAt } = live
-    // the newest prompt with this text gets its turn, which draws the
-    // assistant header and the dots line under the user row
-    await update($, prompts, ps => {
-      const list = [...(ps ?? [])]
-      for (let i = list.length - 1; i >= 0; i--) {
-        const p = list[i]!
-        if (p.text === e.text && p.turnId === null) {
-          list[i] = { ...p, startedAt, turnId }
-          break
-        }
-      }
-      return list
-    })
+    // the assistant header waits for the turn's first text or call (owner's
+    // request, 2026-10-05: a bare `Claude . 4:23 PM` hung under the prompt)
+    header = { text: e.text, startedAt, turnId }
     await update($, calls, r => {
       const entries = Object.entries(r ?? {}).filter(([k]) => k !== turnId).slice(-(HISTORY - 1))
       return Object.fromEntries([...entries, [turnId, []]])
@@ -502,6 +494,10 @@ export const register: Register = (on, options) => {
     const main = !e.agentId
     const id = e.tool_use_id ?? ''
     const turnId = live.turnId
+    if (main && header) {
+      await revealHeader($, header)
+      header = null
+    }
     if (main) {
       live.tools += 1
       if (id) live.lastToolId = id
@@ -570,7 +566,13 @@ export const register: Register = (on, options) => {
     while (!step.done) {
       const chunk = step.value
       if (chunk.kind === 'stop') usage = chunk.usage
-      if (chunk.kind === 'text' && !e.agentId) textSinceCall = true
+      if (chunk.kind === 'text' && !e.agentId) {
+        textSinceCall = true
+        if (header) {
+          await revealHeader($, header)
+          header = null
+        }
+      }
       yield chunk
       step = await stream.next()
     }
@@ -610,6 +612,10 @@ export const register: Register = (on, options) => {
       const agentId = e.agentId
       await update($, agents, as => (as ?? []).filter(a => a.agentId !== agentId))
       return next(e)
+    }
+    if (header) {
+      await revealHeader($, header)
+      header = null
     }
     const u = e.usage
     let costUsd: number | null = null
@@ -757,6 +763,23 @@ function callSubject(args: object): string {
   const s = (k: string) => (typeof a[k] === 'string' && (a[k] as string).trim() !== '' ? (a[k] as string) : null)
   const path = s('file_path') ?? s('path') ?? s('notebook_path')
   return s('description') ?? (path ? rel(path) : null) ?? s('pattern') ?? s('query') ?? s('url') ?? s('skill') ?? s('command') ?? ''
+}
+
+type Header = { text: string; startedAt: number; turnId: string }
+
+/** The newest prompt with the turn's text gets its turn: the assistant header draws under its user row. */
+async function revealHeader($: EngineInterface, h: Header): Promise<void> {
+  await update($, prompts, ps => {
+    const list = [...(ps ?? [])]
+    for (let i = list.length - 1; i >= 0; i--) {
+      const p = list[i]!
+      if (p.text === h.text && p.turnId === null) {
+        list[i] = { ...p, startedAt: h.startedAt, turnId: h.turnId }
+        break
+      }
+    }
+    return list
+  })
 }
 
 /** Keeps the tool_use_ids of an unfolded group's calls. */

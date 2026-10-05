@@ -111,7 +111,7 @@ test('a folded group: one line per tool, a command by its description, edits by 
   expect(folded).not.toContain('ctrl+o to expand')
   expect(folded).not.toContain('Click')
   const active = flat(renderGroupRow(t, p, [...calls, { tool: 'Read', isRunning: true, isErrored: false, isInterrupted: false }], { isActive: true, key: null, onExpand: null }))
-  expect(active).toContain('1 running' + G.ellipsis)
+  expect(active).toContain(G.middot + ' running' + G.ellipsis)
   expect(active).not.toContain('Click')
 })
 

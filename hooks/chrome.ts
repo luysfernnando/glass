@@ -702,7 +702,10 @@ export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupC
   // an edit are different things and never share a line
   const byTool = new Map<string, GroupCall[]>()
   for (const c of calls) byTool.set(c.tool, [...(byTool.get(c.tool) ?? []), c])
-  const tail = o.isActive ? sep + `${calls.length - done} running` + G.ellipsis : ''
+  // the engine marks the group active before its calls report running: no
+  // count then (`0 running` read as a bug, 2026-10-05), and none for one call
+  const running = calls.length - done
+  const tail = o.isActive ? sep + (running > 1 ? `${running} running` : 'running') + G.ellipsis : ''
   const lines = [...byTool].map(([tool, group], i) => {
     const subjects = [...new Set(group.map(c => {
       const a = (c.input ?? {}) as Record<string, unknown>
