@@ -552,9 +552,9 @@ finished turn; these rules replace the ones above where they differ.
 - Output lines clip to one row each (`truncate-end`); ctrl+o has them whole.
 - No duration under 100 ms (`0.0s` said nothing).
 - A folded group names a Bash call by its command, clipped to 60 cells.
-- A backgrounded Agent's result is one trunked `faint` line, `running in
-  the background · ↓ to manage`, in place of the engine's body, whose
-  corner bracket broke the trunk.
+- A backgrounded Agent's or Bash command's result is one trunked `faint`
+  line, `running in the background · ↓ to manage`, in place of the
+  engine's body, whose corner bracket broke the trunk (Bash since 0.4.12).
 - The band stops four cells short of `bodyColumns`, so the engine's `[-]`
   mark sits beside its top-right arc, not over it. Unverified live.
 

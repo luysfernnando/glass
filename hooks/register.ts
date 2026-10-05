@@ -313,6 +313,9 @@ export const register: Register = (on, options) => {
       return next(e)
     }
     if (e.props.tool !== 'Bash') return next(e)
+    // a backgrounded command: the same trunked line, not the engine's corner
+    // bracket, which sat off the trunk (2026-10-05)
+    if (typeof (e.props.output as { backgroundTaskId?: unknown } | undefined)?.backgroundTaskId === 'string' && !e.props.isErrored) return renderAgentLaunch($.ui.resolve(e), palette, false)
     // the ToolUse row draws the body glass owns; this row draws nothing then
     const body = bashBody($.ui.resolve(e), palette, e.props.output, e.props.isErrored, e.viewport?.columns ?? 80)
     return body ? $.ui.resolve(e).Box({ display: 'none', children: [] }) : next(e)
