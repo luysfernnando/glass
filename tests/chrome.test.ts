@@ -90,6 +90,9 @@ test('a tree row: hollow mark while live, tick and line count once done, elbow o
   expect(done.startsWith(G.pipe + G.elbow + G.rule + ' ' + G.tick + ' Bash')).toBe(true)
   expect(done).toContain('3 lines')
   expect(done.endsWith('0.8s')).toBe(true)
+  // a done Bash row keeps its command's token colors
+  const doneTree = JSON.stringify(renderTreeRow(t, p, { ...base, isRunning: false }, { last: true, durationMs: 800 }))
+  expect(doneTree).toContain(JSON.stringify({ type: 'Text', props: { color: p.cmd, children: ['git'] } }))
   const failed = flat(renderTreeRow(t, p, { ...base, isRunning: false, isErrored: true }, { last: false, durationMs: 50 }))
   expect(failed).toContain(G.cross + ' Bash')
 })

@@ -259,15 +259,15 @@ function str(args: Record<string, unknown>, k: string): string | null {
   return typeof args[k] === 'string' ? (args[k] as string) : null
 }
 
-// the subject of a row: a Bash command tokenized while live, `meta` once
-// done; a file tool's path keeps `path` either way; other arguments dim
+// the subject of a row: a Bash command tokenized, live or done (the owner
+// liked the colors on the done row, 2026-10-05); other subjects step down
+// to faint once done
 function subjectNodes(t: Table, p: Palette, tool: string, input: unknown, live: boolean): RenderNode[] {
   const args = (input ?? {}) as Record<string, unknown>
   const out: RenderNode[] = []
   const command = tool === 'Bash' ? str(args, 'command') : null
   if (command) {
     const text = safeText(command.replace(/\s*\n\s*/g, ' '), 400)
-    if (!live) return [t.Text({ color: p.faint, children: [text] })]
     const spans = shellSpans(text, true) ?? [{ text, kind: 'plain' as const }]
     for (const s of spans) out.push(s.kind === 'plain' ? s.text : t.Text({ color: p[s.kind], children: [s.text] }))
     return out

@@ -245,8 +245,8 @@ sites (fence header, footer) and gains none.
   `meta` while running. The dot of 0.2 goes away.
 - Tool name in `tool`, bold while running, plain once done. Subject as
   today (Bash tokenized, paths in `path`, URLs in `url`) while running;
-  once done the whole subject drops to `meta` except paths, which keep
-  `path`. The subject wraps never: `wrap: 'truncate-end'` is allowed here
+  once done a Bash command stays tokenized and every other subject,
+  paths included, drops to `faint`. The subject wraps never: `wrap: 'truncate-end'` is allowed here
   alone, since ctrl+o shows the whole call. (This is a stated exception
   to the `Global` no-truncate rule, which protects reply text.)
 - Only the subject gives way. The connector and mark sit in one box that
