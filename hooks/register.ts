@@ -2,8 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
-import { cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, setHome, lineCounts, spaced, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
-import type { ChangedFile, Hunk } from './chrome'
+import { cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, setHome, lineCounts, spaced, trunked, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import type { ChangedFile, Hunk, TreeOptions, TreeRow } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
 import { paletteNamed } from './palette'
@@ -69,21 +69,25 @@ function bashBody(t: Elements['terminal'], p: Palette, output: unknown, isErrore
     if (typeof output !== 'string' || output.trim() === '') return null
     return renderToolOutput(t, p, output.replace(/\s+$/, '').split('\n'), { columns: cols, maxLines: MAX_PAINTED_LINES })
   }
+  const r = bashResult(output)
+  if (!r) return null
+  if (r.files.length > 0) return renderBashResult(t, p, r.lines, r.files, { maxLines: MAX_PAINTED_LINES, moreFiles: r.moreFiles, columns: cols })
+  if (r.lines.length === 0 || r.lines.some(l => l.includes(ESC))) return null
+  return renderToolOutput(t, p, r.lines, { columns: cols, maxLines: MAX_PAINTED_LINES })
+}
+
+// A finished Bash call's output lines and the files it rewrote; null for an
+// interrupted call or an output that is not the Bash record
+function bashResult(output: unknown): { lines: string[]; files: ChangedFile[]; moreFiles: number } | null {
   const out = output as { stdout?: unknown; stderr?: unknown; interrupted?: unknown; bashEditDiff?: unknown } | undefined
   if (!out || typeof out !== 'object' || typeof out.stdout !== 'string' || out.interrupted === true) return null
   const stderr = typeof out.stderr === 'string' ? out.stderr : ''
   const text = [out.stdout, stderr].filter(s => s.trim() !== '').join('\n').replace(/\s+$/, '')
-  const lines = text === '' ? [] : text.split('\n')
   const diff = out.bashEditDiff as { files?: unknown; moreFiles?: unknown } | undefined
   const files = Array.isArray(diff?.files)
     ? (diff!.files as ChangedFile[]).filter(f => f && typeof f.filePath === 'string' && Array.isArray(f.hunks)).map(f => ({ ...f, hunks: f.hunks.filter(h => h && typeof h.oldStart === 'number' && typeof h.newStart === 'number' && Array.isArray(h.lines)) }))
     : []
-  if (files.length > 0) {
-    const moreFiles = typeof diff?.moreFiles === 'number' ? diff.moreFiles : 0
-    return renderBashResult(t, p, lines, files, { maxLines: MAX_PAINTED_LINES, moreFiles, columns: cols })
-  }
-  if (text === '' || text.includes(ESC)) return null
-  return renderToolOutput(t, p, lines, { columns: cols, maxLines: MAX_PAINTED_LINES })
+  return { lines: text === '' ? [] : text.split('\n'), files, moreFiles: typeof diff?.moreFiles === 'number' ? diff.moreFiles : 0 }
 }
 
 // one main-loop call recorded under its turn, replacing an earlier record
@@ -263,13 +267,20 @@ export const register: Register = (on, options) => {
     const started = liveCalls.get(id)
     const clock = e.props.isRunning && started ? clockCells((await $.clock.now()) - started.t0, palette.meta) : undefined
     const row = renderTreeRow(t, palette, e.props, { last: false, durationMs: callMs.get(id) ?? null, air, ...(clock ? { clock } : {}) })
-    if (grouped.has(id) && (e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isRunning && !e.props.isErrored) {
-      // an opened group lists its commands only; the edit is a row of the
-      // folded group
+    if ((e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isRunning && !e.props.isErrored) {
+      // a done edit is one folded tree row its ToolResult draws (in a group,
+      // the folded group's), not this row plus a second line under it
+      // (2026-10-05); while it runs, and when it failed, this row stays
       if (editCard(t, palette, e.props.output, e.props.input, e.viewport?.columns ?? 80)) return t.Box({ display: 'none', children: [] })
     }
     if (e.props.tool !== 'Bash' || e.props.isRunning || e.props.output === undefined) return row
-    const body = bashBody(t, palette, e.props.output, e.props.isErrored, e.viewport?.columns ?? 80)
+    const columns = e.viewport?.columns ?? 80
+    const result = e.props.isErrored ? null : bashResult(e.props.output)
+    if (result && result.files.length > 0) {
+      const opts = { last: false, durationMs: callMs.get(id) ?? null, air }
+      return bashEdits($, t, palette, expandAllNow, e.props, result, columns, opts)
+    }
+    const body = bashBody(t, palette, e.props.output, e.props.isErrored, columns)
     return body ? t.Box({ flexDirection: 'column', children: [row, body] }) : row
   })
 
@@ -324,7 +335,7 @@ export const register: Register = (on, options) => {
     // an Edit's or a Write's diff, drawn as glass draws it (owner's request, 2026-10-03)
     if ((e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isErrored) {
       const input = (e.props as { input?: unknown }).input
-      return (await foldedCard($, $.ui.resolve(e), palette, expandAllNow, e.props.tool_use_id, e.props.output, input, e.viewport?.columns ?? 80)) ?? next(e)
+      return (await foldedCard($, $.ui.resolve(e), palette, expandAllNow, e.props.tool_use_id, e.props.output, input, e.viewport?.columns ?? 80, !grouped.has(e.props.tool_use_id))) ?? next(e)
     }
     // a backgrounded agent: one trunked line in place of the engine's body
     if (e.props.tool === 'Agent' || e.props.tool === 'Task') {
@@ -589,8 +600,48 @@ async function foldedCard($: EngineInterface, t: Elements['terminal'], palette: 
   const card = editCard(t, palette, output, input, columns)
   if (!card) return null
   const key = `card:${id}`
-  const lines = lineCounts(output)
   const isOpen = isAllOpen || ((await read($, expanded)) ?? []).includes(key)
+  return foldRow($, t, palette, key, editName(output, input), countCells(palette, lineCounts(output)), isOpen, card, columns, isTreeRow)
+}
+
+// A Bash call that rewrote files draws as edits (owner's request,
+// 2026-10-05): the row names what the command did by its description, not
+// the command itself; its output folds to one line; each file is an Edit
+// row folded to `+N -M`, as a folded group draws its edits.
+async function bashEdits($: EngineInterface, t: Elements['terminal'], palette: Palette, isAllOpen: boolean, call: TreeRow, r: { lines: string[]; files: ChangedFile[]; moreFiles: number }, columns: number, o: TreeOptions): Promise<RenderElement> {
+  const open = new Set((await read($, expanded)) ?? [])
+  const isOpen = (key: string) => isAllOpen || open.has(key)
+  const description = (call.input as { description?: unknown } | undefined)?.description
+  const shown = typeof description === 'string' && description.trim() !== '' ? { ...call, input: { description } } : call
+  const rows: RenderElement[] = [renderTreeRow(t, palette, shown, o)]
+  if (r.lines.length > 0) {
+    const key = `out:${call.tool_use_id}`
+    const body = renderToolOutput(t, palette, r.lines, { columns, maxLines: MAX_PAINTED_LINES })
+    const count = `  ${r.lines.length} line${r.lines.length === 1 ? '' : 's'}`
+    rows.push(foldRow($, t, palette, key, 'output', [[count, palette.faint]], isOpen(key), body, columns))
+  }
+  for (const f of r.files) {
+    const name = (f.created ? 'Created ' : f.deleted ? 'Deleted ' : '') + (f.filePath.split(/[\\/]/).pop() || f.filePath)
+    if (f.hunks.length === 0) {
+      rows.push(spaced(t, palette, t.Text({ wrap: 'truncate-end', children: [t.Text({ color: palette.faint, children: [G.tee + G.rule + '   '] }), t.Text({ color: palette.tool, children: ['Edit  '] }), t.Text({ color: palette.path, dimColor: true, children: [name] })] })))
+      continue
+    }
+    const key = `card:${call.tool_use_id}:${f.filePath}`
+    const card = renderDiff(t, palette, f.hunks, { path: f.filePath, columns, last: false, ...(f.created ? { verb: 'Created' } : f.deleted ? { verb: 'Deleted' } : {}) })
+    rows.push(foldRow($, t, palette, key, name, countCells(palette, lineCounts({ structuredPatch: f.hunks })), isOpen(key), card, columns, true))
+  }
+  if (r.moreFiles > 0) rows.push(trunked(t, palette, 1, [t.Text({ color: palette.faint, children: [G.ellipsis + ` +${r.moreFiles} more file${r.moreFiles === 1 ? '' : 's'}`] })]))
+  return t.Box({ flexDirection: 'column', children: rows })
+}
+
+/** An edit's `+N -M`, as a folded line's colored cells. */
+function countCells(palette: Palette, lines: { add: number; del: number }): Array<[string, string]> {
+  return [[`  +${lines.add}`, palette.ok], [` -${lines.del}`, palette.err]]
+}
+
+// A card's one folded line (mark, name, tail cells: an edit's +N -M) with
+// the card under it once open; the press toggles `key` in the expanded list.
+function foldRow($: EngineInterface, t: Elements['terminal'], palette: Palette, key: string, name: string, tail: ReadonlyArray<[string, string]>, isOpen: boolean, card: RenderElement, columns: number, isTreeRow = false): RenderElement {
   const toggle = () => void update($, expanded, xs => ((xs ?? []).includes(key) ? (xs ?? []).filter(x => x !== key) : [...(xs ?? []), key].slice(-HISTORY)))
   // A Button's label takes no color: the mark, the tool and the counts are
   // Text in the tree row's colors, and the press sits on the path, dim as a
@@ -607,25 +658,24 @@ async function foldedCard($: EngineInterface, t: Elements['terminal'], palette: 
     key: `${key}:${k}`, plain: true, ...(dim ? { dimColor: true } : {}), label, onPress: toggle,
     hover: { color, backgroundColor: palette.rowHover, inverse: false, dimColor: false },
   })
-  const name = editName(output, input)
-  const counts = `+${lines.add} -${lines.del}`
-  const used = 3 + 2 + (isTreeRow ? 6 : 0) + name.length + 2 + counts.length
+  const used = 3 + 2 + (isTreeRow ? 6 : 0) + name.length + tail.reduce((n, [label]) => n + label.length, 0)
   const head = t.Box({
     key: `row:${key}`,
     hover: { backgroundColor: palette.rowHover },
     flexDirection: 'row',
     children: [
-      t.Text({ color: palette.faint, children: [isTreeRow ? G.tee + G.rule + ' ' : '   '] }),
+      ...(isTreeRow ? [t.Text({ color: palette.faint, children: [G.tee + G.rule + ' '] })] : []),
       press('mark', (isOpen ? G.down : G.right) + ' ', palette.meta),
       ...(isTreeRow ? [press('tool', 'Edit  ', palette.tool)] : []),
       press('name', name, palette.path, true),
-      press('add', `  +${lines.add}`, palette.ok),
-      press('del', ` -${lines.del}`, palette.err),
+      ...tail.map(([label, color], i) => press(`tail${i}`, label, color)),
       press('rest', ' '.repeat(Math.max(1, columns - 6 - used)), palette.faint),
     ],
   })
-  // the card's own border is its trunk: never inside the row's inset
-  const top = isTreeRow ? spaced(t, palette, head) : head
+  // the card's own border is its trunk: never inside the row's inset. A
+  // result's line sits on the trunk under its Edit row, not at the margin
+  // (2026-10-05)
+  const top = isTreeRow ? spaced(t, palette, head) : trunked(t, palette, 1, [head])
   return isOpen ? t.Box({ flexDirection: 'column', children: [top, card] }) : top
 }
 

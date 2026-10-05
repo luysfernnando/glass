@@ -489,6 +489,11 @@ finished turn; these rules replace the ones above where they differ.
   in `meta`, path in `path`, counts in `ok` and `err`) and the Edit diff
   card. `moreFiles` ends it as `… +N more files`. Trade accepted: that
   body loses the engine's ctrl+o expansion of the long output.
+  In the tree it draws as edits (owner's request, 2026-10-05): the row's
+  subject is the call's `description` in place of the command, the
+  output folds to one trunked `▸ output N lines`, and each file is an
+  Edit tree row folded to `▸ Edit <name> +a -b`, opened by a press or
+  /expand. A failed command keeps its row and output as before.
 - Loader rules learned live: a helper that takes `$` must be a function
   declared at the top of the module, not a closure inside `register`;
   a streaming event's hook must be `async function*`; a `Box` with a

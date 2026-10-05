@@ -358,7 +358,7 @@ const TRUNK = 3
 // A body row under a tree row: the trunk down its left, `h` rows tall,
 // the content indented under the row's mark. Under the turn's last row
 // (`last`) the column is blank, since the elbow above closed the tree.
-function trunked(t: Table, p: Palette, h: number, content: RenderNode[], last = false): RenderElement {
+export function trunked(t: Table, p: Palette, h: number, content: RenderNode[], last = false): RenderElement {
   const bar = last ? ' ' : G.pipe
   return t.Box({
     flexDirection: 'row',
@@ -654,8 +654,8 @@ export type GroupOptions = {
   onExpand: Press | null
 }
 
-// `|- o +17 completed [3 edits] . Click to expand`, all `faint`, the mark
-// in `meta`; a failed count in `err`; a live group ends in an ellipsis.
+// One tree row per tool: `|- > Bash x2  Find foo . ls`, `|- v Read  a.ts`,
+// all `faint`; a failed count in `err`; a live group ends in an ellipsis.
 export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupCall>, o: GroupOptions): RenderElement {
   const done = calls.filter(c => !c.isRunning).length
   // one line per tool, in the order the run first used it: a Bash run and
@@ -682,20 +682,27 @@ export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupC
     const failed = group.filter(c => c.isErrored || c.isInterrupted).length
     if (failed > 0) parts.push(sep, t.Text({ color: p.err, children: [`${failed} failed`] }))
     if (i === byTool.size - 1) parts.push(tail)
-    const head = i === 0
-      ? rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: p.meta, children: [G.right + ' '] }))
-      : rowHead(t, t.Text({ color: p.faint, children: [G.pipe + '    '] }))
-    return t.Box({
+    // each tool its own tree row (owner's request, 2026-10-05); a tool whose
+    // row already says it all (a Read's path) takes its status mark, not the
+    // fold's, and no hover: there is nothing under it to open
+    const opens = !FLAT_TOOLS.has(tool)
+    const running = group.some(c => c.isRunning)
+    const mark = opens ? G.right : running ? G.hollow : failed > 0 ? G.cross : G.tick
+    const markColor = opens || running ? p.meta : failed > 0 ? p.err : p.ok
+    return spaced(t, p, t.Box({
+      ...(o.key && opens ? { key: `group:${o.key}:${tool}`, hover: { backgroundColor: p.rowHover } } : {}),
       flexDirection: 'row',
-      children: [head, t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.faint, children: parts })] })],
-    })
+      children: [
+        rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: markColor, children: [mark + ' '] })),
+        t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.faint, children: parts })] }),
+      ],
+    }))
   })
-  return spaced(t, p, t.Box({
-    ...(o.key ? { key: `group:${o.key}`, hover: { backgroundColor: p.rowHover } } : {}),
-    flexDirection: 'column',
-    children: lines,
-  }))
+  return lines.length === 1 ? lines[0]! : t.Box({ flexDirection: 'column', children: lines })
 }
+
+// tools a folded group lists without a fold: their line holds the whole call
+const FLAT_TOOLS = new Set(['Read', 'Glob', 'Grep'])
 
 // ---- events after the turn -----------------------------------------------
 
