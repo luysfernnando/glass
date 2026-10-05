@@ -312,8 +312,11 @@ sites (fence header, footer) and gains none.
 
 ### Background band (`AbovePrompt`)
 
-- Shown while any subagent runs; `display: none` otherwise and whenever
-  `hasSurvey`. A one-cell `accent` rail on the left (`▎` per row, as the
+- Shown while any subagent runs; passed to the engine whenever
+  `hasSurvey`. The band is one site for every plugin, so glass always
+  calls `next(e)`: with no agent running it returns what the plugins
+  beneath drew, and with agents its frame draws above that (PR #4,
+  2026-10-05). A one-cell `accent` rail on the left (`▎` per row, as the
   quote bar), header `◌ background · N` with `N` in `accent` bold, the
   elapsed time of the oldest live agent at the right in `meta`.
 - One row per live agent, newest last, at most 5, then `+N more` in
@@ -473,6 +476,11 @@ finished turn; these rules replace the ones above where they differ.
   readers (owner's pick, 2026-10-03, after Empryo's row band); the code painted by the highlighter with the language from
   the path, an ellipsis row between hunks. Past 200 rows the rest folds to
   `… +N lines (ctrl+o to expand)`.
+- A Write that created its file has no patch (`type: 'create'`): its
+  whole `content` draws as added lines under the title `Created <path>`.
+  Rows of a group the engine unfolded raise no `ToolResult`, so the
+  `ToolUse` hook draws an Edit's or a Write's card under such a row
+  (PR #3, 2026-10-05).
 - A Bash result whose command rewrote files (`bashEditDiff` on the
   result) is drawn whole by glass, since the engine's panel for it was the
   last pink thing: the output body painted as a short one is, folded past
