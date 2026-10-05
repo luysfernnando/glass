@@ -51,7 +51,14 @@ stored or what the model reads.
   relative to the project. Rows light under the
   pointer. The engine's folded runs name what they read: `├─ ▸ Read ×2
   SPEC.md · render.ts`. Bash output is painted, three lines then a count.
-  A finished agent is one row.
+  A finished agent is one row. Rows sit back to back, no blank between.
+- **Runs.** Calls with no text between them fold to one row:
+  `├─ ⠋ ▸ Bash ×5 · Edit ×2  Run tests  +54 -27`, a spinner while one
+  runs, then a green `✓`, or a red `✗` with `1 failed` and the failed call
+  drawn under it. The subject is the running call's, else the last's. A
+  press opens every call; `/expand` opens them all.
+- **Replies on the tree.** A reply is a node: `├─ ● text`, the rest of it
+  on the trunk, the turn's last reply closing it with `╰─ ●`.
 - **Background band.** While subagents run, a rounded frame above the
   prompt lists them with a face, model and effort, current tool, tokens
   and the file they last touched, five at a time. The chevron folds it to

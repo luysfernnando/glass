@@ -82,13 +82,13 @@ function fit(s: string, n: number): string {
   return c + ' '.repeat(Math.max(0, n - cellWidth(c)))
 }
 
-// a row of air above a tree row, with the trunk drawn through it so the
-// tree stays one line (the owner wants a blank between runs, 2026-10-03)
-// Tree rows sit 2 cells in from each edge (owner's request, 2026-10-03:
+// A tree row in the tree's inset. No air above it: the rows sit back to
+// back (owner's request, 2026-10-05; a blank between runs, 2026-10-03, read
+// as clutter once a turn had many). Tree rows sit 2 cells in from each edge (owner's request, 2026-10-03:
 // the right column was flush with the terminal's edge), the same 2 the
 // prose measure leaves on the right.
 const TREE_INSET = 2
-export function spaced(t: Table, p: Palette, row: RenderElement, air = true): RenderElement {
+export function spaced(t: Table, p: Palette, row: RenderElement, air = false): RenderElement {
   return t.Box({ flexDirection: 'column', marginLeft: TREE_INSET, marginRight: TREE_INSET, children: air ? [t.Text({ color: p.faint, children: [G.pipe] }), row] : [row] })
 }
 
@@ -260,7 +260,7 @@ export type TreeOptions = {
   last: boolean
   /** wall time once known */
   durationMs: number | null
-  /** a trunk row above; false inside a run of the same tool (2026-10-04) */
+  /** a trunk row above; none by default (2026-10-05) */
   air?: boolean
   /** while running: the clock's first cells (clockCells); a ticker blits the rest */
   clock?: string
@@ -352,7 +352,7 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
           ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: live ? p.meta : p.faint, children: [right] })] })]
           : []),
     ],
-  }), o.air ?? true)
+  }), o.air ?? false)
 }
 
 // cells a body row leaves for the trunk column before its content
@@ -742,6 +742,91 @@ export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupC
     }))
   })
   return lines.length === 1 ? lines[0]! : t.Box({ flexDirection: 'column', children: lines })
+}
+
+// ---- a run of calls -------------------------------------------------------
+
+/**
+ * The calls drawn as one row with the call `id`: the turn's calls with no
+ * text from Claude between them, in call order (owner's request,
+ * 2026-10-05). `order` is the turn's main-loop calls; empty when `id` is not
+ * in it.
+ */
+export function callRun<T extends { id: string; afterText: boolean }>(order: ReadonlyArray<T>, id: string): T[] {
+  const at = order.findIndex(c => c.id === id)
+  if (at < 0) return []
+  let start = at
+  while (start > 0 && !order[start]!.afterText) start--
+  let end = at + 1
+  while (end < order.length && !order[end]!.afterText) end++
+  return order.slice(start, end)
+}
+
+export type RunCall = { id: string; tool: string; subject: string; status: 'running' | 'ok' | 'failed' }
+
+export type RunOptions = {
+  key: string
+  isOpen: boolean
+  /** the run holds the turn's last call: the row closes the tree */
+  last: boolean
+  lines: { add: number; del: number }
+  durationMs: number | null
+  /** while running: the spinner's first cell (spinCells); a ticker blits the rest */
+  spin?: string
+  onToggle: Press
+}
+
+// `|- v Bash x5 . Edit x2  Rewrite the hook  +54 -27 . 1 failed      1.2s`:
+// one row for a run, its mark a spinner while a call runs, then a green
+// tick, or a red cross when one failed; the subject is the running call's,
+// else the last's. A press anywhere past the mark opens the calls under it.
+export function renderRunRow(t: Table, p: Palette, calls: ReadonlyArray<RunCall>, o: RunOptions): RenderElement {
+  const running = calls.some(c => c.status === 'running')
+  const failed = calls.filter(c => c.status === 'failed').length
+  const counts = new Map<string, number>()
+  for (const c of calls) counts.set(c.tool, (counts.get(c.tool) ?? 0) + 1)
+  const name = [...counts].map(([tool, n]) => (n > 1 ? `${tool} ${G.times}${n}` : tool)).join(sep)
+  const now = [...calls].reverse().find(c => c.status === 'running') ?? calls[calls.length - 1]
+  const subject = now ? safeText(now.subject.replace(/\s+/g, ' '), 200) : ''
+  const mark = running && o.spin && 'Raster' in t
+    ? t.Raster({ key: 'spin', columns: 1, rows: 1, cells: o.spin })
+    : t.Text({ color: running ? p.meta : failed > 0 ? p.err : p.ok, children: [running ? G.hollow : failed > 0 ? G.cross : G.tick] })
+  // A Button's label takes no color (foldRow's note): the counts and the
+  // subject are Buttons, so a press anywhere opens the run
+  const press = (k: string, label: string, color: string, dim = false) => t.Button({
+    key: `${o.key}:${k}`, plain: true, ...(dim ? { dimColor: true } : {}), label, onPress: o.onToggle,
+    hover: { color, backgroundColor: p.rowHover, inverse: false, dimColor: false },
+  })
+  const tail: RenderElement[] = []
+  if (o.lines.add + o.lines.del > 0) tail.push(press('lines', `  +${o.lines.add} -${o.lines.del}`, p.ok))
+  if (failed > 0) tail.push(press('failed', sep + `${failed} failed`, p.err))
+  const right = running || o.durationMs === null || o.durationMs < 100 ? '' : fmtToolTime(o.durationMs)
+  return spaced(t, p, t.Box({
+    key: `row:${o.key}`,
+    flexDirection: 'row',
+    hover: { backgroundColor: p.rowHover },
+    children: [
+      rowHead(t, t.Text({ color: p.faint, children: [(o.last && !o.isOpen ? G.arcBL : G.tee) + G.rule + ' '] }), mark, t.Text({ children: [' '] })),
+      t.Box({
+        flexGrow: 1,
+        flexShrink: 1,
+        flexDirection: 'row',
+        overflow: 'hidden',
+        children: [press('mark', (o.isOpen ? G.down : G.right) + ' ', p.meta), press('name', name, p.bold), ...(subject ? [press('subject', '  ' + subject, p.meta, true)] : []), ...tail],
+      }),
+      ...(right ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.faint, children: [right] })] })] : []),
+    ],
+  }))
+}
+
+// a running run's spinner, one frame a tick: BRAILLE PATTERN DOTS U+280B ... U+280F
+const SPIN = [0x280b, 0x2819, 0x2839, 0x2838, 0x283c, 0x2834, 0x2826, 0x2827, 0x2807, 0x280f]
+
+// A Raster's one cell for the spinner frame at `ms`, in the clockCells layout.
+export function spinCells(ms: number, fg: string): string {
+  const frame = SPIN[Math.floor(ms / 100) % SPIN.length]!
+  const color = /^#[0-9a-f]{6}$/i.test(fg) ? parseInt(fg.slice(1), 16) : 0x01000000
+  return base64(new Uint8Array(new Uint32Array([frame, color, 0x01000000]).buffer))
 }
 
 // tools a folded group lists without a fold: their line holds the whole call

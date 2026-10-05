@@ -1,7 +1,8 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { CLOCK_CELLS, callScope, editRunKeys, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, rel, safeText, setCwd, setHome } from '../hooks/chrome'
+import { CLOCK_CELLS, callRun, callScope, renderRunRow, editRunKeys, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, rel, safeText, setCwd, setHome } from '../hooks/chrome'
+import type { RunCall } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { highlight, langOf } from '../hooks/highlight'
 import { parseMarkdown } from '../hooks/markdown'
@@ -83,11 +84,11 @@ test('a user row: its time, then the assistant header and the dots line once the
 test('a tree row: hollow mark while live, tick and line count once done, elbow on the last', async () => {
   const base = { tool_use_id: 't1', tool: 'Bash', input: { command: 'git status' }, isErrored: false, isInterrupted: false }
   const live = flat(renderTreeRow(t, p, { ...base, isRunning: true }, { last: false, durationMs: null }))
-  expect(live.startsWith(G.pipe + G.tee + G.rule + ' ' + G.hollow + ' Bash')).toBe(true)
+  expect(live.startsWith(G.tee + G.rule + ' ' + G.hollow + ' Bash')).toBe(true)
   expect(live).toContain('git status')
   expect(live).not.toContain('lines')
   const done = flat(renderTreeRow(t, p, { ...base, isRunning: false, output: { stdout: 'a\nb\nc\n', stderr: '' } }, { last: true, durationMs: 800 }))
-  expect(done.startsWith(G.pipe + G.arcBL + G.rule + ' ' + G.tick + ' Bash')).toBe(true)
+  expect(done.startsWith(G.arcBL + G.rule + ' ' + G.tick + ' Bash')).toBe(true)
   expect(done).toContain('3 lines')
   expect(done.endsWith('0.8s')).toBe(true)
   // a done Bash row keeps its command's token colors
@@ -146,7 +147,7 @@ test('the band: a frame the band wide with five agents and a fold, or one strip 
 
 test('an event row: a tick and the first line, a cross on a failed task, the duration at the right', async () => {
   const ok = flat(renderEventRow(t, p, 'Agent "Hunt widths" finished\nmore detail', { status: 'completed', durationMs: 72_000 }))
-  expect(ok.startsWith(G.pipe + G.tee + G.rule + ' ' + G.tick + ' Agent  Hunt widths')).toBe(true)
+  expect(ok.startsWith(G.tee + G.rule + ' ' + G.tick + ' Agent  Hunt widths')).toBe(true)
   expect(ok).not.toContain('more detail')
   expect(ok.endsWith('1m 12s')).toBe(true)
   const bad = flat(renderEventRow(t, p, 'Agent died', { status: 'failed' }))
@@ -156,7 +157,7 @@ test('an event row: a tick and the first line, a cross on a failed task, the dur
   const full = flat(renderEventRow(t, p, 'Agent finished\nthe report', { status: 'completed' }, true))
   expect(full).toContain('the report')
   const msg = flat(renderMessageRow(t, p, 'Explore'))
-  expect(msg.startsWith(G.pipe + G.tee + G.rule + ' ' + G.ring + ' Message from @Explore')).toBe(true)
+  expect(msg.startsWith(G.tee + G.rule + ' ' + G.ring + ' Message from @Explore')).toBe(true)
   expect(msg.endsWith('ctrl+o')).toBe(true)
 })
 
@@ -331,7 +332,7 @@ test('0.4.1: no air inside a run, no time under a tenth, one row per output line
   const tight = flat(renderTreeRow(t, p, base, { last: false, durationMs: 40, air: false }))
   expect(tight.startsWith(G.tee)).toBe(true)
   expect(tight).not.toContain('0.0s')
-  expect(flat(renderTreeRow(t, p, base, { last: false, durationMs: 300 })).startsWith(G.pipe + G.tee)).toBe(true)
+  expect(flat(renderTreeRow(t, p, base, { last: false, durationMs: 300 })).startsWith(G.tee)).toBe(true)
   const body = renderToolOutput(t, p, ['x'.repeat(300), 'b'], { columns: 80, maxLines: 3 })
   expect(lines(body).length).toBe(2)
   expect(flat(renderAgentLaunch(t, p, false))).toContain('running in the background')
@@ -522,4 +523,33 @@ test('edit runs: back-to-back edits join, text or another tool between splits, a
   const withBash = [...edits, { id: 'c', key: 'c:/r/x.ts', file: '/r/x.ts' }]
   expect(editRunKeys(withBash, order, 'c:/r/x.ts')).toEqual(['a', 'b', 'c:/r/x.ts'])
   expect(editRunKeys(edits, order, 'nope')).toEqual([])
+})
+
+test('a run of calls: one row with every call, the subject of the one running, a cross when one failed', () => {
+  const order = [
+    { id: 'a', afterText: true },
+    { id: 'b', afterText: false },
+    { id: 'c', afterText: false },
+    { id: 'd', afterText: true },
+  ]
+  expect(callRun(order, 'b').map(c => c.id)).toEqual(['a', 'b', 'c'])
+  expect(callRun(order, 'd').map(c => c.id)).toEqual(['d'])
+  expect(callRun(order, 'x')).toEqual([])
+  const calls: RunCall[] = [
+    { id: 'a', tool: 'Bash', subject: 'List files', status: 'ok' },
+    { id: 'b', tool: 'Bash', subject: 'Run tests', status: 'running' },
+    { id: 'c', tool: 'Edit', subject: 'a.ts', status: 'ok' },
+  ]
+  const o = { key: 'run:a', isOpen: false, last: false, lines: { add: 3, del: 1 }, durationMs: null, onToggle: () => {} }
+  const live = flat(renderRunRow(t, p, calls, o))
+  expect(live.startsWith(G.tee + G.rule + ' ' + G.hollow)).toBe(true)
+  expect(live).toContain(`Bash ${G.times}2 ${G.middot} Edit  Run tests  +3 -1`)
+  const done = calls.map(c => ({ ...c, status: 'ok' as const }))
+  const ok = flat(renderRunRow(t, p, done, { ...o, last: true, durationMs: 1200 }))
+  expect(ok.startsWith(G.arcBL + G.rule + ' ' + G.tick)).toBe(true)
+  expect(ok).toContain('a.ts')
+  expect(ok.endsWith('1.2s')).toBe(true)
+  const bad = flat(renderRunRow(t, p, [{ ...done[0]!, status: 'failed' }, done[1]!], o))
+  expect(bad).toContain(G.cross)
+  expect(bad).toContain('1 failed')
 })

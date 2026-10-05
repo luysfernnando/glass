@@ -2,8 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
-import { FLAT_TOOLS, editRunKeys, cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, setHome, lineCounts, rel, spaced, trunked, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
-import type { ChangedFile, Hunk, TreeOptions, TreeRow } from './chrome'
+import { FLAT_TOOLS, callRun, editRunKeys, renderRunRow, spinCells, cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, setHome, lineCounts, rel, spaced, trunked, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import type { ChangedFile, Hunk, RunCall, TreeOptions, TreeRow } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
 import { paletteNamed } from './palette'
@@ -32,14 +32,12 @@ const agents = atom({ plugin: 'glass', key: 'agents' } as const, [] as GlassAgen
 const band = atom({ plugin: 'glass', key: 'band' } as const, 'open' as 'open' | 'closed')
 
 const HISTORY = 48
+
 const ANSWER_MAX = 20000
 
 const ESC = String.fromCodePoint(0x1b)
 // the engine shows this many output lines before folding the rest behind ctrl+o
 const MAX_PAINTED_LINES = 3
-// tools whose row never carries a body: a run of them packs without air rows
-const COMPACT = new Set(['Read'])
-
 // pipes the reply's trunk holds before its box cuts them to the reply's
 // height: a reply taller than this loses the trunk below it
 const TRUNK_ROWS = 2000
@@ -49,6 +47,11 @@ const TRUNK_ROWS = 2000
 // running (the status line under the prompt). Module state, read by no
 // render hook, so a tick redraws nothing in the transcript (2026-10-04).
 const liveCalls = new Map<string, { tool: string; t0: number }>()
+// rows drawing a running run (renderRunRow), by request id: the ticker
+// blits their spinner's next frame
+const spinRows = new Set<string>()
+// a tick each spinner frame; the clocks read whole seconds
+const TICK_MS = 100
 let ticker: { cancel: () => void } | null = null
 
 async function tick($: EngineInterface, p: Palette): Promise<void> {
@@ -56,9 +59,13 @@ async function tick($: EngineInterface, p: Palette): Promise<void> {
   for (const [id, c] of liveCalls) {
     void $.ui.blit({ requestId: id, key: 'clock', cells: clockCells(now - c.t0, p.meta) }).catch(() => undefined)
   }
+  for (const id of spinRows) {
+    void $.ui.blit({ requestId: id, key: 'spin', cells: spinCells(now, p.meta) }).catch(() => undefined)
+  }
   // nothing runs: the ticker stops (no status line: the owner found it noise
   // under the prompt, 2026-10-04)
   if (liveCalls.size === 0) {
+    spinRows.clear()
     ticker?.cancel()
     ticker = null
   }
@@ -128,9 +135,10 @@ export const register: Register = (on, options) => {
   // rows of a group the engine unfolded: no ToolResult of their own, so the
   // ToolUse hook draws an Edit's or a Write's card under the row
   const grouped = new Set<string>()
-  // each turn's main-loop calls in order, and whether Claude wrote text
-  // since the call before: the air rule below reads both
-  const turnOrder = new Map<string, { id: string; tool: string; afterText: boolean }[]>()
+  // each turn's main-loop calls in order, whether Claude wrote text since
+  // the call before (a run of calls ends there), and what each call did
+  const turnOrder = new Map<string, { id: string; tool: string; afterText: boolean; subject: string }[]>()
+  const failedCalls = new Set<string>()
   // What closes each finished turn's tree with the rounded corner (owner's
   // request, 2026-10-05): its reply, by the reply's text, or its last call
   // when no text came after it. Filled at turn.complete, which then asks
@@ -155,6 +163,8 @@ export const register: Register = (on, options) => {
     const run = all.filter(x => keys.has(x.key))
     return run.length > 1 ? run : null
   }
+  // what the run helpers read, at the moment they run
+  const runCtx = (): RunCtx => ({ callTurn, turnOrder, callMs, failedCalls, closedTools, turnEdits, palette, isAllOpen: expandAllNow })
   let textSinceCall = false
   let hasCwd = false
   let foldedTurns = new Set<string>()
@@ -231,42 +241,46 @@ export const register: Register = (on, options) => {
     const text = e.props.text
     if (text.trim() === '') return next(e)
     const t = $.ui.resolve(e)
-    // no bullet: the assistant header under the user row carries it. The
-    // reply sits on the tool tree's trunk (owner's request, 2026-10-05): a
-    // left border the reply's height, at the trunk's column, so the turn
-    // reads as one tree; nothing closes it. No gutter marks: the trunk takes
-    // the cells they drew in. 5 cells: the inset 2, the bar 1, its pad 2.
-    // The bar is a Box laid over the reply's left edge, top to bottom, its
-    // column of pipes cut to the reply's height: a Box has no left-only
-    // border, and the wrapped height is the layout's to know.
+    // A reply is a node of the tool tree (owner's request, 2026-10-05): its
+    // first row opens with `|- * `, the rest hang on the trunk under it, so
+    // the turn reads as one tree. No gutter marks: the trunk takes the cells
+    // they drew in. 5 cells: the inset 2, then `|- ` 3; the node's `* ` sits
+    // in the 2 cells every block leaves blank. The trunk and the node are
+    // Boxes laid over the reply's left edge: the trunk's pipes cut to the
+    // reply's height, which is the layout's to know. The reply drops its
+    // blank first row (`first: false`): the node sits on its first text row.
     const columns = e.viewport?.columns ?? 80
+    const first = e.props.isFirstOfReply
     const reply = renderReply(t, parseMarkdown(text), palette, {
       bullet: false,
-      first: e.props.isFirstOfReply,
+      first: false,
       columns: columns - 5,
       marks: false,
     })
-    // The turn's last reply closes the tree on a row of its own under the
-    // text: a corner on the last text row read as one more branch
-    // (owner's call, 2026-10-05).
+    // The turn's last reply closes the tree: its node's corner when the
+    // reply is one block, else a row of its own under the text
     const closes = [...closedAnswers].some(a => a.endsWith(text.trim()))
     return t.Box({
       marginLeft: 2,
-      paddingLeft: 1,
-      ...(closes ? { paddingBottom: 1 } : {}),
+      paddingLeft: 3,
+      ...(closes && !first ? { paddingBottom: 1 } : {}),
       position: 'relative',
       children: [
-        t.Box({
-          position: 'absolute',
-          top: 0,
-          bottom: 0,
-          left: 0,
-          width: 1,
-          overflow: 'hidden',
-          children: [t.Text({ color: palette.faint, children: [Array(TRUNK_ROWS).fill(G.pipe).join('\n')] })],
-        }),
         reply,
-        ...(closes
+        ...(closes && first
+          ? []
+          : [t.Box({ position: 'absolute', top: first ? 1 : 0, bottom: 0, left: 0, width: 1, overflow: 'hidden', children: [t.Text({ color: palette.faint, children: [Array(TRUNK_ROWS).fill(G.pipe).join('\n')] })] })]),
+        ...(first
+          ? [t.Box({
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: 5,
+              height: 1,
+              children: [t.Text({ wrap: 'truncate-end', children: [t.Text({ color: palette.faint, children: [(closes ? G.arcBL : G.tee) + G.rule + ' '] }), t.Text({ color: palette.accent, children: [G.disc] })] })],
+            })]
+          : []),
+        ...(closes && !first
           ? [t.Box({ position: 'absolute', bottom: 0, left: 0, children: [t.Text({ color: palette.faint, children: [G.arcBL + G.rule] })] })]
           : []),
       ],
@@ -311,31 +325,30 @@ export const register: Register = (on, options) => {
     // a folded turn hides its rows; a row of a turn glass never saw stays
     if (turnId && foldedTurns.has(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     const t = $.ui.resolve(e)
-    const order = turnId ? turnOrder.get(turnId) : undefined
-    const at = order ? order.findIndex(c => c.id === id) : -1
-    // Air above every row, except a bare row that continues a run of the
-    // same bodiless tool with no prose between (Read, Read, Read). A row
-    // after a body, a card, prose or another tool keeps its air (2026-10-04).
-    const air = !(order && at > 0 && COMPACT.has(e.props.tool) && order[at - 1]!.tool === e.props.tool && !order[at]!.afterText)
+    // a run of calls is one row (owner's request, 2026-10-05): its first
+    // call's row draws it, the others nothing until it opens
+    const run = await findRun($, runCtx(), id)
+    if (run && !run.isOpen && !run.failed.has(id)) return run.head === id ? drawRun($, runCtx(), t, run, e.requestId) : t.Box({ display: 'none', children: [] })
+    const wrap = (el: RenderElement) => underRunRow($, runCtx(), t, run, run?.head === id, e.requestId, el)
     // no elbow: knowing the last call needs a subscription to the turn
     const started = liveCalls.get(id)
     const clock = e.props.isRunning && started ? clockCells((await $.clock.now()) - started.t0, palette.meta) : undefined
-    const row = renderTreeRow(t, palette, e.props, { last: closedTools.has(id), durationMs: callMs.get(id) ?? null, air, ...(clock ? { clock } : {}) })
+    const row = renderTreeRow(t, palette, e.props, { last: closedTools.has(id), durationMs: callMs.get(id) ?? null, ...(clock ? { clock } : {}) })
     if ((e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isRunning && !e.props.isErrored) {
       // a done edit is one folded tree row its ToolResult draws (in a group,
       // the folded group's), not this row plus a second line under it
       // (2026-10-05); while it runs, and when it failed, this row stays
-      if (editCard(t, palette, e.props.output, e.props.input, e.viewport?.columns ?? 80)) return t.Box({ display: 'none', children: [] })
+      if (editCard(t, palette, e.props.output, e.props.input, e.viewport?.columns ?? 80)) return wrap(t.Box({ display: 'none', children: [] }))
     }
-    if (e.props.tool !== 'Bash' || e.props.isRunning || e.props.output === undefined) return row
+    if (e.props.tool !== 'Bash' || e.props.isRunning || e.props.output === undefined) return wrap(row)
     const columns = e.viewport?.columns ?? 80
     const result = e.props.isErrored ? null : bashResult(e.props.output)
     if (result && result.files.length > 0) {
-      const opts = { last: closedTools.has(id), durationMs: callMs.get(id) ?? null, air }
-      return bashEdits($, t, palette, expandAllNow, e.props, result, columns, opts, editRun)
+      const opts = { last: closedTools.has(id), durationMs: callMs.get(id) ?? null }
+      return wrap(await bashEdits($, t, palette, expandAllNow, e.props, result, columns, opts, editRun))
     }
     const body = bashBody(t, palette, e.props.output, e.props.isErrored, columns)
-    return body ? t.Box({ flexDirection: 'column', children: [row, body] }) : row
+    return wrap(body ? t.Box({ flexDirection: 'column', children: [row, body] }) : row)
   })
 
   // the engine's folded run of reads and searches: one tree row with a
@@ -354,6 +367,13 @@ export const register: Register = (on, options) => {
     const first = e.props.calls.find((c: { tool_use_id?: string }) => typeof c.tool_use_id === 'string')
     const turnId = first?.tool_use_id ? callTurn.get(first.tool_use_id) ?? null : null
     if (turnId && foldedTurns.has(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
+    const run = first?.tool_use_id ? await findRun($, runCtx(), first.tool_use_id) : null
+    const isHead = !!run && e.props.calls.some((c: { tool_use_id?: string }) => c.tool_use_id === run.head)
+    // a group holding a failed call opens (below), and its calls' rows say
+    // which draw while the run is closed
+    const holdsFailed = !!run && e.props.calls.some((c: { tool_use_id?: string }) => run.failed.has(c.tool_use_id ?? ''))
+    if (run && !run.isOpen && !holdsFailed) return isHead ? drawRun($, runCtx(), $.ui.resolve(e), run, e.requestId) : $.ui.resolve(e).Box({ display: 'none', children: [] })
+    const wrap = async (el: RenderElement | Promise<RenderElement>) => underRunRow($, runCtx(), $.ui.resolve(e), run, isHead, e.requestId, await el)
     const id = e.requestId
     // open when asked (/expand or this group's id), or on its own when a
     // call in it failed: a red mark must never hide behind a count
@@ -361,6 +381,7 @@ export const register: Register = (on, options) => {
     const all = expandAllNow
     if ((all && !flatOnly) || failed || ((await read($, expanded)) ?? []).includes(id)) {
       remember(grouped, e.props.calls)
+      // opened, the engine draws each call's row: the head's draws the run
       return next({ ...e, props: { ...e.props, isExpanded: true } })
     }
     const t = $.ui.resolve(e)
@@ -378,8 +399,8 @@ export const register: Register = (on, options) => {
       }))
     }
     rows.push(...(await editRows($, t, palette, expandAllNow, e.props.calls, e.viewport?.columns ?? 80, editRun)))
-    if (rows.length === 0) return next(e)
-    return rows.length === 1 ? rows[0]! : t.Box({ flexDirection: 'column', children: rows })
+    if (rows.length === 0) return wrap(next(e))
+    return wrap(rows.length === 1 ? rows[0]! : t.Box({ flexDirection: 'column', children: rows }))
   })
 
   // Bash output body, painted the way claude-hl painted it. The engine
@@ -390,6 +411,9 @@ export const register: Register = (on, options) => {
     if (e.surface !== 'terminal') return next(e)
     const turnId = callTurn.get(e.props.tool_use_id)
     if (turnId && foldedTurns.has(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
+    // a closed run's row says it all
+    const run = await findRun($, runCtx(), e.props.tool_use_id)
+    if (run && !run.isOpen && !run.failed.has(e.props.tool_use_id)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     // a Read's result draws nothing: its row's path says it all, and a
     // press that unfolded the engine's result opened an empty row
     // (owner's request, 2026-10-05); a failed Read keeps its error
@@ -482,11 +506,13 @@ export const register: Register = (on, options) => {
       live.tools += 1
       if (id) live.lastToolId = id
       if (id && turnId) callTurn.set(id, turnId)
-      if (id && turnId) turnOrder.set(turnId, [...(turnOrder.get(turnId) ?? []).filter(c => c.id !== id), { id, tool: e.tool, afterText: textSinceCall }])
+      if (id && turnId) turnOrder.set(turnId, [...(turnOrder.get(turnId) ?? []).filter(c => c.id !== id), { id, tool: e.tool, afterText: textSinceCall, subject: callSubject(e) }])
       textSinceCall = false
+      // the run's row counts this call now
+      if (id && turnId && callRun(turnOrder.get(turnId)!, id).length > 1) $.ui.invalidate('ui.render')
       if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: 'running', ms: null })
       if (id) liveCalls.set(id, { tool: e.tool, t0: await $.clock.now() })
-      if (!ticker) ticker = $.clock.every(1000, () => void tick($, palette))
+      if (!ticker) ticker = $.clock.every(TICK_MS, () => void tick($, palette))
     } else if (e.agentId) {
       const agentId = e.agentId
       const stage = e.tool
@@ -505,9 +531,12 @@ export const register: Register = (on, options) => {
     if (main) {
       const ms = (await $.clock.now()) - t0
       if (r.isError) live.failed += 1
+      if (r.isError && id) failedCalls.add(id)
       if (id) callMs.set(id, ms)
       if (id) liveCalls.delete(id)
       if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: r.isError ? 'failed' : 'ok', ms })
+      // the run's row turns its mark
+      if (id && turnId && callRun(turnOrder.get(turnId) ?? [], id).length > 1) $.ui.invalidate('ui.render')
       const args = e as unknown as Record<string, unknown>
       // the edits this call made: an Edit's or a Write's file, or each file
       // a Bash command rewrote (sed, a script), keyed by call and file
@@ -662,6 +691,72 @@ export const register: Register = (on, options) => {
     })
     return t.Box({ flexDirection: 'column', children: [frame, below] })
   })
+}
+
+/** The records the run helpers read: register's, passed in, since `$` only goes to top-level functions. */
+type RunCtx = {
+  callTurn: ReadonlyMap<string, string>
+  turnOrder: ReadonlyMap<string, ReadonlyArray<{ id: string; tool: string; afterText: boolean; subject: string }>>
+  callMs: ReadonlyMap<string, number>
+  failedCalls: ReadonlySet<string>
+  closedTools: ReadonlySet<string>
+  turnEdits: ReadonlyMap<string, ReadonlyArray<EditDone>>
+  palette: Palette
+  isAllOpen: boolean
+}
+
+type Run = { head: string; turnId: string; calls: RunCall[]; isOpen: boolean; failed: Set<string> }
+
+/**
+ * The run the call `id` draws in (callRun), null when it stands alone or
+ * glass never saw it. Open when pressed or under /expand. Closed, a failed
+ * call still draws under the run's row: a red mark never hides behind a
+ * count, and the calls that went fine stay folded (owner's request,
+ * 2026-10-05: an open run read as clutter).
+ */
+async function findRun($: EngineInterface, c: RunCtx, id: string): Promise<Run | null> {
+  const turnId = c.callTurn.get(id) ?? ''
+  const run = callRun(c.turnOrder.get(turnId) ?? [], id)
+  if (run.length < 2) return null
+  const head = run[0]!.id
+  const calls: RunCall[] = run.map(x => ({ id: x.id, tool: x.tool, subject: x.subject, status: !c.callMs.has(x.id) ? 'running' : c.failedCalls.has(x.id) ? 'failed' : 'ok' }))
+  const isOpen = c.isAllOpen || ((await read($, expanded)) ?? []).includes(`run:${head}`)
+  return { head, turnId, calls, isOpen, failed: new Set(calls.filter(x => x.status === 'failed').map(x => x.id)) }
+}
+
+/** A run's one row, drawn by its head's row (`requestId`, for the spinner). */
+async function drawRun($: EngineInterface, c: RunCtx, t: Elements['terminal'], run: Run, requestId: string): Promise<RenderElement> {
+  const ids = new Set(run.calls.map(x => x.id))
+  const lines = (c.turnEdits.get(run.turnId) ?? []).filter(x => ids.has(x.id)).reduce((n, x) => {
+    const l = lineCounts(x.output)
+    return { add: n.add + l.add, del: n.del + l.del }
+  }, { add: 0, del: 0 })
+  const running = run.calls.some(x => x.status === 'running')
+  if (running) spinRows.add(requestId)
+  else spinRows.delete(requestId)
+  const key = `run:${run.head}`
+  return renderRunRow(t, c.palette, run.calls, {
+    key,
+    isOpen: run.isOpen,
+    last: run.calls.some(x => c.closedTools.has(x.id)),
+    lines,
+    durationMs: running ? null : run.calls.reduce((n, x) => n + (c.callMs.get(x.id) ?? 0), 0),
+    ...(running ? { spin: spinCells(await $.clock.now(), c.palette.meta) } : {}),
+    onToggle: () => void update($, expanded, xs => ((xs ?? []).includes(key) ? (xs ?? []).filter(x => x !== key) : [...(xs ?? []), key].slice(-HISTORY))),
+  })
+}
+
+/** `el` under its run's row when the call heads an open run. */
+async function underRunRow($: EngineInterface, c: RunCtx, t: Elements['terminal'], run: Run | null, isHead: boolean, requestId: string, el: RenderElement): Promise<RenderElement> {
+  return run && isHead ? t.Box({ flexDirection: 'column', children: [await drawRun($, c, t, run, requestId), el] }) : el
+}
+
+/** What a call did, for its run's row: its description, else its path, pattern or command. */
+function callSubject(args: object): string {
+  const a = args as Record<string, unknown>
+  const s = (k: string) => (typeof a[k] === 'string' && (a[k] as string).trim() !== '' ? (a[k] as string) : null)
+  const path = s('file_path') ?? s('path') ?? s('notebook_path')
+  return s('description') ?? (path ? rel(path) : null) ?? s('pattern') ?? s('query') ?? s('url') ?? s('skill') ?? s('command') ?? ''
 }
 
 /** Keeps the tool_use_ids of an unfolded group's calls. */
