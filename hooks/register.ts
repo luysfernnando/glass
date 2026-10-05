@@ -142,6 +142,16 @@ export const register: Register = (on, options) => {
   // the call before (a run of calls ends there), and what each call did
   const turnOrder = new Map<string, { id: string; tool: string; afterText: boolean; subject: string }[]>()
   const failedCalls = new Set<string>()
+  // calls that launched a background task or agent, until its notification
+  // or its turn.complete says it ended; keyed back from the task's id
+  const backgroundCalls = new Set<string>()
+  const taskCalls = new Map<string, string>()
+  /** A background call's task ended: its run's row takes its tick or cross. */
+  const finishBackground = (toolId: string, failed: boolean) => {
+    if (!backgroundCalls.delete(toolId)) return false
+    if (failed) failedCalls.add(toolId)
+    return true
+  }
   // What closes each finished turn's tree with the rounded corner (owner's
   // request, 2026-10-05): its reply, by the reply's text, or its last call
   // when no text came after it. Filled at turn.complete, which then asks
@@ -167,7 +177,25 @@ export const register: Register = (on, options) => {
     return run.length > 1 ? run : null
   }
   // what the run helpers read, at the moment they run
-  const runCtx = (): RunCtx => ({ callTurn, turnOrder, callMs, failedCalls, closedTools, turnEdits, palette, isAllOpen: expandAllNow })
+  // The live turn's newest node closes the tree too, while the turn runs
+  // (owner's request, 2026-10-05): its last run of calls when no text came
+  // after it, else its newest reply. The node before it turns back to a tee
+  // when the next one comes (each new node asks every row to draw again).
+  let liveText = ''
+  // what closed the last turn's tree, and the notifications' texts: a turn
+  // that starts from one, or from no text, reopens it (prompt.submit fires
+  // for a notification too, so it cannot tell them apart)
+  const notices = new Set<string>()
+  let lastClose: { answer?: string; tool?: string } | null = null
+  const isLastCall = (id: string) => {
+    if (closedTools.has(id)) return true
+    const order = live.turnId && !textSinceCall && callTurn.get(id) === live.turnId ? turnOrder.get(live.turnId) ?? [] : []
+    const newest = order[order.length - 1]
+    return !!newest && callRun(order, newest.id).some(c => c.id === id)
+  }
+  const isLastReply = (text: string) =>
+    [...closedAnswers].some(a => a.endsWith(text)) || (textSinceCall && text !== '' && liveText.trim().endsWith(text))
+  const runCtx = (): RunCtx => ({ callTurn, turnOrder, callMs, failedCalls, backgroundCalls, isLastCall, turnEdits, palette, isAllOpen: expandAllNow })
   /** Records a main-loop call of the turn, in place when it is already there. */
   const recordCall = (turnId: string, call: { id: string; tool: string; afterText: boolean; subject: string }) => {
     const list = turnOrder.get(turnId) ?? []
@@ -275,7 +303,7 @@ export const register: Register = (on, options) => {
     })
     // The turn's last reply closes the tree: its node's corner when the
     // reply is one block, else a row of its own under the text
-    const closes = [...closedAnswers].some(a => a.endsWith(text.trim()))
+    const closes = isLastReply(text.trim())
     return t.Box({
       marginLeft: 2,
       paddingLeft: 3,
@@ -310,7 +338,14 @@ export const register: Register = (on, options) => {
     const kind = e.props.origin.kind
     // a background task's notification: one tree row, the body under it
     // when the view is expanded (a short one is expanded from the start)
-    if (kind === 'task-notification') return renderEventRow(t, palette, e.props.text, e.props.task, e.props.isExpanded)
+    if (kind === 'task-notification') {
+      notices.add(e.props.text)
+      if (notices.size > HISTORY) notices.delete(notices.values().next().value!)
+      const task = e.props.task
+      const toolId = task?.toolUseId ?? (task?.id ? taskCalls.get(task.id) : undefined)
+      if (toolId && finishBackground(toolId, task?.status === 'failed' || task?.status === 'killed')) $.ui.invalidate('ui.render')
+      return renderEventRow(t, palette, e.props.text, task, e.props.isExpanded)
+    }
     // any other row (another agent's message, a scheduled trigger, a
     // bridge): one muted row; ctrl+o keeps the engine's body
     if (kind !== 'composer') {
@@ -352,7 +387,7 @@ export const register: Register = (on, options) => {
     // a call the model is still writing spins too, named from its partial input
     const isStreaming = streaming?.id === id
     const input = isStreaming && Object.keys((e.props.input ?? {}) as object).length === 0 ? streamedArgs(streaming!.tool, streaming!.json) : e.props.input
-    const row = renderTreeRow(t, palette, isStreaming ? { ...e.props, isRunning: true, input } : e.props, { last: closedTools.has(id), durationMs: callMs.get(id) ?? null, ...(clock ? { clock } : {}) })
+    const row = renderTreeRow(t, palette, isStreaming ? { ...e.props, isRunning: true, input } : e.props, { last: isLastCall(id), durationMs: callMs.get(id) ?? null, ...(clock ? { clock } : {}) })
     if ((e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isRunning && !e.props.isErrored) {
       // a done edit is one folded tree row its ToolResult draws (in a group,
       // the folded group's), not this row plus a second line under it
@@ -363,7 +398,7 @@ export const register: Register = (on, options) => {
     const columns = e.viewport?.columns ?? 80
     const result = e.props.isErrored ? null : bashResult(e.props.output)
     if (result && result.files.length > 0) {
-      const opts = { last: closedTools.has(id), durationMs: callMs.get(id) ?? null }
+      const opts = { last: isLastCall(id), durationMs: callMs.get(id) ?? null }
       return wrap(await bashEdits($, t, palette, expandAllNow, e.props, result, columns, opts, editRun))
     }
     const body = bashBody(t, palette, e.props.output, e.props.isErrored, columns)
@@ -411,6 +446,8 @@ export const register: Register = (on, options) => {
     if (rest.length > 0) {
       rows.push(renderGroupRow(t, palette, rest, {
         isActive: e.props.isActive,
+        // its edits draw under it: they close the tree when there are any
+        last: rest.length === e.props.calls.length && e.props.calls.some((c: { tool_use_id?: string }) => !!c.tool_use_id && isLastCall(c.tool_use_id)),
         key: `expand:${id}`,
         onExpand: () => {
           void update($, expanded, xs => [...(xs ?? []).filter(x => x !== id), id].slice(-HISTORY))
@@ -443,7 +480,7 @@ export const register: Register = (on, options) => {
       const run = editRun(e.props.tool_use_id, e.props.tool_use_id, e.props.output)
       // the row closes the tree when the turn's last call is this edit or
       // one it counts
-      const isLast = (run ?? [{ id: e.props.tool_use_id }]).some(x => closedTools.has(x.id))
+      const isLast = (run ?? [{ id: e.props.tool_use_id }]).some(x => isLastCall(x.id))
       return (await foldedCard($, $.ui.resolve(e), palette, expandAllNow, e.props.tool_use_id, e.props.output, input, e.viewport?.columns ?? 80, !grouped.has(e.props.tool_use_id), run, isLast)) ?? next(e)
     }
     // a backgrounded agent: one trunked line in place of the engine's body
@@ -470,6 +507,16 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.start', async ($, e, next) => {
+    // A turn no prompt started (a background task's or an agent's
+    // notification) goes on the tree above it: that turn's corner turns back
+    // to a tee (owner's request, 2026-10-05: the trunk broke under it).
+    const continues = e.text.trim() === '' || /<task-notification>/.test(e.text) || notices.has(e.text)
+    if (continues && lastClose) {
+      if (lastClose.answer !== undefined) closedAnswers.delete(lastClose.answer)
+      if (lastClose.tool !== undefined) closedTools.delete(lastClose.tool)
+      $.ui.invalidate('ui.render')
+    }
+    lastClose = null
     // a hot reload skips session.start: without the cwd every path drew
     // from the home folder (~/Documents/...), so each turn sets it again
     if (!hasCwd) {
@@ -550,6 +597,14 @@ export const register: Register = (on, options) => {
       const ms = (await $.clock.now()) - t0
       if (r.isError) live.failed += 1
       if (r.isError && id) failedCalls.add(id)
+      const out = r.isError ? undefined : (r.result as { backgroundTaskId?: unknown; status?: unknown; agentId?: unknown; taskId?: unknown } | undefined)
+      const task = typeof out?.backgroundTaskId === 'string' ? out.backgroundTaskId
+        : out?.status === 'async_launched' || out?.status === 'remote_launched' ? (typeof out.agentId === 'string' ? out.agentId : typeof out.taskId === 'string' ? out.taskId : null)
+        : null
+      if (id && task) {
+        backgroundCalls.add(id)
+        taskCalls.set(task, id)
+      }
       if (id) callMs.set(id, ms)
       if (id) liveCalls.delete(id)
       if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: r.isError ? 'failed' : 'ok', ms })
@@ -612,6 +667,9 @@ export const register: Register = (on, options) => {
         }
       }
       if (chunk.kind === 'text' && !e.agentId) {
+        // the first text after a call: the run above turns back to a tee
+        if (!textSinceCall) $.ui.invalidate('ui.render')
+        liveText = textSinceCall ? liveText + chunk.text : chunk.text
         textSinceCall = true
         if (header) {
           await revealHeader($, header)
@@ -655,6 +713,8 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     if (e.agentId) {
       const agentId = e.agentId
+      const toolId = taskCalls.get(agentId)
+      if (toolId && finishBackground(toolId, false)) $.ui.invalidate('ui.render')
       await update($, agents, as => (as ?? []).filter(a => a.agentId !== agentId))
       return next(e)
     }
@@ -690,8 +750,13 @@ export const register: Register = (on, options) => {
     }
     await update($, turns, h => [...(h ?? []), turn].slice(-HISTORY))
     const answer = e.answer.trim()
-    if (textSinceCall && answer !== '') closedAnswers.add(answer)
-    else if (live.lastToolId) closedTools.add(live.lastToolId)
+    if (textSinceCall && answer !== '') {
+      closedAnswers.add(answer)
+      lastClose = { answer }
+    } else if (live.lastToolId) {
+      closedTools.add(live.lastToolId)
+      lastClose = { tool: live.lastToolId }
+    }
     for (const set of [closedAnswers, closedTools]) if (set.size > HISTORY) set.delete(set.values().next().value!)
     $.ui.invalidate('ui.render')
     // a finished turn stays open: the tree is the evidence of what the
@@ -750,7 +815,8 @@ type RunCtx = {
   turnOrder: ReadonlyMap<string, ReadonlyArray<{ id: string; tool: string; afterText: boolean; subject: string }>>
   callMs: ReadonlyMap<string, number>
   failedCalls: ReadonlySet<string>
-  closedTools: ReadonlySet<string>
+  backgroundCalls: ReadonlySet<string>
+  isLastCall: (id: string) => boolean
   turnEdits: ReadonlyMap<string, ReadonlyArray<EditDone>>
   palette: Palette
   isAllOpen: boolean
@@ -770,7 +836,7 @@ async function findRun($: EngineInterface, c: RunCtx, id: string): Promise<Run |
   const run = callRun(c.turnOrder.get(turnId) ?? [], id)
   if (run.length < 2) return null
   const head = run[0]!.id
-  const calls: RunCall[] = run.map(x => ({ id: x.id, tool: x.tool, subject: x.subject, status: !c.callMs.has(x.id) ? 'running' : c.failedCalls.has(x.id) ? 'failed' : 'ok' }))
+  const calls: RunCall[] = run.map(x => ({ id: x.id, tool: x.tool, subject: x.subject, status: !c.callMs.has(x.id) ? 'running' : c.failedCalls.has(x.id) ? 'failed' : c.backgroundCalls.has(x.id) ? 'background' : 'ok' }))
   const isOpen = c.isAllOpen || ((await read($, expanded)) ?? []).includes(`run:${head}`)
   return { head, turnId, calls, isOpen, failed: new Set(calls.filter(x => x.status === 'failed').map(x => x.id)) }
 }
@@ -789,7 +855,7 @@ async function drawRun($: EngineInterface, c: RunCtx, t: Elements['terminal'], r
   return renderRunRow(t, c.palette, run.calls, {
     key,
     isOpen: run.isOpen,
-    last: run.calls.some(x => c.closedTools.has(x.id)),
+    last: run.calls.some(x => c.isLastCall(x.id)),
     lines,
     durationMs: running ? null : run.calls.reduce((n, x) => n + (c.callMs.get(x.id) ?? 0), 0),
     ...(running ? { spin: spinCells(await $.clock.now(), c.palette.meta) } : {}),

@@ -692,6 +692,8 @@ export type GroupOptions = {
   /** the Button's key; null draws the fold as text alone */
   key: string | null
   onExpand: Press | null
+  /** the group holds the tree's last node: its last line closes the tree */
+  last?: boolean
 }
 
 // One tree row per tool: `|- > Bash x2  Find foo . ls`, `|- v Read  a.ts`,
@@ -739,7 +741,7 @@ export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupC
       ...(o.key && opens ? { key: `group:${o.key}:${tool}`, hover: { backgroundColor: p.rowHover } } : {}),
       flexDirection: 'row',
       children: [
-        rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: markColor, children: [mark + ' '] })),
+        rowHead(t, t.Text({ color: p.faint, children: [(o.last && i === byTool.size - 1 ? G.arcBL : G.tee) + G.rule + ' '] }), t.Text({ color: markColor, children: [mark + ' '] })),
         t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', children: [name, t.Text({ color: p.faint, children: parts })] })] }),
       ],
     }))
@@ -765,7 +767,7 @@ export function callRun<T extends { id: string; afterText: boolean }>(order: Rea
   return order.slice(start, end)
 }
 
-export type RunCall = { id: string; tool: string; subject: string; status: 'running' | 'ok' | 'failed' }
+export type RunCall = { id: string; tool: string; subject: string; status: 'running' | 'background' | 'ok' | 'failed' }
 
 export type RunOptions = {
   key: string
@@ -786,6 +788,8 @@ export type RunOptions = {
 export function renderRunRow(t: Table, p: Palette, calls: ReadonlyArray<RunCall>, o: RunOptions): RenderElement {
   const running = calls.some(c => c.status === 'running')
   const failed = calls.filter(c => c.status === 'failed').length
+  // launched in the background and not done yet: hollow, never a tick
+  const background = calls.filter(c => c.status === 'background').length
   const counts = new Map<string, number>()
   for (const c of calls) counts.set(c.tool, (counts.get(c.tool) ?? 0) + 1)
   const name = [...counts].map(([tool, n]) => (n > 1 ? `${tool} ${G.times}${n}` : tool)).join(sep)
@@ -793,7 +797,7 @@ export function renderRunRow(t: Table, p: Palette, calls: ReadonlyArray<RunCall>
   const subject = now ? safeText(now.subject.replace(/\s+/g, ' '), 200) : ''
   const mark = running && o.spin && 'Raster' in t
     ? t.Raster({ key: 'spin', columns: 1, rows: 1, cells: o.spin })
-    : t.Text({ color: running ? p.meta : failed > 0 ? p.err : p.ok, children: [running ? G.hollow : failed > 0 ? G.cross : G.tick] })
+    : t.Text({ color: running || background > 0 ? p.meta : failed > 0 ? p.err : p.ok, children: [running || background > 0 ? G.hollow : failed > 0 ? G.cross : G.tick] })
   // A Button's label takes no color (foldRow's note): the counts and the
   // subject are Buttons, so a press anywhere opens the run
   const press = (k: string, label: string, color: string, dim = false) => t.Button({
@@ -802,8 +806,9 @@ export function renderRunRow(t: Table, p: Palette, calls: ReadonlyArray<RunCall>
   })
   const tail: RenderElement[] = []
   if (o.lines.add + o.lines.del > 0) tail.push(press('lines', `  +${o.lines.add} -${o.lines.del}`, p.ok))
+  if (background > 0) tail.push(press('background', sep + `${background} in background`, p.meta))
   if (failed > 0) tail.push(press('failed', sep + `${failed} failed`, p.err))
-  const right = running || o.durationMs === null || o.durationMs < 100 ? '' : fmtToolTime(o.durationMs)
+  const right = running || background > 0 || o.durationMs === null || o.durationMs < 100 ? '' : fmtToolTime(o.durationMs)
   return spaced(t, p, t.Box({
     key: `row:${o.key}`,
     flexDirection: 'row',

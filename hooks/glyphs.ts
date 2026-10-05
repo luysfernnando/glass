@@ -44,9 +44,9 @@ export const G = {
   dotted: cp(0x25cc),
   /** BLACK SMALL SQUARE U+25AA: the footer */
   square: cp(0x25aa),
-  /** BLACK RIGHT-POINTING SMALL TRIANGLE U+25B8, DOWN U+25BE: fold chevrons */
-  right: cp(0x25b8),
-  down: cp(0x25be),
+  /** fold chevrons, Nerd Font nf-fa-chevron_right U+F054 and chevron_down U+F078: the small triangles U+25B8/U+25BE read as specks (owner's request, 2026-10-05) */
+  right: cp(0xf054),
+  down: cp(0xf078),
   /** the band's rounded frame: BOX DRAWINGS LIGHT ARC DOWN AND RIGHT U+256D, DOWN AND LEFT U+256E, UP AND RIGHT U+2570, UP AND LEFT U+256F */
   arcTL: cp(0x256d),
   arcTR: cp(0x256e),

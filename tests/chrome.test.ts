@@ -553,3 +553,15 @@ test('a run of calls: one row with every call, the subject of the one running, a
   expect(bad).toContain(G.cross)
   expect(bad).toContain('1 failed')
 })
+
+test('a run with a call in the background: hollow mark and a count, no tick and no time', () => {
+  const calls: RunCall[] = [
+    { id: 'a', tool: 'Bash', subject: 'Wait then print', status: 'background' },
+    { id: 'b', tool: 'Agent', subject: 'List hooks', status: 'ok' },
+  ]
+  const row = flat(renderRunRow(t, p, calls, { key: 'run:a', isOpen: false, last: false, lines: { add: 0, del: 0 }, durationMs: 900, onToggle: () => {} }))
+  expect(row.startsWith(G.tee + G.rule + ' ' + G.hollow)).toBe(true)
+  expect(row).toContain(`${G.middot} 1 in background`)
+  expect(row).not.toContain(G.tick)
+  expect(row).not.toContain('0.9s')
+})
