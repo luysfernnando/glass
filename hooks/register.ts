@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
-import { cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, setHome, lineCounts, spaced, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -151,6 +151,7 @@ export const register: Register = (on, options) => {
     } catch {
       setCwd('')
     }
+    setHome((await $.env.get('HOME').catch(() => undefined)) ?? '')
     try {
       commands = new Set((await $.command.list()).map(c => c.name))
     } catch {
@@ -263,8 +264,9 @@ export const register: Register = (on, options) => {
     const clock = e.props.isRunning && started ? clockCells((await $.clock.now()) - started.t0, palette.meta) : undefined
     const row = renderTreeRow(t, palette, e.props, { last: false, durationMs: callMs.get(id) ?? null, air, ...(clock ? { clock } : {}) })
     if (grouped.has(id) && (e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isRunning && !e.props.isErrored) {
-      const card = editCard(t, palette, e.props.output, e.props.input, e.viewport?.columns ?? 80)
-      if (card) return t.Box({ flexDirection: 'column', children: [row, card] })
+      // an opened group lists its commands only; the edit is a row of the
+      // folded group
+      if (editCard(t, palette, e.props.output, e.props.input, e.viewport?.columns ?? 80)) return t.Box({ display: 'none', children: [] })
     }
     if (e.props.tool !== 'Bash' || e.props.isRunning || e.props.output === undefined) return row
     const body = bashBody(t, palette, e.props.output, e.props.isErrored, e.viewport?.columns ?? 80)
@@ -277,6 +279,7 @@ export const register: Register = (on, options) => {
     if (e.surface !== 'terminal') return next(e)
     if (e.props.isExpanded) {
       remember(grouped, e.props.calls)
+      // opened, the group lists its commands alone: its edits show folded
       return next(e)
     }
     const first = e.props.calls.find((c: { tool_use_id?: string }) => typeof c.tool_use_id === 'string')
@@ -292,13 +295,22 @@ export const register: Register = (on, options) => {
       return next({ ...e, props: { ...e.props, isExpanded: true } })
     }
     const t = $.ui.resolve(e)
-    return renderGroupRow(t, palette, e.props.calls, {
-      isActive: e.props.isActive,
-      key: `expand:${id}`,
-      onExpand: () => {
-        void update($, expanded, xs => [...(xs ?? []).filter(x => x !== id), id].slice(-HISTORY))
-      },
-    })
+    // an edit is its own tree row with its own fold, never inside the run's
+    // count: the group's click opens the rest, the edit's opens its diff
+    const rest = e.props.calls.filter(c => !isFoldableEdit(c))
+    const rows: RenderElement[] = []
+    if (rest.length > 0) {
+      rows.push(renderGroupRow(t, palette, rest, {
+        isActive: e.props.isActive,
+        key: `expand:${id}`,
+        onExpand: () => {
+          void update($, expanded, xs => [...(xs ?? []).filter(x => x !== id), id].slice(-HISTORY))
+        },
+      }))
+    }
+    rows.push(...(await editRows($, t, palette, expandAllNow, e.props.calls, e.viewport?.columns ?? 80)))
+    if (rows.length === 0) return next(e)
+    return rows.length === 1 ? rows[0]! : t.Box({ flexDirection: 'column', children: rows })
   })
 
   // Bash output body, painted the way claude-hl painted it. The engine
@@ -311,7 +323,8 @@ export const register: Register = (on, options) => {
     if (turnId && foldedTurns.has(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     // an Edit's or a Write's diff, drawn as glass draws it (owner's request, 2026-10-03)
     if ((e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isErrored) {
-      return editCard($.ui.resolve(e), palette, e.props.output, (e.props as { input?: unknown }).input, e.viewport?.columns ?? 80) ?? next(e)
+      const input = (e.props as { input?: unknown }).input
+      return (await foldedCard($, $.ui.resolve(e), palette, expandAllNow, e.props.tool_use_id, e.props.output, input, e.viewport?.columns ?? 80)) ?? next(e)
     }
     // a backgrounded agent: one trunked line in place of the engine's body
     if (e.props.tool === 'Agent' || e.props.tool === 'Task') {
@@ -559,4 +572,76 @@ function editCard(t: Elements['terminal'], palette: Palette, output: unknown, in
   const args = input as { file_path?: unknown } | undefined
   const path = typeof out?.filePath === 'string' ? out.filePath : typeof args?.file_path === 'string' ? args.file_path : ''
   return renderDiff(t, palette, hunks, { path, columns, last: false, ...(created ? { verb: 'Created' } : {}) })
+}
+
+/** The file's name, `Created ` before it for a new file, for a folded card's line. */
+function editName(output: unknown, input: unknown): string {
+  const out = output as { filePath?: unknown; type?: unknown } | undefined
+  const args = input as { file_path?: unknown } | undefined
+  const path = typeof out?.filePath === 'string' ? out.filePath : typeof args?.file_path === 'string' ? args.file_path : ''
+  const name = path.split(/[\\/]/).pop() || path
+  return out?.type === 'create' ? `Created ${name}` : name
+}
+
+// An Edit's or a Write's card folded to one line by default: a press on the
+// line, or /expand (`isAllOpen`), opens it. Null when there is no card.
+async function foldedCard($: EngineInterface, t: Elements['terminal'], palette: Palette, isAllOpen: boolean, id: string, output: unknown, input: unknown, columns: number, isTreeRow = false): Promise<RenderElement | null> {
+  const card = editCard(t, palette, output, input, columns)
+  if (!card) return null
+  const key = `card:${id}`
+  const lines = lineCounts(output)
+  const isOpen = isAllOpen || ((await read($, expanded)) ?? []).includes(key)
+  const toggle = () => void update($, expanded, xs => ((xs ?? []).includes(key) ? (xs ?? []).filter(x => x !== key) : [...(xs ?? []), key].slice(-HISTORY)))
+  // A Button's label takes no color: the mark, the tool and the counts are
+  // Text in the tree row's colors, and the press sits on the path, dim as a
+  // row's subject is
+  // A Button's label takes no color, and a press on a Text cell of a folded
+  // group's row goes to the group's own click: every cell of the row past
+  // the connector is a Button, the blanks after the counts included, so a
+  // press anywhere opens the diff (colored labels wait on the engine)
+  // Under the keyed row's hover each label takes its color and the row's
+  // tint, inverse off against the pointer's white inversion, and full
+  // strength: a dim label otherwise stays dim on the row's hover and only
+  // brightens under the pointer itself
+  const press = (k: string, label: string, color: string, dim = false) => t.Button({
+    key: `${key}:${k}`, plain: true, ...(dim ? { dimColor: true } : {}), label, onPress: toggle,
+    hover: { color, backgroundColor: palette.rowHover, inverse: false, dimColor: false },
+  })
+  const name = editName(output, input)
+  const counts = `+${lines.add} -${lines.del}`
+  const used = 3 + 2 + (isTreeRow ? 6 : 0) + name.length + 2 + counts.length
+  const head = t.Box({
+    key: `row:${key}`,
+    hover: { backgroundColor: palette.rowHover },
+    flexDirection: 'row',
+    children: [
+      t.Text({ color: palette.faint, children: [isTreeRow ? G.tee + G.rule + ' ' : '   '] }),
+      press('mark', (isOpen ? G.down : G.right) + ' ', palette.meta),
+      ...(isTreeRow ? [press('tool', 'Edit  ', palette.tool)] : []),
+      press('name', name, palette.path, true),
+      press('add', `  +${lines.add}`, palette.ok),
+      press('del', ` -${lines.del}`, palette.err),
+      press('rest', ' '.repeat(Math.max(1, columns - 6 - used)), palette.faint),
+    ],
+  })
+  // the card's own border is its trunk: never inside the row's inset
+  const top = isTreeRow ? spaced(t, palette, head) : head
+  return isOpen ? t.Box({ flexDirection: 'column', children: [top, card] }) : top
+}
+
+type GroupedCall = { tool: string; tool_use_id?: string; input: unknown; output?: unknown; isErrored: boolean }
+
+/** An edit of a group that draws as its own folded tree row. */
+function isFoldableEdit(c: GroupedCall): boolean {
+  return isEditTool(c.tool) && !c.isErrored && c.output !== undefined && typeof c.tool_use_id === 'string'
+}
+
+/** A group's edits, each its own folded tree row, in call order. */
+async function editRows($: EngineInterface, t: Elements['terminal'], palette: Palette, isAllOpen: boolean, calls: ReadonlyArray<GroupedCall>, columns: number): Promise<RenderElement[]> {
+  const rows: RenderElement[] = []
+  for (const c of calls.filter(isFoldableEdit)) {
+    const row = await foldedCard($, t, palette, isAllOpen, c.tool_use_id as string, c.output, c.input, columns, true)
+    if (row) rows.push(row)
+  }
+  return rows
 }

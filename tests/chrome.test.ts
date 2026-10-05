@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { CLOCK_CELLS, callScope, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, safeText } from '../hooks/chrome'
+import { CLOCK_CELLS, callScope, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, rel, safeText, setCwd, setHome } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { highlight, langOf } from '../hooks/highlight'
 import { parseMarkdown } from '../hooks/markdown'
@@ -97,16 +97,16 @@ test('a tree row: hollow mark while live, tick and line count once done, elbow o
   expect(failed).toContain(G.cross + ' Bash')
 })
 
-test('a folded group counts edits and failures and names ctrl+o', async () => {
+test('a folded group: one line per tool, a command by its description, edits by their lines, failures', async () => {
   const calls = [
-    { tool: 'Read', isRunning: false, isErrored: false, isInterrupted: false },
-    { tool: 'Edit', isRunning: false, isErrored: true, isInterrupted: false },
-    { tool: 'Grep', isRunning: false, isErrored: false, isInterrupted: false },
+    { tool: 'Bash', input: { command: 'T=/tmp/x; grep -n foo $T', description: 'Find foo' }, isRunning: false, isErrored: false, isInterrupted: false },
+    { tool: 'Edit', input: { file_path: 'a.ts' }, output: { structuredPatch: [{ oldStart: 1, newStart: 1, lines: ['-a', '+b', '+c'] }] }, isRunning: false, isErrored: false, isInterrupted: false },
+    { tool: 'Bash', input: { command: 'ls nope' }, isRunning: false, isErrored: true, isInterrupted: false },
   ]
   const folded = flat(renderGroupRow(t, p, calls, { isActive: false, key: 'expand:g1', onExpand: () => {} }))
-  expect(folded).toContain('Read' + ' ' + G.middot + ' Edit ' + G.middot + ' Grep')
-  expect(folded).toContain('[1 edit]')
-  expect(folded).toContain('1 failed')
+  expect(folded).toContain('Bash ' + G.times + '2  Find foo ' + G.middot + ' ls nope ' + G.middot + ' 1 failed')
+  expect(folded).not.toContain('T=/tmp/x')
+  expect(folded).toContain('Edit  a.ts  +2 -1')
   expect(folded).not.toContain('ctrl+o to expand')
   expect(folded).not.toContain('Click')
   const active = flat(renderGroupRow(t, p, [...calls, { tool: 'Read', isRunning: true, isErrored: false, isInterrupted: false }], { isActive: true, key: null, onExpand: null }))
@@ -487,3 +487,14 @@ test('code, prose and shell output in a bare fence stay code', async () => {
   expect(drawnAsDiagram('', ['error[E0308]: mismatched types', ' --> src/main.rs:4:18', '  |', '4 |     let x: i32 = "a";', '  |            ---   ^^^ expected `i32`', '  |            |', '  |            expected due to this'])).toBe(false)
 })
 
+
+test('rel: a path in the project is relative, a session temp path keeps what is under the session, a home path gets ~', () => {
+  setCwd('/home/u/proj')
+  setHome('/home/u')
+  expect(rel('/home/u/proj/src/a.ts')).toBe('src/a.ts')
+  expect(rel('/tmp/claude-1000/-home-u-proj/cc0711e5-7281-4d3a-88c9-4e042e1edbe0/scratchpad/t.py')).toBe('…/scratchpad/t.py')
+  expect(rel('/home/u/.claude/settings.json')).toBe('~/.claude/settings.json')
+  expect(rel('/etc/hosts')).toBe('/etc/hosts')
+  setCwd('')
+  setHome('')
+})

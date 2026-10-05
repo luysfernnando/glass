@@ -88,7 +88,7 @@ function fit(s: string, n: number): string {
 // the right column was flush with the terminal's edge), the same 2 the
 // prose measure leaves on the right.
 const TREE_INSET = 2
-function spaced(t: Table, p: Palette, row: RenderElement, air = true): RenderElement {
+export function spaced(t: Table, p: Palette, row: RenderElement, air = true): RenderElement {
   return t.Box({ flexDirection: 'column', marginLeft: TREE_INSET, marginRight: TREE_INSET, children: air ? [t.Text({ color: p.faint, children: [G.pipe] }), row] : [row] })
 }
 
@@ -98,8 +98,19 @@ let cwd = ''
 export function setCwd(dir: string): void {
   cwd = dir.replace(/\/+$/, '')
 }
+let home = ''
+export function setHome(dir: string): void {
+  home = dir.replace(/\/+$/, '')
+}
+// Claude Code's per-session temp folder: <tmp>/claude-<uid>/<project>/<session>/
+const SESSION_TMP = /^\/(?:private\/)?tmp\/claude-\d+\/[^/]+\/[0-9a-f-]{36}\//
 export function rel(path: string): string {
-  return cwd && path.startsWith(cwd + '/') ? path.slice(cwd.length + 1) : path
+  if (cwd && path.startsWith(cwd + '/')) return path.slice(cwd.length + 1)
+  // a session's scratchpad, tasks or images: the part under the session folder
+  const tmp = SESSION_TMP.exec(path)
+  if (tmp) return G.ellipsis + '/' + path.slice(tmp[0].length)
+  if (home && path.startsWith(home + '/')) return '~' + path.slice(home.length)
+  return path
 }
 
 const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`
@@ -619,7 +630,22 @@ export function renderBashResult(t: Table, p: Palette, lines: string[], files: R
 
 // ---- folded group --------------------------------------------------------
 
-export type GroupCall = { tool: string; input?: unknown; isRunning: boolean; isErrored: boolean; isInterrupted: boolean }
+export type GroupCall = { tool: string; input?: unknown; output?: unknown; isRunning: boolean; isErrored: boolean; isInterrupted: boolean }
+
+/** Lines an Edit's or a Write's result added and removed; a created file counts its lines as added. */
+export function lineCounts(output: unknown): { add: number; del: number } {
+  const out = output as { structuredPatch?: unknown; type?: unknown; content?: unknown } | undefined
+  if (out?.type === 'create' && typeof out.content === 'string') return { add: out.content.replace(/\n$/, '').split('\n').length, del: 0 }
+  let add = 0
+  let del = 0
+  for (const h of Array.isArray(out?.structuredPatch) ? (out.structuredPatch as Hunk[]) : []) {
+    for (const l of Array.isArray(h.lines) ? h.lines : []) {
+      if (l[0] === '+') add++
+      else if (l[0] === '-') del++
+    }
+  }
+  return { add, del }
+}
 
 export type GroupOptions = {
   isActive: boolean
@@ -632,33 +658,42 @@ export type GroupOptions = {
 // in `meta`; a failed count in `err`; a live group ends in an ellipsis.
 export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupCall>, o: GroupOptions): RenderElement {
   const done = calls.filter(c => !c.isRunning).length
-  const edits = calls.filter(c => isEditTool(c.tool)).length
-  const failed = calls.filter(c => c.isErrored || c.isInterrupted).length
-  // what the run touched: the tools with counts, then each subject once
-  const counts = new Map<string, number>()
-  for (const c of calls) counts.set(c.tool, (counts.get(c.tool) ?? 0) + 1)
-  const tools = [...counts].map(([tool, n]) => (n > 1 ? `${tool} ${G.times}${n}` : tool)).join(sep)
-  const subjects = [...new Set(calls.map(c => {
-    const a = (c.input ?? {}) as Record<string, unknown>
-    const s = str(a, 'file_path') ?? str(a, 'path') ?? str(a, 'pattern') ?? str(a, 'query') ?? str(a, 'url') ?? clip((str(a, 'command') ?? '').replace(/\s+/g, ' '), 60)
-    return safeText(rel(s).replace(/\s+/g, ' '), 200)
-  }).filter(s => s !== ''))]
-  const parts: RenderNode[] = [t.Text({ color: p.tool, children: [tools] })]
-  if (subjects.length) parts.push('  ' + subjects.join(sep))
-  if (edits > 0) parts.push(` [${plural(edits, 'edit')}]`)
-  if (failed > 0) parts.push(sep, t.Text({ color: p.err, children: [`${failed} failed`] }))
-  // no fold button: a Button in a transcript row never received its press
-  // live (2026-10-03); /expand opens every group
-  const button = null
+  // one line per tool, in the order the run first used it: a Bash run and
+  // an edit are different things and never share a line
+  const byTool = new Map<string, GroupCall[]>()
+  for (const c of calls) byTool.set(c.tool, [...(byTool.get(c.tool) ?? []), c])
   const tail = o.isActive ? sep + `${calls.length - done} running` + G.ellipsis : ''
+  const lines = [...byTool].map(([tool, group], i) => {
+    const subjects = [...new Set(group.map(c => {
+      const a = (c.input ?? {}) as Record<string, unknown>
+      // a command's own description says what it did; the command is the fallback
+      const s = str(a, 'description') ?? str(a, 'file_path') ?? str(a, 'path') ?? str(a, 'pattern') ?? str(a, 'query') ?? str(a, 'url') ?? clip((str(a, 'command') ?? '').replace(/\s+/g, ' '), 60)
+      return safeText(rel(s).replace(/\s+/g, ' '), 200)
+    }).filter(s => s !== ''))]
+    const parts: RenderNode[] = [t.Text({ color: p.tool, children: [group.length > 1 ? `${tool} ${G.times}${group.length}` : tool] })]
+    if (subjects.length) parts.push('  ' + subjects.join(sep))
+    if (isEditTool(tool)) {
+      const k = group.filter(c => !c.isErrored).reduce((n, c) => {
+        const l = lineCounts(c.output)
+        return { add: n.add + l.add, del: n.del + l.del }
+      }, { add: 0, del: 0 })
+      if (k.add + k.del > 0) parts.push('  ', t.Text({ color: p.ok, children: [`+${k.add}`] }), ' ', t.Text({ color: p.err, children: [`-${k.del}`] }))
+    }
+    const failed = group.filter(c => c.isErrored || c.isInterrupted).length
+    if (failed > 0) parts.push(sep, t.Text({ color: p.err, children: [`${failed} failed`] }))
+    if (i === byTool.size - 1) parts.push(tail)
+    const head = i === 0
+      ? rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: p.meta, children: [G.right + ' '] }))
+      : rowHead(t, t.Text({ color: p.faint, children: [G.pipe + '    '] }))
+    return t.Box({
+      flexDirection: 'row',
+      children: [head, t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.faint, children: parts })] })],
+    })
+  })
   return spaced(t, p, t.Box({
     ...(o.key ? { key: `group:${o.key}`, hover: { backgroundColor: p.rowHover } } : {}),
-    flexDirection: 'row',
-    children: [
-      rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: p.meta, children: [G.right + ' '] })),
-      t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.faint, children: [...parts, tail] })] }),
-      ...(button ? [t.Box({ flexShrink: 0, children: [button] })] : []),
-    ],
+    flexDirection: 'column',
+    children: lines,
   }))
 }
 
