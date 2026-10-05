@@ -520,11 +520,14 @@ export const register: Register = (on, options) => {
   // ---- background band ---------------------------------------------------
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
+    // The band is one site for every plugin: what the plugins beneath draw
+    // stays, under the agents' frame, and alone when no agent runs.
+    const below = await next(e)
     const list = (await read($, agents)) ?? []
+    if (list.length === 0) return below
     const t = $.ui.resolve(e)
-    if (list.length === 0) return t.Box({ display: 'none', children: [] })
     const state = (await read($, band)) ?? 'open'
-    return renderBand(t, palette, {
+    const frame = renderBand(t, palette, {
       agents: list,
       now: await $.clock.now(),
       columns: e.props.bodyColumns,
@@ -532,6 +535,7 @@ export const register: Register = (on, options) => {
       onToggle: () => void update($, band, s => (s === 'closed' ? 'open' : 'closed')),
       tasksCommand: commands.has('tasks') ? 'tasks' : commands.has('bashes') ? 'bashes' : null,
     })
+    return t.Box({ flexDirection: 'column', children: [frame, below] })
   })
 }
 
