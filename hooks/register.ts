@@ -32,6 +32,9 @@ const agents = atom({ plugin: 'glass', key: 'agents' } as const, [] as GlassAgen
 const band = atom({ plugin: 'glass', key: 'band' } as const, 'open' as 'open' | 'closed')
 
 const HISTORY = 48
+// chars of a streaming call's input read for its subject: the path and the
+// description come first, a Write's content after them
+const INPUT_HEAD = 2000
 
 const ANSWER_MAX = 20000
 
@@ -165,6 +168,17 @@ export const register: Register = (on, options) => {
   }
   // what the run helpers read, at the moment they run
   const runCtx = (): RunCtx => ({ callTurn, turnOrder, callMs, failedCalls, closedTools, turnEdits, palette, isAllOpen: expandAllNow })
+  /** Records a main-loop call of the turn, in place when it is already there. */
+  const recordCall = (turnId: string, call: { id: string; tool: string; afterText: boolean; subject: string }) => {
+    const list = turnOrder.get(turnId) ?? []
+    const at = list.findIndex(c => c.id === call.id)
+    turnOrder.set(turnId, at < 0 ? [...list, call] : [...list.slice(0, at), call, ...list.slice(at + 1)])
+  }
+  // The call the model is writing now, from its `tool` chunk until it runs:
+  // its row joins the run at once, spinning, its subject read from the
+  // input's partial JSON (owner's request, 2026-10-05: a Write whose
+  // content still streamed hung as a lone `Write` row with a tick).
+  let streaming: { id: string; tool: string; json: string; subject: string } | null = null
   // the live turn's header, until its first text or call reveals it
   let header: Header | null = null
   let textSinceCall = false
@@ -335,7 +349,10 @@ export const register: Register = (on, options) => {
     // no elbow: knowing the last call needs a subscription to the turn
     const started = liveCalls.get(id)
     const clock = e.props.isRunning && started ? clockCells((await $.clock.now()) - started.t0, palette.meta) : undefined
-    const row = renderTreeRow(t, palette, e.props, { last: closedTools.has(id), durationMs: callMs.get(id) ?? null, ...(clock ? { clock } : {}) })
+    // a call the model is still writing spins too, named from its partial input
+    const isStreaming = streaming?.id === id
+    const input = isStreaming && Object.keys((e.props.input ?? {}) as object).length === 0 ? streamedArgs(streaming!.tool, streaming!.json) : e.props.input
+    const row = renderTreeRow(t, palette, isStreaming ? { ...e.props, isRunning: true, input } : e.props, { last: closedTools.has(id), durationMs: callMs.get(id) ?? null, ...(clock ? { clock } : {}) })
     if ((e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isRunning && !e.props.isErrored) {
       // a done edit is one folded tree row its ToolResult draws (in a group,
       // the folded group's), not this row plus a second line under it
@@ -502,7 +519,12 @@ export const register: Register = (on, options) => {
       live.tools += 1
       if (id) live.lastToolId = id
       if (id && turnId) callTurn.set(id, turnId)
-      if (id && turnId) turnOrder.set(turnId, [...(turnOrder.get(turnId) ?? []).filter(c => c.id !== id), { id, tool: e.tool, afterText: textSinceCall, subject: callSubject(e) }])
+      if (id && turnId) {
+        // a call the stream announced keeps its place and its afterText
+        const known = (turnOrder.get(turnId) ?? []).find(c => c.id === id)
+        recordCall(turnId, { id, tool: e.tool, afterText: known ? known.afterText : textSinceCall, subject: callSubject(e) })
+      }
+      if (streaming?.id === id) streaming = null
       textSinceCall = false
       // the run's row counts this call now
       if (id && turnId && callRun(turnOrder.get(turnId)!, id).length > 1) $.ui.invalidate('ui.render')
@@ -566,6 +588,29 @@ export const register: Register = (on, options) => {
     while (!step.done) {
       const chunk = step.value
       if (chunk.kind === 'stop') usage = chunk.usage
+      if (!e.agentId && live.turnId && (chunk.kind === 'tool' || chunk.kind === 'input')) {
+        if (header) {
+          await revealHeader($, header)
+          header = null
+        }
+        if (chunk.kind === 'tool') {
+          streaming = { id: chunk.id, tool: chunk.name, json: '', subject: '' }
+          callTurn.set(chunk.id, live.turnId)
+          recordCall(live.turnId, { id: chunk.id, tool: chunk.name, afterText: textSinceCall, subject: '' })
+          textSinceCall = false
+          liveCalls.set(chunk.id, { tool: chunk.name, t0: await $.clock.now() })
+          if (!ticker) ticker = $.clock.every(TICK_MS, () => void tick($, palette))
+          $.ui.invalidate('ui.render')
+        } else if (streaming && streaming.json.length < INPUT_HEAD) {
+          streaming.json += chunk.json
+          const subject = callSubject(streamedArgs(streaming.tool, streaming.json))
+          if (subject !== streaming.subject) {
+            streaming.subject = subject
+            recordCall(live.turnId, { ...(turnOrder.get(live.turnId) ?? []).find(c => c.id === streaming!.id)!, subject })
+            $.ui.invalidate('ui.render')
+          }
+        }
+      }
       if (chunk.kind === 'text' && !e.agentId) {
         textSinceCall = true
         if (header) {
@@ -757,6 +802,34 @@ async function underRunRow($: EngineInterface, c: RunCtx, t: Elements['terminal'
   return run && isHead ? t.Box({ flexDirection: 'column', children: [await drawRun($, c, t, run, requestId), el] }) : el
 }
 
+/**
+ * The string arguments a call's input has streamed so far, read from its
+ * partial JSON (agent-hud's partialArgsOf): enough to name the file or the
+ * command before the input is whole. A value still streaming stays out.
+ */
+function partialArgs(json: string): Record<string, string> {
+  const args: Record<string, string> = {}
+  for (const m of json.matchAll(/"([a-z_]+)"\s*:\s*"((?:[^"\\]|\\.)*)"/g)) {
+    try {
+      args[m[1]!] ??= JSON.parse(`"${m[2]!}"`) as string
+    } catch {
+      // a half escape: the next chunk completes it
+    }
+  }
+  return args
+}
+
+/**
+ * A streaming call's arguments as its row may show them. A Bash command
+ * streams before its description: the raw command stays hidden until the
+ * description names it (owner's request, 2026-10-05).
+ */
+function streamedArgs(tool: string, json: string): Record<string, string> {
+  const args = partialArgs(json)
+  if (tool !== 'Bash') return args
+  return typeof args.description === 'string' ? { description: args.description } : {}
+}
+
 /** What a call did, for its run's row: its description, else its path, pattern or command. */
 function callSubject(args: object): string {
   const a = args as Record<string, unknown>
@@ -863,49 +936,44 @@ function bashEditDone(id: string, f: ChangedFile): EditDone {
   }
 }
 
-// A Bash call that rewrote files draws as edits (owner's request,
-// 2026-10-05): the row names what the command did by its description, not
-// the command itself; its output folds to one line; each file is an Edit
-// row folded to `+N -M`, as a folded group draws its edits.
+// A Bash call that rewrote files is one folded row (owner's request,
+// 2026-10-05; a row, an `output` line and an Edit row per file read as
+// clutter): `Bash  <description> . 11 lines  .gitignore  +2 -0`. The row
+// names what the command did by its description, not the command itself;
+// a press opens its output and each file's card.
 async function bashEdits($: EngineInterface, t: Elements['terminal'], palette: Palette, isAllOpen: boolean, call: TreeRow, r: { lines: string[]; files: ChangedFile[]; moreFiles: number }, columns: number, o: TreeOptions, runOf: RunOf): Promise<RenderElement> {
-  const open = new Set((await read($, expanded)) ?? [])
-  const isOpen = (key: string) => isAllOpen || open.has(key)
   const description = (call.input as { description?: unknown } | undefined)?.description
   const shown = typeof description === 'string' && description.trim() !== '' ? { ...call, input: { description } } : call
   // A file whose edits this turn began elsewhere draws in that edit's row
   // (owner's request, 2026-10-05: a sed, a script and an Edit of one file
-  // are one row); a file without hunks keeps a plain line.
-  const files = r.files.flatMap(f => {
+  // are one row).
+  const files = r.files.filter(f => {
     const done = bashEditDone(call.tool_use_id, f)
     const run = f.hunks.length > 0 ? runOf(done.key, call.tool_use_id, done.output) : null
-    return run && run[0]!.key !== done.key ? [] : [{ f, done, run }]
+    return !run || run[0]!.key === done.key
   })
-  const rows: RenderElement[] = []
-  // A command that printed nothing and only rewrote files is its edits
-  // alone, no row of its own (owner's request, 2026-10-05); the row stays
-  // when there is output to fold under it. The files close the tree when
-  // the call is the turn's last, not its row.
-  if (r.lines.length > 0 || files.length === 0) rows.push(renderTreeRow(t, palette, shown, { ...o, last: o.last && files.length === 0 && r.moreFiles === 0 }))
-  const closesAt = o.last && r.moreFiles === 0 ? files.length - 1 : -1
-  if (r.lines.length > 0) {
-    const key = `out:${call.tool_use_id}`
-    const body = renderToolOutput(t, palette, r.lines, { columns, maxLines: MAX_PAINTED_LINES })
-    const count = `  ${r.lines.length} line${r.lines.length === 1 ? '' : 's'}`
-    rows.push(foldRow($, t, palette, key, 'output', [[count, palette.faint]], isOpen(key), body, columns))
+  const output = r.lines.length > 0 ? renderToolOutput(t, palette, r.lines, { columns, maxLines: MAX_PAINTED_LINES }) : null
+  if (files.length === 0 && r.moreFiles === 0) {
+    const row = renderTreeRow(t, palette, shown, o)
+    return output ? t.Box({ flexDirection: 'column', children: [row, output] }) : row
   }
-  for (const [i, { f, done, run }] of files.entries()) {
-    if (f.hunks.length === 0) {
-      const name = (f.created ? 'Created ' : f.deleted ? 'Deleted ' : '') + rel(f.filePath)
-      const corner = i === closesAt ? G.arcBL : G.tee
-      rows.push(spaced(t, palette, t.Text({ wrap: 'truncate-end', children: [t.Text({ color: palette.faint, children: [corner + G.rule + '   '] }), t.Text({ children: ['Edit  '] }), t.Text({ color: palette.path, dimColor: true, children: [name] })] })))
-      continue
-    }
-    const row = await foldedCard($, t, palette, isAllOpen, done.key, done.output, done.input, columns, true, run, i === closesAt)
-    if (row) rows.push(row)
-  }
-  if (r.moreFiles > 0) rows.push(trunked(t, palette, 1, [t.Text({ color: palette.faint, children: [G.ellipsis + ` +${r.moreFiles} more file${r.moreFiles === 1 ? '' : 's'}`] })]))
-  if (rows.length === 0) return t.Box({ display: 'none', children: [] })
-  return t.Box({ flexDirection: 'column', children: rows })
+  const edits = files.map(f => bashEditDone(call.tool_use_id, f))
+  const lines = edits.reduce((n, x) => {
+    const l = lineCounts(x.output)
+    return { add: n.add + l.add, del: n.del + l.del }
+  }, { add: 0, del: 0 })
+  const names = files.map(f => (f.created ? 'Created ' : f.deleted ? 'Deleted ' : '') + rel(f.filePath)).join(', ') + (r.moreFiles > 0 ? ` +${r.moreFiles}` : '')
+  const tail: Array<[string, string]> = [
+    ...(r.lines.length > 0 ? [[` ${G.middot} ${r.lines.length} line${r.lines.length === 1 ? '' : 's'}`, palette.faint] as [string, string]] : []),
+    [`  ${names}`, palette.path],
+    ...countCells(palette, lines),
+  ]
+  const cards = edits.map(x => editCard(t, palette, x.output, x.input, columns)).filter((c): c is RenderElement => c !== null)
+  const body = t.Box({ flexDirection: 'column', children: [...(output ? [output] : []), ...cards] })
+  const key = `bash:${call.tool_use_id}`
+  const isOpen = isAllOpen || ((await read($, expanded)) ?? []).includes(key)
+  const label = typeof description === 'string' && description.trim() !== '' ? description.trim() : (call.input as { command?: string } | undefined)?.command ?? ''
+  return foldRow($, t, palette, key, label.replace(/\s+/g, ' '), tail, isOpen, body, columns, true, o.last, 'Bash  ')
 }
 
 /** An edit's `+N -M`, as a folded line's colored cells. */

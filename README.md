@@ -56,7 +56,11 @@ stored or what the model reads.
   `├─ ⠋ ▸ Bash ×5 · Edit ×2  Run tests  +54 -27`, a spinner while one
   runs, then a green `✓`, or a red `✗` with `1 failed` and the failed call
   drawn under it. The subject is the running call's, else the last's. A
-  press opens every call; `/expand` opens them all.
+  call joins the run as soon as the model starts writing it, its file read
+  from the streaming input (a Bash command waits for its description). A
+  Bash that rewrote files is one row, `Bash  <description> · 11 lines
+  .gitignore  +2 -0`, its output and cards behind a press. A press opens
+  every call; `/expand` opens them all.
 - **Replies on the tree.** A reply is a node: `├─ ● text`, the rest of it
   on the trunk, the turn's last reply closing it with `╰─ ●`.
 - **Background band.** While subagents run, a rounded frame above the
