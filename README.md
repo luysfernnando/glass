@@ -46,8 +46,9 @@ stored or what the model reads.
   trees away and `/unfold` opens them.
 - **A tool tree.** While a turn runs, every call is one row: `├─ ✓ Bash
   git status · 3 lines` with its wall time at the right, `○` while it
-  runs, `✗` in red when it fails. Done commands step down to a quiet
-  color, and paths draw relative to the project. Rows light under the
+  runs, `✗` in red when it fails. A Bash command keeps its colors once
+  done; other arguments step down to a quiet color, and paths draw
+  relative to the project. Rows light under the
   pointer. The engine's folded runs name what they read: `├─ ▸ Read ×2
   SPEC.md · render.ts`. Bash output is painted, three lines then a count.
   A finished agent is one row.
