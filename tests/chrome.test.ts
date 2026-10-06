@@ -572,6 +572,14 @@ test('paths cut in the middle keep the file name: band file column, diff title',
   setCwd('')
 })
 
+test('every palette: the gutter mark is apart from ok and from both bars that share its glyph', async () => {
+  for (const [name, pal] of Object.entries(PALETTES)) {
+    for (const key of ['ok', 'quoteBar', 'calloutBar'] as const) {
+      expect(`${name}.mark ${pal.mark}`).not.toBe(`${name}.mark ${pal[key]}`)
+    }
+  }
+})
+
 test('the dots line past 16 calls: the first 12 dots, +N, and the summary still whole', async () => {
   const tools = ['Read', 'Read', 'Read', 'Grep', 'Bash', 'Bash', 'Edit', 'Read', 'Read', 'Bash']
   const calls = Array.from({ length: 45 }, (_, i) => ({ id: `c${i}`, tool: tools[i % tools.length]!, status: (i === 17 ? 'failed' : 'ok') as 'failed' | 'ok', ms: 100 }))

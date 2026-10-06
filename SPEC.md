@@ -713,3 +713,11 @@ finished turn; these rules replace the ones above where they differ.
   summary keeps every count, failures included.
 - Left for later, each its own decision: the gutter mark's color, the event
   rows' mark, and inline code's hue (it matches numbers in three palettes).
+
+### 0.4.21 (2026-10-06): the gutter mark in warn
+
+- The gutter mark takes each palette's `warn` (gold): it asks the reader to
+  look, so it is not `ok`'s "done". In water its teal was the quote bar's,
+  and in rose its foam was both bars', the same `▎` in the same color, so
+  a marked paragraph read as a one-line quote. A test keeps `mark` apart
+  from `ok`, `quoteBar` and `calloutBar` in every palette.
