@@ -80,7 +80,8 @@ design panel and an investigation round on 2026-10-02.
   `bullet`. Ordered numbers in `orderedNum`, padded to the widest marker.
   Items are `M - depth*2` wide, indented `depth*2`. Zero rows between items.
 - Fence: a `blockBg` card, `paddingX 1`, sized to its widest line (floor
-  60, cap M). Header row only when the block exceeds 8 lines: dim
+  60, cap M). Tabs expand to four spaces: the terminal skips a tab's
+  cells without the tint and the engine counts it one cell. Header row only when the block exceeds 8 lines: dim
   uppercase language left, dim `N lines` right. The
   body is glass's own highlighter (`hooks/highlight.ts`): one row per
   line, keywords in `codeKw`, calls in `codeFn`, types in `codeType`,
@@ -631,3 +632,9 @@ finished turn; these rules replace the ones above where they differ.
   two cannot drift again. The bar now also counts a code line that wraps:
   a quoted fence with a long line drew its bar short.
 - Plain ASCII diagrams draw as typed, like the Unicode ones (see Fence).
+
+### 0.4.18 (2026-10-06): tabs in fences
+
+- A fence's tabs expand to four spaces, as in diff cards. A tab-indented
+  line drew its indent in the page color, not the card's `blockBg`, and
+  the card's width counted each tab as one cell.
