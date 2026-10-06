@@ -1053,6 +1053,22 @@ export function renderAgentLaunch(t: Table, p: Palette, remote: boolean): Render
   return trunked(t, p, 1, [t.Text({ color: p.faint, wrap: 'truncate-end', children: [text] })])
 }
 
+// A Bash command that printed nothing, in place of the engine's body (its
+// corner bracket broke the trunk, 2026-10-06): one trunked line in `faint`.
+export function renderNoOutput(t: Table, p: Palette): RenderElement {
+  return trunked(t, p, 1, [t.Text({ color: p.faint, wrap: 'truncate-end', children: ['(No output)'] })])
+}
+
+// A failed non-Bash call's error, in place of the engine's body (its corner
+// bracket broke the trunk, 2026-10-06): the reason's first line in `err`,
+// the rest a `faint` count; ctrl+o has it whole.
+export function renderToolError(t: Table, p: Palette, text: string): RenderElement {
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l !== '')
+  const rows = [trunked(t, p, 1, [t.Text({ color: p.err, wrap: 'truncate-end', children: [safeText(lines[0] ?? 'Error', 400)] })])]
+  if (lines.length > 1) rows.push(trunked(t, p, 1, [t.Text({ color: p.faint, children: [G.ellipsis + ` +${plural(lines.length - 1, 'line')}`] })]))
+  return t.Box({ flexDirection: 'column', children: rows })
+}
+
 // ---- live clock ----------------------------------------------------------
 
 /** the hover group a call's dot and its tree row share */

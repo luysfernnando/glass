@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
-import { FLAT_TOOLS, callRun, editRunKeys, renderRunRow, spinCells, cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, setHome, lineCounts, rel, spaced, trunked, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { FLAT_TOOLS, callRun, editRunKeys, renderRunRow, spinCells, cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, setHome, lineCounts, rel, spaced, trunked, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk, RunCall, TreeOptions, TreeRow } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -86,7 +86,8 @@ function bashBody(t: Elements['terminal'], p: Palette, output: unknown, isErrore
   const r = bashResult(output)
   if (!r) return null
   if (r.files.length > 0) return renderBashResult(t, p, r.lines, r.files, { maxLines: MAX_PAINTED_LINES, moreFiles: r.moreFiles, columns: cols })
-  if (r.lines.length === 0 || r.lines.some(l => l.includes(ESC))) return null
+  if (r.lines.length === 0) return renderNoOutput(t, p)
+  if (r.lines.some(l => l.includes(ESC))) return null
   return renderToolOutput(t, p, r.lines, { columns: cols, maxLines: MAX_PAINTED_LINES })
 }
 
@@ -474,6 +475,11 @@ export const register: Register = (on, options) => {
     // press that unfolded the engine's result opened an empty row
     // (owner's request, 2026-10-05); a failed Read keeps its error
     if (e.props.tool === 'Read' && !e.props.isErrored) return $.ui.resolve(e).Box({ display: 'none', children: [] })
+    // a failed call's reason on the trunk; a failed Bash's body is the ToolUse row's
+    if (e.props.isErrored && e.props.tool !== 'Bash' && typeof e.props.output === 'string') {
+      const reason = e.props.output.replace(/<\/?tool_use_error>/g, '')
+      if (reason.trim() !== '') return renderToolError($.ui.resolve(e), palette, reason)
+    }
     // an Edit's or a Write's diff, drawn as glass draws it (owner's request, 2026-10-03)
     if ((e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isErrored) {
       const input = (e.props as { input?: unknown }).input

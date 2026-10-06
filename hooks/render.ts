@@ -198,7 +198,9 @@ interface FenceShape {
 }
 
 function fenceShape(lang: string, source: string, m: number): FenceShape {
-  const code = source.replace(/\n$/, '')
+  // tabs expand here: the terminal jumps a tab without painting the card's
+  // tint, and the engine counts it as one cell (as renderDiff does)
+  const code = source.replace(/\n$/, '').replace(/\t/g, '    ')
   const lines = code === '' ? [] : code.split('\n')
   const diagram = isDiagram(lang, code)
   const gutter = !diagram && lines.length > 8
