@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
-import { cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -310,6 +310,11 @@ export const register: Register = (on, options) => {
     if (e.surface !== 'terminal') return next(e)
     const turnId = callTurn.get(e.props.tool_use_id)
     if (turnId && foldedTurns.has(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
+    // a failed call's reason on the trunk; a failed Bash's body is the ToolUse row's
+    if (e.props.isErrored && e.props.tool !== 'Bash' && typeof e.props.output === 'string') {
+      const reason = e.props.output.replace(/<\/?tool_use_error>/g, '')
+      if (reason.trim() !== '') return renderToolError($.ui.resolve(e), palette, reason)
+    }
     // an Edit's or a Write's diff, drawn as glass draws it (owner's request, 2026-10-03)
     if ((e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isErrored) {
       return editCard($.ui.resolve(e), palette, e.props.output, (e.props as { input?: unknown }).input, e.viewport?.columns ?? 80) ?? next(e)

@@ -565,6 +565,11 @@ finished turn; these rules replace the ones above where they differ.
 - A backgrounded Agent's or Bash command's result is one trunked `faint`
   line, `running in the background · ↓ to manage`, in place of the
   engine's body, whose corner bracket broke the trunk (Bash since 0.4.12).
+- A failed call other than Bash (an Edit whose string was not found) draws
+  its reason's first line in `err` on the trunk, the rest a `faint`
+  `… +N lines`, in place of the engine's `Error editing file` and its
+  corner bracket (0.4.17, confirmed live 2026-10-06). The `[Image #N]` row
+  under an image prompt is still the engine's and keeps its bracket.
 - The band stops four cells short of `bodyColumns`, so the engine's `[-]`
   mark sits beside its top-right arc, not over it. Unverified live.
 

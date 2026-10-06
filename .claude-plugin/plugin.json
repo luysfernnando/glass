@@ -2,7 +2,7 @@
   "name": "glass",
   "displayName": "Glass",
   "description": "A desktop-app look for Claude Code's terminal: colored shell commands in prose, a Bottom line card, content-fit code cards, borderless tables, gutter marks beside paragraphs that need you, painted tool rows and a turn footer.",
-  "version": "0.4.16",
+  "version": "0.4.17",
   "author": { "name": "rashed parvez" },
   "homepage": "https://github.com/rashedInt32/glass",
   "repository": "https://github.com/rashedInt32/glass",
