@@ -66,12 +66,6 @@ declare module 'claude-code' {
       prompts: GlassPrompt[]
       /** the main-loop calls of each turn, by turn id, in call order */
       calls: Record<string, GlassCall[]>
-      /** turn ids whose tree is folded away by /fold; a new turn leaves it */
-      folded: string[]
-      /** request ids of the engine's folded groups the person opened */
-      expanded: string[]
-      /** true after /expand: every folded group opens; /collapse clears it */
-      expandAll: boolean
       agents: GlassAgent[]
       /** the band above the prompt: the box, or one strip */
       band: 'open' | 'closed'

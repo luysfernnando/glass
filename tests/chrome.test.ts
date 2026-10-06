@@ -1,14 +1,17 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { CLOCK_CELLS, callScope, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, safeText } from '../hooks/chrome'
+import { CLOCK_CELLS, callScope, clip, clockCells, renderAgentLaunch, fmtCost, fmtDuration, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, safeText } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
-import { highlight, langOf } from '../hooks/highlight'
+import { highlight, highlightLine, langOf } from '../hooks/highlight'
 import { parseMarkdown } from '../hooks/markdown'
 import { quoteRows, renderReply } from '../hooks/render'
 import type { CodeSpan } from '../hooks/highlight'
 import { PALETTES } from '../hooks/palette'
 import { cellWidth } from '../hooks/width'
+
+// the sandbox has timers; the engine's es2023 lib does not declare them
+declare const setTimeout: (fn: (value?: unknown) => void, ms: number) => unknown
 
 const p = PALETTES.tidepool
 const cp = (n: number) => String.fromCodePoint(n)
@@ -30,7 +33,7 @@ const flat = (node: RenderNode) => strings(node).join('')
 const lines = (node: RenderElement) => (((node as { props?: { children?: RenderNode[] } }).props?.children ?? []) as RenderNode[]).map(flat)
 
 test('the new glyphs are one cell each', async () => {
-  for (const g of [G.tee, G.elbow, G.pipe, G.tick, G.cross, G.hollow, G.fisheye, G.diamond, G.dotted, G.square, G.right, G.down, G.arcTL, G.arcTR, G.arcBL, G.arcBR, G.disc, G.smile, G.copy, G.eye, G.loop, G.fork, G.times, G.middot, G.ellipsis, G.connector]) {
+  for (const g of [G.tee, G.pipe, G.tick, G.cross, G.hollow, G.fisheye, G.diamond, G.dotted, G.right, G.down, G.arcTL, G.arcTR, G.arcBL, G.arcBR, G.disc, G.smile, G.times, G.middot, G.ellipsis]) {
     expect(cellWidth(g)).toBe(1)
   }
 })
@@ -64,7 +67,7 @@ test('a user row: its time, then the assistant header and the dots line once the
     { id: 'c', tool: 'Read', status: 'running' as const, ms: null },
   ]
   // live: the counts by tool, no chevron, no Copy
-  const liveRow = flat(renderUserRow(t, p, { text: 'hello', submittedAt: 0, startedAt: 60_000, turn: { turnId: 'x', calls, done: null, onCopy: null }, columns: 80 }))
+  const liveRow = flat(renderUserRow(t, p, { text: 'hello', submittedAt: 0, startedAt: 60_000, turn: { turnId: 'x', calls, done: null }, columns: 80 }))
   expect(liveRow).toContain(G.fisheye + ' Claude')
   expect(liveRow).toContain(G.disc + G.cross + ' ' + G.hollow)
   expect(liveRow).toContain('1 failed')
@@ -72,28 +75,28 @@ test('a user row: its time, then the assistant header and the dots line once the
   expect(liveRow).not.toContain(G.down)
   expect(liveRow).not.toContain(G.right)
   expect(liveRow).not.toContain('Copy')
-  // done: the totals and Copy
-  const unfolded = flat(renderUserRow(t, p, { text: 'hello', submittedAt: 0, startedAt: 60_000, turn: { turnId: 'x', calls, done: turn, onCopy: () => {} }, columns: 80 }))
+  // done: the totals, still no Copy
+  const unfolded = flat(renderUserRow(t, p, { text: 'hello', submittedAt: 0, startedAt: 60_000, turn: { turnId: 'x', calls, done: turn }, columns: 80 }))
   expect(unfolded).not.toContain('Copy')
   expect(unfolded).toContain('17 actions')
   expect(unfolded).toContain('3 edits')
   expect(unfolded).toContain('2 failed')
 })
 
-test('a tree row: hollow mark while live, tick and line count once done, elbow on the last', async () => {
+test('a tree row: hollow mark while live, tick and line count once done, the tee on every row', async () => {
   const base = { tool_use_id: 't1', tool: 'Bash', input: { command: 'git status' }, isErrored: false, isInterrupted: false }
-  const live = flat(renderTreeRow(t, p, { ...base, isRunning: true }, { last: false, durationMs: null }))
+  const live = flat(renderTreeRow(t, p, { ...base, isRunning: true }, { durationMs: null }))
   expect(live.startsWith(G.pipe + G.tee + G.rule + ' ' + G.hollow + ' Bash')).toBe(true)
   expect(live).toContain('git status')
   expect(live).not.toContain('lines')
-  const done = flat(renderTreeRow(t, p, { ...base, isRunning: false, output: { stdout: 'a\nb\nc\n', stderr: '' } }, { last: true, durationMs: 800 }))
-  expect(done.startsWith(G.pipe + G.elbow + G.rule + ' ' + G.tick + ' Bash')).toBe(true)
+  const done = flat(renderTreeRow(t, p, { ...base, isRunning: false, output: { stdout: 'a\nb\nc\n', stderr: '' } }, { durationMs: 800 }))
+  expect(done.startsWith(G.pipe + G.tee + G.rule + ' ' + G.tick + ' Bash')).toBe(true)
   expect(done).toContain('3 lines')
   expect(done.endsWith('0.8s')).toBe(true)
   // a done Bash row keeps its command's token colors
-  const doneTree = JSON.stringify(renderTreeRow(t, p, { ...base, isRunning: false }, { last: true, durationMs: 800 }))
+  const doneTree = JSON.stringify(renderTreeRow(t, p, { ...base, isRunning: false }, { durationMs: 800 }))
   expect(doneTree).toContain(JSON.stringify({ type: 'Text', props: { color: p.cmd, children: ['git'] } }))
-  const failed = flat(renderTreeRow(t, p, { ...base, isRunning: false, isErrored: true }, { last: false, durationMs: 50 }))
+  const failed = flat(renderTreeRow(t, p, { ...base, isRunning: false, isErrored: true }, { durationMs: 50 }))
   expect(failed).toContain(G.cross + ' Bash')
 })
 
@@ -103,13 +106,13 @@ test('a folded group counts edits and failures and names ctrl+o', async () => {
     { tool: 'Edit', isRunning: false, isErrored: true, isInterrupted: false },
     { tool: 'Grep', isRunning: false, isErrored: false, isInterrupted: false },
   ]
-  const folded = flat(renderGroupRow(t, p, calls, { isActive: false, key: 'expand:g1', onExpand: () => {} }))
+  const folded = flat(renderGroupRow(t, p, calls, { isActive: false, key: 'expand:g1' }))
   expect(folded).toContain('Read' + ' ' + G.middot + ' Edit ' + G.middot + ' Grep')
   expect(folded).toContain('[1 edit]')
   expect(folded).toContain('1 failed')
   expect(folded).not.toContain('ctrl+o to expand')
   expect(folded).not.toContain('Click')
-  const active = flat(renderGroupRow(t, p, [...calls, { tool: 'Read', isRunning: true, isErrored: false, isInterrupted: false }], { isActive: true, key: null, onExpand: null }))
+  const active = flat(renderGroupRow(t, p, [...calls, { tool: 'Read', isRunning: true, isErrored: false, isInterrupted: false }], { isActive: true, key: null }))
   expect(active).toContain('1 running' + G.ellipsis)
   expect(active).not.toContain('Click')
 })
@@ -145,15 +148,15 @@ test('the band: a frame the band wide with five agents and a fold, or one strip 
 })
 
 test('an event row: a tick and the first line, a cross on a failed task, the duration at the right', async () => {
-  const ok = flat(renderEventRow(t, p, 'Agent "Hunt widths" finished\nmore detail', { status: 'completed', durationMs: 72_000 }))
+  const ok = flat(renderEventRow(t, p, 'm1', 'Agent "Hunt widths" finished\nmore detail', { status: 'completed', durationMs: 72_000 }))
   expect(ok.startsWith(G.pipe + G.tee + G.rule + ' ' + G.tick + ' Agent  Hunt widths')).toBe(true)
   expect(ok).not.toContain('more detail')
   expect(ok.endsWith('1m 12s')).toBe(true)
-  const bad = flat(renderEventRow(t, p, 'Agent died', { status: 'failed' }))
+  const bad = flat(renderEventRow(t, p, 'm2', 'Agent died', { status: 'failed' }))
   expect(bad).toContain(G.cross + ' Agent died')
   expect(bad.endsWith('Agent died')).toBe(true)
   // expanded, the body follows the row
-  const full = flat(renderEventRow(t, p, 'Agent finished\nthe report', { status: 'completed' }, true))
+  const full = flat(renderEventRow(t, p, 'm3', 'Agent finished\nthe report', { status: 'completed' }, true))
   expect(full).toContain('the report')
   const msg = flat(renderMessageRow(t, p, 'Explore'))
   expect(msg.startsWith(G.pipe + G.tee + G.rule + ' ' + G.ring + ' Message from @Explore')).toBe(true)
@@ -167,8 +170,6 @@ test('painted Bash output: the connector, then each line with its words in their
   expect(text).toContain(G.pipe + 'third')
   expect(text).not.toContain('fourth')
   expect(text).toContain(G.pipe + G.ellipsis + ' +1 line')
-  // under the turn's last row the trunk column is blank
-  expect(flat(renderToolOutput(t, p, ['x'], { columns: 80, maxLines: 3, last: true })).startsWith(' x')).toBe(true)
   expect(text).toContain('M hooks/render.ts')
   expect(text).toContain('14 passed, 0 failed')
   // the path and the status words carry their palette colors
@@ -328,14 +329,14 @@ test('a Bash result that rewrote files: the body folded past the painted lines, 
 
 test('0.4.1: no air inside a run, no time under a tenth, one row per output line, the agent launch line, a Bash group names its command', async () => {
   const base = { tool_use_id: 't1', tool: 'Read', input: { file_path: 'a.ts' }, isRunning: false, isErrored: false, isInterrupted: false }
-  const tight = flat(renderTreeRow(t, p, base, { last: false, durationMs: 40, air: false }))
+  const tight = flat(renderTreeRow(t, p, base, { durationMs: 40, air: false }))
   expect(tight.startsWith(G.tee)).toBe(true)
   expect(tight).not.toContain('0.0s')
-  expect(flat(renderTreeRow(t, p, base, { last: false, durationMs: 300 })).startsWith(G.pipe + G.tee)).toBe(true)
+  expect(flat(renderTreeRow(t, p, base, { durationMs: 300 })).startsWith(G.pipe + G.tee)).toBe(true)
   const body = renderToolOutput(t, p, ['x'.repeat(300), 'b'], { columns: 80, maxLines: 3 })
   expect(lines(body).length).toBe(2)
   expect(flat(renderAgentLaunch(t, p, false))).toContain('running in the background')
-  const group = flat(renderGroupRow(t, p, [{ tool: 'Bash', input: { command: 'git status --short' }, isRunning: false, isErrored: false, isInterrupted: false }], { isActive: false, key: null, onExpand: null }))
+  const group = flat(renderGroupRow(t, p, [{ tool: 'Bash', input: { command: 'git status --short' }, isRunning: false, isErrored: false, isInterrupted: false }], { isActive: false, key: null }))
   expect(group).toContain('git status --short')
 })
 
@@ -349,7 +350,7 @@ test('0.4.2: the clock cells decode to the elapsed time, a running row carries t
   expect(words[1]).toBe(0x8e8ca1)
   expect(words[2]).toBe(0x01000000)
   const tr = { ...t, Raster: el('Raster') } as unknown as Elements['terminal']
-  const running = renderTreeRow(tr, p, { tool_use_id: 'toolu_x', tool: 'Bash', input: { command: 'sleep 9' }, isRunning: true, isErrored: false, isInterrupted: false }, { last: false, durationMs: null, clock: cells })
+  const running = renderTreeRow(tr, p, { tool_use_id: 'toolu_x', tool: 'Bash', input: { command: 'sleep 9' }, isRunning: true, isErrored: false, isInterrupted: false }, { durationMs: null, clock: cells })
   const found: { type: string; props: Record<string, unknown> }[] = []
   const walk = (n: RenderNode) => {
     if (typeof n === 'string') return
@@ -359,7 +360,7 @@ test('0.4.2: the clock cells decode to the elapsed time, a running row carries t
   walk(running)
   expect(found.some(n => n.type === 'Raster' && n.props.columns === CLOCK_CELLS && n.props.key === 'clock')).toBe(true)
   expect(found.some(n => n.type === 'Box' && (n.props.hover as { scope?: string } | undefined)?.scope === callScope('toolu_x'))).toBe(true)
-  const row = renderUserRow(t, p, { text: 'hi', submittedAt: 0, startedAt: 0, turn: { turnId: 'x', calls: [{ id: 'toolu_x', tool: 'Bash', status: 'running', ms: null }], done: null, onCopy: null }, columns: 80 })
+  const row = renderUserRow(t, p, { text: 'hi', submittedAt: 0, startedAt: 0, turn: { turnId: 'x', calls: [{ id: 'toolu_x', tool: 'Bash', status: 'running', ms: null }], done: null }, columns: 80 })
   const dots: { type: string; props: Record<string, unknown> }[] = []
   const walk2 = (n: RenderNode) => {
     if (typeof n === 'string') return
@@ -423,7 +424,7 @@ function fenceCard(node: RenderNode): RenderElement | undefined {
   return undefined
 }
 
-const reply = (md: string, columns = 100) => renderReply(t, parseMarkdown(md), p, { bullet: false, columns, marks: false })
+const reply = (md: string, columns = 100) => renderReply(t, parseMarkdown(md), p, { columns, marks: false })
 
 test('a box-drawing diagram over eight lines draws as itself: no header row, no line numbers', async () => {
   const card = fenceCard(reply('```\n' + boxDiagram.join('\n') + '\n```'))!
@@ -434,7 +435,7 @@ test('a box-drawing diagram over eight lines draws as itself: no header row, no 
 test('a diagram row wider than the card truncates instead of wrapping', async () => {
   const wide = cp(0x250c) + cp(0x2500).repeat(70) + cp(0x2510)
   const card = fenceCard(reply('```\n' + wide + '\n' + cp(0x2502) + '\n```', 40))!
-  const rows = ((card as { props: { children: RenderElement[] } }).props.children)
+  const rows = ((card as unknown as { props: { children: RenderElement[] } }).props.children)
   for (const row of rows) expect((row as { props: { wrap?: string } }).props.wrap).toBe('truncate-end')
 })
 
@@ -485,5 +486,107 @@ test('code, prose and shell output in a bare fence stay code', async () => {
   expect(drawnAsDiagram('', [' hooks/render.ts     | 57 +++++++++++++++++++++-----', ' tests/parse.test.ts | 24 ++++++++++', ' 2 files changed, 64 insertions(+), 17 deletions(-)'])).toBe(false)
   // a rust error: an arrow and gutter bars, but under half its rows
   expect(drawnAsDiagram('', ['error[E0308]: mismatched types', ' --> src/main.rs:4:18', '  |', '4 |     let x: i32 = "a";', '  |            ---   ^^^ expected `i32`', '  |            |', '  |            expected due to this'])).toBe(false)
+})
+
+// ---- fixes from the 2026-10-06 audit ----------------------------------------
+
+// every element in a tree, depth first
+function elements(node: RenderNode): { type: string; props: Record<string, unknown> }[] {
+  if (typeof node === 'string' || !node) return []
+  const n = node as unknown as { type: string; props: Record<string, unknown> }
+  return [n, ...((n.props.children ?? []) as RenderNode[]).flatMap(elements)]
+}
+// the table a one-table reply draws: reply box, block box, table
+const tableOf = (md: string, columns = 100) => {
+  const block = (reply(md, columns) as unknown as { props: { children: RenderElement[] } }).props.children[0]!
+  return (block as unknown as { props: { children: RenderElement[] } }).props.children[0]!
+}
+
+test('a table: a numeric column right-aligns when the separator names no side, and keeps a named one', async () => {
+  const auto = lines(tableOf('| name | n |\n|---|---|\n| a | 1 |\n| bb | 22 |'))
+  expect(auto[0]).toBe('name  n')
+  expect(auto[2]).toBe('a      1')
+  expect(auto[3]).toBe('bb    22')
+  const named = lines(tableOf('| name | n |\n|:---|:---|\n| a | 1 |\n| bb | 22 |'))
+  expect(named[2]).toBe('a     1')
+  // wider than the measure: the engine's Markdown draws it
+  const wide = tableOf('| a | b |\n|---|---|\n| ' + 'x'.repeat(30) + ' | ' + 'y'.repeat(30) + ' |', 60)
+  expect((wide as unknown as { type: string }).type).toBe('Markdown')
+})
+
+test('a Bottom line head forms with the colon inside the bold too', async () => {
+  for (const head of ['**Bottom line**', '**Bottom line**:', '**Bottom line:**']) {
+    expect(parseMarkdown(head + '\n- Verified: a\n- Issue: b\n- Fix: c')[0]?.kind).toBe('callout')
+  }
+})
+
+test('the band fits its frame on a narrow terminal, open and closed', async () => {
+  const agents = Array.from({ length: 5 }, (_, i) => ({
+    agentId: `a${i}`, description: `Research the widths ${i}`, kind: 'Explore', model: 'claude-opus-5-5', effort: 'high', stage: 'thinking' + G.ellipsis, file: 'hooks/render.ts', tokens: 15_000, startedAt: 0,
+  }))
+  for (const columns of [100, 84, 80, 72, 60, 44, 30]) {
+    const w = Math.max(40, columns - 4)
+    const open = lines(renderBand(t, p, { agents, now: 60_000, columns, open: true, onToggle: () => {}, tasksCommand: 'tasks' }))
+    for (const row of open) expect(cellWidth(row)).toBe(w)
+    const strip = flat(renderBand(t, p, { agents, now: 60_000, columns, open: false, onToggle: () => {}, tasksCommand: null }))
+    expect(cellWidth(strip)).toBe(w)
+  }
+  // no room: nothing, not a stray ellipsis
+  expect(clip('hooks/render.ts', 0)).toBe('')
+})
+
+test('durations past an hour: hours and minutes, whole in the clock', async () => {
+  expect(fmtDuration(59 * 60_000)).toBe('59m 00s')
+  expect(fmtDuration(7_200_000)).toBe('2h 00m')
+  expect(fmtDuration(3_900_000)).toBe('1h 05m')
+  const bytes = Uint8Array.from(atob(clockCells(7_200_000, '#ffffff')), ch => ch.charCodeAt(0))
+  const words = new Uint32Array(bytes.buffer)
+  const text = Array.from({ length: CLOCK_CELLS }, (_, i) => String.fromCharCode(words[i * 3]!)).join('')
+  expect(text).toBe(' 2h 00m')
+  // past 99h 59m the clock holds there, its first digit kept
+  const capped = new Uint32Array(Uint8Array.from(atob(clockCells(100 * 3_600_000, '#ffffff')), ch => ch.charCodeAt(0)).buffer)
+  expect(Array.from({ length: CLOCK_CELLS }, (_, i) => String.fromCharCode(capped[i * 3]!)).join('')).toBe('99h 59m')
+})
+
+test('an output line is a string the API takes: bounded, no control characters, the last pass of a carriage return', async () => {
+  const json = '{"a":' + '1,'.repeat(8000) + '1}'
+  const longest = Math.max(...strings(renderToolOutput(t, p, [json], { columns: 80, maxLines: 3 })).map(s => s.length))
+  expect(longest).toBeLessThanOrEqual(1000)
+  const ctl = flat(renderToolOutput(t, p, ['a' + cp(8) + 'b' + cp(7) + 'c'], { columns: 80, maxLines: 3 }))
+  expect(/[\x00-\x08\x0b-\x1f]/.test(ctl)).toBe(false)
+  expect(flat(renderToolOutput(t, p, ['50%\r100%\r'], { columns: 80, maxLines: 3 }))).toBe(G.pipe + '100%')
+})
+
+test('an event row: no time under a tenth of a second, keyed by its message', async () => {
+  for (const ms of [1, 50, 99]) expect(flat(renderEventRow(t, p, 'm', 'Task done', { status: 'completed', durationMs: ms }))).not.toContain('0.')
+  expect(flat(renderEventRow(t, p, 'm', 'Task done', { status: 'completed', durationMs: 100 })).endsWith('0.1s')).toBe(true)
+  const rowKeys = (id: string) => elements(renderEventRow(t, p, id, 'Agent "x" finished', { status: 'completed' })).map(n => n.props.key).filter(Boolean)
+  expect(rowKeys('m1')).not.toEqual(rowKeys('m2'))
+})
+
+test('a comment-only line in a shell fence draws as a comment', async () => {
+  expect(highlightLine('# note', 'bash')).toEqual([{ text: '# note', kind: 'comment' }])
+  expect(highlightLine('  # note', 'sh')).toEqual([{ text: '  ', kind: 'plain' }, { text: '# note', kind: 'comment' }])
+  expect(highlightLine('ls # x', 'bash').at(-1)).toEqual({ text: '# x', kind: 'comment' })
+})
+
+test('a quoted Bottom line on a narrow terminal: the quote bar is as tall as the card', async () => {
+  const md = '> **Bottom line**\n> - Verified: ' + 'word '.repeat(9) + '\n> - Issue: b\n> - Fix: c'
+  const all = elements(reply(md, 50))
+  const bar = (color: string) => all.find(n => n.type === 'Text' && n.props.color === color && String((n.props.children as unknown[])[0]).startsWith(G.mark))!
+  const height = (color: string) => String((bar(color).props.children as unknown[])[0]).split('\n').length
+  // the card's bar runs its rows; the title line sits above it
+  expect(height(p.quoteBar)).toBe(height(p.calloutBar) + 1)
+  expect(height(p.calloutBar)).toBe(4)
+})
+
+test('no Text string past 10000 characters: a long run goes as several', async () => {
+  const longest = (node: RenderNode) => Math.max(0, ...strings(node).map(s => s.length))
+  const cases = ['word '.repeat(3000), '```ts\n' + 'x'.repeat(15000) + '\n```', '`' + 'y'.repeat(15000) + '`', 'see ' + 'a/'.repeat(7000) + 'b.ts']
+  for (const md of cases) {
+    const tree = reply(md)
+    expect(longest(tree)).toBeLessThanOrEqual(10000)
+    expect(strings(tree).join('').length).toBeGreaterThanOrEqual(14000)
+  }
 })
 

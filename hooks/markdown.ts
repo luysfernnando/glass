@@ -22,7 +22,8 @@ export type Block =
   | { kind: 'rule' }
   | { kind: 'raw'; text: string }
   | { kind: 'quote'; blocks: Block[] }
-  | { kind: 'table'; header: Inline[][]; align: Align[]; rows: Inline[][][]; raw: string }
+  // align: null where the separator names none (`---`), so a numeric column can right-align
+  | { kind: 'table'; header: Inline[][]; align: (Align | null)[]; rows: Inline[][][]; raw: string }
   | { kind: 'callout'; title: string; rows: CalloutRow[] }
 
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/
@@ -34,7 +35,8 @@ const TABLE_SEP_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/
 const FENCE_RE = /^(\s{0,3})(`{3,}|~{3,})\s*([\w+#.-]*)[^`]*$/
 const QUOTE_RE = /^\s*>\s?(.*)$/
 const RAW_START_RE = /^\s*<[a-zA-Z!/]/
-const CALLOUT_HEAD_RE = /^\*\*(Bottom line)\*\*:?\s*$/i
+// `**Bottom line**`, `**Bottom line**:` and `**Bottom line:**`
+const CALLOUT_HEAD_RE = /^\*\*(Bottom line):?\*\*:?\s*$/i
 const CALLOUT_ROW_RE = /^(?:[-*+]\s+)?\*{0,2}(Verified|Issue|Fix)\s*:?\*{0,2}\s*:?\s+(.*)$/
 
 // U+FE0F after a symbol that is not an emoji by default (U+26A0 and kin)
@@ -173,12 +175,12 @@ function splitRow(line: string): string[] {
   return cells
 }
 
-function alignOf(sep: string): Align {
+function alignOf(sep: string): Align | null {
   const left = sep.startsWith(':')
   const right = sep.endsWith(':')
   if (left && right) return 'center'
   if (right) return 'right'
-  return 'left'
+  return left ? 'left' : null
 }
 
 // a callout row: labelled once `Label:` has arrived, a blank label before
@@ -218,8 +220,9 @@ export function inlineText(inlines: Inline[]): string {
     .join('')
 }
 
-const URL_RE = /^https?:\/\/[^\s<>)]+/
-const MD_LINK_RE = /^\[([^\]]+)\]\(([^)\s]+)\)/
+// sticky: matched at `lastIndex`, so a long run is never copied per bracket
+const URL_RE = /https?:\/\/[^\s<>)]+/y
+const MD_LINK_RE = /\[([^\]]+)\]\(([^)\s]+)\)/y
 
 export function parseInline(src: string): Inline[] {
   const out: Inline[] = []
@@ -271,7 +274,8 @@ export function parseInline(src: string): Inline[] {
       }
     }
     if (c === '[') {
-      const m = MD_LINK_RE.exec(src.slice(i))
+      MD_LINK_RE.lastIndex = i
+      const m = MD_LINK_RE.exec(src)
       if (m) {
         flush()
         out.push({ kind: 'link', text: m[1]!, href: m[2]! })
@@ -280,7 +284,8 @@ export function parseInline(src: string): Inline[] {
       }
     }
     if (c === 'h') {
-      const m = URL_RE.exec(src.slice(i))
+      URL_RE.lastIndex = i
+      const m = URL_RE.exec(src)
       if (m) {
         // sentence punctuation after a bare URL belongs to the sentence
         const url = m[0].replace(/[.,;:!?]+$/, '')

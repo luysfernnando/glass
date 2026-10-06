@@ -6,8 +6,8 @@ https://github.com/user-attachments/assets/365252bf-4b60-49c3-902b-b8e127592d28
 
 Claude Code draws replies in one markdown style: inline code in a fixed
 lavender, no color for commands, tables in boxes, tool rows in gray. glass
-replaces the drawing of assistant replies, tool-row headers and the turn
-footer with its own, inside the same TUI. Hooks, skills, MCP, permissions
+replaces the drawing of assistant replies, tool rows and turn headers
+with its own, inside the same TUI. Hooks, skills, MCP, permissions
 and Remote Control are untouched: it changes what is drawn, never what is
 stored or what the model reads.
 
@@ -20,7 +20,8 @@ stored or what the model reads.
 - **Paths and links anywhere.** `src/main.rs:42:7` with its line number in
   the number color, `README.md`, `.gitignore`, `~/.config/app.toml`. URLs
   underlined; `https` links are real OSC 8 links.
-- **A Bottom line card.** A reply opening with `**Bottom line**` and
+- **A Bottom line card.** A reply opening with `**Bottom line**` (or
+  `**Bottom line:**`) and
   `Verified:` / `Issue:` / `Fix:` rows becomes a tinted card with a thin
   bar and colored labels. Forms while streaming, never flickers.
 - **Gutter marks.** A `▎` beside any paragraph that asks something of you:
@@ -95,10 +96,14 @@ paths gold, links mint.
 
 ```
 claude plugin validate .
-npx tsc -p .            # after the engine has laid .claude-plugin/types
-claude plugin test .    # tests/*.test.ts, run in the engine's own sandbox
-grep -rnP "[^\x00-\x7F]" hooks/   # must print nothing
+npx -p typescript tsc -p .   # after the engine has laid .claude-plugin/types
+claude plugin test .         # tests/*.test.ts, run in the engine's own sandbox
+LC_ALL=C grep -rn '[^ -~]' hooks/   # must print nothing
 ```
+
+`scripts/check.sh` runs all four and checks that both manifests carry
+the same version. CI runs it on every push and pull request, without tsc:
+the types only exist once the engine has loaded the plugin.
 
 Every non-ASCII glyph is built from a code point in `hooks/glyphs.ts`.
 Literals outside ASCII are forbidden in `hooks/`: the tool path that

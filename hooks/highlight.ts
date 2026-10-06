@@ -66,6 +66,10 @@ export function langOf(hint: string): string {
 export function highlightLine(line: string, lang: string, state: State = { inBlock: false }): CodeSpan[] {
   if (PROSE_LANGS.has(lang)) return line === '' ? [] : [{ text: line, kind: 'plain' }]
   if (SHELL_LANGS.has(lang)) {
+    // a comment-only line: shellSpans wants a command first, and the
+    // fallback below opens comments with `//`
+    const note = /^(\s*)(#.*)$/.exec(line)
+    if (note) return [...(note[1] ? [{ text: note[1], kind: 'plain' as const }] : []), { text: note[2]!, kind: 'comment' }]
     const spans = shellSpans(line, true)
     if (spans) return spans.map(s => ({ text: s.text, kind: s.kind === 'plain' ? 'plain' : s.kind === 'str' ? 'str' : s.kind === 'num' ? 'num' : s.kind === 'comment' ? 'comment' : s.kind === 'cmd' || s.kind === 'sub' ? 'kw' : s.kind === 'flag' || s.kind === 'var' ? 'type' : 'plain' }))
   }
@@ -132,8 +136,14 @@ export function highlightLine(line: string, lang: string, state: State = { inBlo
       IDENT.lastIndex = i
       const m = IDENT.exec(line)!
       const word = m[0]
-      const after = line.slice(i + word.length).match(/^\s*(\S)?/)?.[1]
-      const before = line.slice(0, i).trimEnd().slice(-1)
+      // the nearest non-space character after the word and before it,
+      // found in place: copying the line per word was quadratic
+      let a = i + word.length
+      while (a < n && /\s/.test(line[a]!)) a++
+      const after = line[a]
+      let b = i - 1
+      while (b >= 0 && /\s/.test(line[b]!)) b--
+      const before = b >= 0 ? line[b]! : ''
       let kind: CodeKind = 'plain'
       if (KEYWORDS.has(word) && before !== '.') kind = 'kw'
       else if (CONSTANTS.has(word)) kind = 'num'

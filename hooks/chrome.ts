@@ -1,6 +1,6 @@
 // Turn chrome, following SPEC.md "Turn chrome": the user row with its
-// assistant header and dots line, the tool tree, the folded group, the
-// footer with its actions, event rows and the background band. One glyph
+// assistant header and dots line, the tool tree, the folded group, event
+// rows and the background band. One glyph
 // family (glyphs.ts), one ruler (width.ts), one hierarchy rule: bright for
 // the live thing, `meta` for the done thing, `faint` for scaffolding,
 // saturated color on marks only.
@@ -37,7 +37,9 @@ export function fmtDuration(ms: number): string {
   const s = Math.round(ms / 1000)
   if (s < 60) return `${s}s`
   const m = Math.floor(s / 60)
-  return `${m}m ${String(s % 60).padStart(2, '0')}s`
+  if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`
+  // an hour on: `2h 05m`, so the clock's seven cells still hold it whole
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`
 }
 
 // a tool's wall time: tenths under ten seconds, whole seconds after
@@ -68,6 +70,8 @@ export function safeText(s: string, max = MAX_TEXT): string {
 // cut to `n` cells with an ellipsis
 export function clip(s: string, n: number): string {
   if (cellWidth(s) <= n) return s
+  // no room: nothing, not a lone ellipsis a cell past the edge
+  if (n <= 0) return ''
   let out = ''
   for (const ch of s) {
     if (cellWidth(out + ch) > n - 1) break
@@ -102,7 +106,7 @@ export function rel(path: string): string {
   return cwd && path.startsWith(cwd + '/') ? path.slice(cwd.length + 1) : path
 }
 
-const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`
+const plural = (n: number, one: string) => `${n} ${n === 1 ? one : one + 's'}`
 const sep = ` ${G.middot} `
 
 // ---- user row ------------------------------------------------------------
@@ -112,7 +116,6 @@ export type TurnView = {
   calls: GlassCall[]
   /** the finished turn, once it is */
   done: GlassTurn | null
-  onCopy: Press | null
 }
 
 export type UserRow = {
@@ -152,7 +155,7 @@ function toolCounts(calls: GlassCall[]): string {
 // dots line: the one place a header can sit above both the tool rows and
 // the reply, since the engine fixes the row order. Folded, the dots line
 // reads the tool counts while the turn runs and the totals once it is
-// done. `Copy` at the right once the turn is done.
+// done.
 export function renderUserRow(t: Table, p: Palette, r: UserRow): RenderElement {
   const m = measure(r.columns)
   const rows: RenderElement[] = [
@@ -198,11 +201,11 @@ export function renderUserRow(t: Table, p: Palette, r: UserRow): RenderElement {
     if (v.done) {
       summary.push(plural(v.done.tools, 'action'))
       if (v.done.edits > 0) summary.push(sep + plural(v.done.edits, 'edit'))
-      if (v.done.failed > 0) summary.push(sep, t.Text({ color: p.err, children: [plural(v.done.failed, 'failed', 'failed')] }))
+      if (v.done.failed > 0) summary.push(sep, t.Text({ color: p.err, children: [`${v.done.failed} failed`] }))
     } else {
       summary.push(toolCounts(v.calls))
       const failed = v.calls.filter(c => c.status === 'failed').length
-      if (failed > 0) summary.push(sep, t.Text({ color: p.err, children: [plural(failed, 'failed', 'failed')] }))
+      if (failed > 0) summary.push(sep, t.Text({ color: p.err, children: [`${failed} failed`] }))
     }
     // dots as sibling Texts, so each can light its row (a Text nested in a
     // Text follows its hover group but cannot heat it)
@@ -211,21 +214,15 @@ export function renderUserRow(t: Table, p: Palette, r: UserRow): RenderElement {
       flexShrink: 1,
       children: [...dots(t, p, v.calls), t.Text({ children: ['  '] }), t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: v.done ? p.meta : p.bold, children: summary })] })],
     })
-    // no chevron: a Button in a transcript row never received its press
-    // live (2026-10-03), so folding moved to /fold and /unfold
-    const right: RenderElement[] = []
-    if (false as boolean) right.push(t.Button({ key: `copy:${v.turnId}`, label: G.copy + ' Copy', plain: true, dimColor: true, onPress: v.onCopy }))
+    // no chevron and no Copy: a Button in a transcript row never received
+    // its press live (2026-10-03), so folding moved to /fold and /unfold
     rows.push(
       t.Box({
         key: `dots:${v.turnId}`,
         flexDirection: 'row',
         marginLeft: 2,
-        justifyContent: 'space-between',
         hover: { backgroundColor: p.rowHover },
-        children: [
-          t.Box({ flexDirection: 'row', flexShrink: 1, children: [left] }),
-          ...(right.length ? [t.Box({ flexShrink: 0, marginLeft: 2, children: right })] : []),
-        ],
+        children: [t.Box({ flexDirection: 'row', flexShrink: 1, children: [left] })],
       }),
     )
   }
@@ -244,9 +241,9 @@ export type TreeRow = {
   output?: unknown
 }
 
+// no `last`: knowing a turn's last call needs a subscription to the turn,
+// so every row draws the tee and the trunk runs on (0.3.10)
 export type TreeOptions = {
-  /** the turn's last call draws the elbow */
-  last: boolean
   /** wall time once known */
   durationMs: number | null
   /** a trunk row above; false inside a run of the same tool (2026-10-04) */
@@ -321,7 +318,7 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
     flexDirection: 'row',
     hover: { scope: callScope(row.tool_use_id), backgroundColor: p.rowHover },
     children: [
-      rowHead(t, t.Text({ color: p.faint, children: [(o.last ? G.elbow : G.tee) + G.rule + ' '] }), t.Text({ color: markColor, children: [mark + ' '] })),
+      rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: markColor, children: [mark + ' '] })),
       t.Box({
         flexGrow: 1,
         flexShrink: 1,
@@ -345,33 +342,33 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
 const TRUNK = 3
 
 // A body row under a tree row: the trunk down its left, `h` rows tall,
-// the content indented under the row's mark. Under the turn's last row
-// (`last`) the column is blank, since the elbow above closed the tree.
-function trunked(t: Table, p: Palette, h: number, content: RenderNode[], last = false): RenderElement {
-  const bar = last ? ' ' : G.pipe
+// the content indented under the row's mark.
+function trunked(t: Table, p: Palette, h: number, content: RenderNode[]): RenderElement {
   return t.Box({
     flexDirection: 'row',
     marginLeft: TREE_INSET,
     marginRight: TREE_INSET,
     children: [
-      t.Box({ width: TRUNK, flexShrink: 0, children: [t.Text({ color: p.faint, children: [Array(Math.max(1, h)).fill(bar).join('\n')] })] }),
+      t.Box({ width: TRUNK, flexShrink: 0, children: [t.Text({ color: p.faint, children: [Array(Math.max(1, h)).fill(G.pipe).join('\n')] })] }),
       t.Box({ flexGrow: 1, flexShrink: 1, flexDirection: 'column', children: content }),
     ],
   })
 }
 
-// rows a line takes once wrapped under the trunk
-function rowsOf(line: string, columns: number): number {
-  const avail = Math.max(10, columns - 2 * TREE_INSET - TRUNK)
-  return Math.max(1, Math.ceil(cellWidth(line) / avail))
+// characters of one output line kept: more than any terminal row shows
+const OUTPUT_LINE_MAX = 1000
+
+// a line as a terminal leaves it: a carriage return (a progress bar's
+// `50%\r100%`) starts the line over, so only the last pass shows
+function overstruck(line: string): string {
+  const s = line.replace(/\r+$/, '')
+  return s.slice(s.lastIndexOf('\r') + 1)
 }
 
 export type OutputOptions = {
   columns: number
   /** lines past this fold to a `faint` count */
   maxLines: number
-  /** the row above is the turn's last: no trunk */
-  last?: boolean
 }
 
 // The engine's Bash result body, redrawn so the output can be painted (the
@@ -384,16 +381,19 @@ export function renderToolOutput(t: Table, p: Palette, lines: string[], o: Outpu
   const shown = lines.slice(0, o.maxLines)
   // one row per output line, clipped: a long line no longer doubles the
   // body's height, and ctrl+o has the whole output (2026-10-04)
+  // each line made a string the API takes: no control characters (a `\b`
+  // or a bell refused the whole tree) and cut well past any terminal's
+  // width, since the row clips anyway (a minified JSON line ran 16000)
   const rows = shown.map(line =>
     trunked(t, p, 1, [
       t.Text({
         wrap: 'truncate-end',
-        children: paintLine(line).map(s => (s.color ? t.Text({ color: p[s.color], children: [s.text] }) : t.Text({ color: p.meta, children: [s.text] }))),
+        children: paintLine(safeText(overstruck(line), OUTPUT_LINE_MAX)).map(s => (s.color ? t.Text({ color: p[s.color], children: [s.text] }) : t.Text({ color: p.meta, children: [s.text] }))),
       }),
-    ], o.last),
+    ]),
   )
   const rest = lines.length - shown.length
-  if (rest > 0) rows.push(trunked(t, p, 1, [t.Text({ color: p.faint, children: [G.ellipsis + ` +${plural(rest, 'line')}`] })], o.last))
+  if (rest > 0) rows.push(trunked(t, p, 1, [t.Text({ color: p.faint, children: [G.ellipsis + ` +${plural(rest, 'line')}`] })]))
   return t.Box({ flexDirection: 'column', children: rows })
 }
 
@@ -406,8 +406,6 @@ export type DiffOptions = {
   path: string
   /** the terminal's width */
   columns: number
-  /** the row above is the turn's last (kept for the callers' symmetry; the card's own border is its trunk) */
-  last?: boolean
   /** `Created` or `Deleted` before the path in the title; absent for an update */
   verb?: string
 }
@@ -578,7 +576,6 @@ export type BashResultOptions = {
   maxLines: number
   moreFiles: number
   columns: number
-  last?: boolean
 }
 
 // A Bash result whose command rewrote files: the output body as the
@@ -588,14 +585,14 @@ export type BashResultOptions = {
 // engine's own panel for these was the one pink thing left).
 export function renderBashResult(t: Table, p: Palette, lines: string[], files: ReadonlyArray<ChangedFile>, o: BashResultOptions): RenderElement {
   const rows: RenderElement[] = []
-  const air = () => trunked(t, p, 1, [t.Text({ children: [''] })], o.last)
-  if (lines.length > 0) rows.push(renderToolOutput(t, p, lines, { columns: o.columns, maxLines: o.maxLines, last: o.last }))
+  const air = () => trunked(t, p, 1, [t.Text({ children: [''] })])
+  if (lines.length > 0) rows.push(renderToolOutput(t, p, lines, { columns: o.columns, maxLines: o.maxLines }))
   for (const f of files) {
     const verb = f.created ? 'Created' : f.deleted ? 'Deleted' : undefined
     rows.push(air())
     // the card's top border names the file; a change with no hunks keeps a header line
     if (f.hunks.length > 0) {
-      rows.push(renderDiff(t, p, f.hunks, { path: f.filePath, columns: o.columns, last: o.last, ...(verb ? { verb } : {}) }))
+      rows.push(renderDiff(t, p, f.hunks, { path: f.filePath, columns: o.columns, ...(verb ? { verb } : {}) }))
       continue
     }
     rows.push(
@@ -607,12 +604,12 @@ export function renderBashResult(t: Table, p: Palette, lines: string[], files: R
             t.Text({ color: p.path, children: [safeText(rel(f.filePath), 400)] }),
           ],
         }),
-      ], o.last),
+      ]),
     )
   }
   if (o.moreFiles > 0) {
     rows.push(air())
-    rows.push(trunked(t, p, 1, [t.Text({ color: p.faint, children: [G.ellipsis + ` +${o.moreFiles} more file${o.moreFiles === 1 ? '' : 's'}`] })], o.last))
+    rows.push(trunked(t, p, 1, [t.Text({ color: p.faint, children: [G.ellipsis + ` +${o.moreFiles} more file${o.moreFiles === 1 ? '' : 's'}`] })]))
   }
   return t.Box({ flexDirection: 'column', children: rows })
 }
@@ -623,13 +620,14 @@ export type GroupCall = { tool: string; input?: unknown; isRunning: boolean; isE
 
 export type GroupOptions = {
   isActive: boolean
-  /** the Button's key; null draws the fold as text alone */
+  /** the row's key, which its hover tint needs; null draws it untinted */
   key: string | null
-  onExpand: Press | null
 }
 
-// `|- o +17 completed [3 edits] . Click to expand`, all `faint`, the mark
-// in `meta`; a failed count in `err`; a live group ends in an ellipsis.
+// `|- > Read x3  a.ts . b.ts [1 edit]`, all `faint`, the mark in `meta`; a
+// failed count in `err`; a live group ends in an ellipsis. No fold button:
+// a Button in a transcript row never received its press live (2026-10-03),
+// so /expand opens every group.
 export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupCall>, o: GroupOptions): RenderElement {
   const done = calls.filter(c => !c.isRunning).length
   const edits = calls.filter(c => isEditTool(c.tool)).length
@@ -647,9 +645,6 @@ export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupC
   if (subjects.length) parts.push('  ' + subjects.join(sep))
   if (edits > 0) parts.push(` [${plural(edits, 'edit')}]`)
   if (failed > 0) parts.push(sep, t.Text({ color: p.err, children: [`${failed} failed`] }))
-  // no fold button: a Button in a transcript row never received its press
-  // live (2026-10-03); /expand opens every group
-  const button = null
   const tail = o.isActive ? sep + `${calls.length - done} running` + G.ellipsis : ''
   return spaced(t, p, t.Box({
     ...(o.key ? { key: `group:${o.key}`, hover: { backgroundColor: p.rowHover } } : {}),
@@ -657,7 +652,6 @@ export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupC
     children: [
       rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: p.meta, children: [G.right + ' '] })),
       t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.faint, children: [...parts, tail] })] }),
-      ...(button ? [t.Box({ flexShrink: 0, children: [button] })] : []),
     ],
   }))
 }
@@ -669,19 +663,23 @@ export type EventTask = { status?: string; durationMs?: number }
 // a background task's notification as one tree row:
 // `|- v Agent "Research Empryo" finished                         1m 12s`
 // A Box with a hover style must carry a key, or the validator refuses the
-// whole tree and the engine draws its own row.
-export function renderEventRow(t: Table, p: Palette, text: string, task: EventTask | undefined, expanded = false): RenderElement {
+// whole tree and the engine draws its own row. The key is the message's
+// own id: two notifications with the same first line must not share one.
+// Every event row draws the tee, as tree rows do: knowing the last needs a
+// subscription to the session's messages.
+export function renderEventRow(t: Table, p: Palette, id: string, text: string, task: EventTask | undefined, expanded = false): RenderElement {
   const linesAll = text.split('\n')
   const at = linesAll.findIndex(l => l.trim() !== '')
   const first = safeText(linesAll[at] ?? '', 400)
   const rest = expanded ? safeText(linesAll.slice(at + 1).join('\n').trim(), MAX_TEXT) : ''
   const status = (task?.status ?? '').toLowerCase()
   const failed = /fail|error|kill|cancel/.test(status)
-  const right = typeof task?.durationMs === 'number' && task.durationMs > 0 ? fmtToolTime(task.durationMs) : ''
+  // under a tenth of a second the time says nothing, as on a tree row
+  const right = typeof task?.durationMs === 'number' && task.durationMs >= 100 ? fmtToolTime(task.durationMs) : ''
   // `Agent "Count hook source lines" finished` draws as a tool row
   const agent = /^Agent "(.+)" \w+/.exec(first)
   const row = spaced(t, p, t.Box({
-    key: `event:${first.slice(0, 60)}`,
+    key: `event:${id}`,
     flexDirection: 'row',
     hover: { backgroundColor: p.rowHover },
     children: [
@@ -771,13 +769,20 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
     // the fill is measured from the strings around it, so the strip is
     // exactly the band wide
     const newest = agents[agents.length - 1]!
-    const faces = agents.slice(-BAND_ROWS).map(a => face(a)).join(' ')
     const lead = `${G.rule} `
     const titleStr = `${G.dotted} background${sep}${agents.length} `
     const mid = ` ${G.rule} `
     const tail = ` ${elapsed} ${G.rule}`
-    const fixed = cellWidth(lead + titleStr) + 1 + cellWidth(mid + faces) + 2 + 1 + cellWidth(tail)
-    const name = clip(`${a11(newest.description)}${sep}${newest.stage}`, Math.max(8, w - fixed - 8))
+    const fixedFor = (faces: string) => cellWidth(lead + titleStr) + 1 + cellWidth(mid + faces) + 2 + 1 + cellWidth(tail)
+    // a narrow terminal drops the oldest faces, all of them if it must, so
+    // 16 cells stay for the name and the fill; the name then takes what is
+    // left but one
+    let shown = agents.slice(-BAND_ROWS)
+    while (shown.length > 0 && w - fixedFor(shown.map(face).join(' ')) < 16) shown = shown.slice(1)
+    const faces = shown.map(face).join(' ')
+    const fixed = fixedFor(faces)
+    const room = w - fixed
+    const name = clip(`${a11(newest.description)}${sep}${newest.stage}`, room >= 16 ? room - 8 : Math.max(0, room - 1))
     const fill = Math.max(1, w - fixed - cellWidth(name))
     return t.Box({
       flexDirection: 'row',
@@ -813,8 +818,7 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
   const inner = w - 4
   const shown = agents.slice(-BAND_ROWS)
   const more = agents.length - shown.length
-  // the diamond, a space, the five-cell face, a space, then the columns with one space between
-  const fileWidth = Math.max(0, inner - 8 - COL_NAME - 1 - COL_MODEL - 1 - COL_STAGE - 1 - COL_TOKENS - 1)
+  const cols = bandColumns(inner)
   const rows = shown.map(a => {
     const modelText = `${shortModel(a.model)}${a.effort ? sep + a.effort : ''}`
     return t.Box({
@@ -824,15 +828,15 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
         t.Text({
           children: [
             t.Text({ color: p.warn, children: [G.diamond + ' ' + face(a) + ' '] }),
-            t.Text({ color: p.bold, bold: true, children: [fit(a11(a.description), COL_NAME)] }),
+            t.Text({ color: p.bold, bold: true, children: [fit(a11(a.description), cols.name)] }),
             ' ',
-            t.Text({ color: p.accent, children: [fit(modelText, COL_MODEL)] }),
+            t.Text({ color: p.accent, children: [fit(modelText, cols.model)] }),
             ' ',
-            t.Text({ color: p.meta, children: [fit(a.stage, COL_STAGE)] }),
+            t.Text({ color: p.meta, children: [fit(a.stage, cols.stage)] }),
             ' ',
-            t.Text({ color: p.meta, children: [fit(a.tokens > 0 ? fmtTokens(a.tokens) : '', COL_TOKENS)] }),
+            t.Text({ color: p.meta, children: [fit(a.tokens > 0 ? fmtTokens(a.tokens) : '', cols.tokens)] }),
             ' ',
-            t.Text({ color: p.faint, children: [fit(a.file, fileWidth)] }),
+            t.Text({ color: p.faint, children: [fit(a.file, cols.file)] }),
           ],
         }),
         edge(' ' + G.pipe),
@@ -861,6 +865,29 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
     ],
   })
   return t.Box({ flexDirection: 'column', width: w, children: [top, ...rows, bottom] })
+}
+
+// A band row's column widths inside `inner` cells: the diamond, a space,
+// the five-cell face and a space (8), then name, model, stage, tokens and
+// file with one space after each of the first four. The file takes what is
+// left; on a narrow terminal the model gives up cells first, then the
+// name, the tokens column, the stage, and the name and model again, so a
+// row never outgrows its frame.
+function bandColumns(inner: number): { name: number; model: number; stage: number; tokens: number; file: number } {
+  const c = { name: COL_NAME, model: COL_MODEL, stage: COL_STAGE, tokens: COL_TOKENS }
+  let over = 8 + 4 + c.name + c.model + c.stage + c.tokens - inner
+  const give = (k: keyof typeof c, min: number) => {
+    const d = Math.max(0, Math.min(over, c[k] - min))
+    c[k] -= d
+    over -= d
+  }
+  give('model', 8)
+  give('name', 8)
+  give('tokens', 0)
+  give('stage', 6)
+  give('model', 1)
+  give('name', 1)
+  return { ...c, file: Math.max(0, -over) }
 }
 
 // a description as one printable line
@@ -900,6 +927,8 @@ export function callScope(id: string): string {
 
 /** cells the running row's clock takes: `12m 04s` at most */
 export const CLOCK_CELLS = 7
+// 99h 59m 59s, the longest time seven cells hold
+const CLOCK_MAX_MS = ((99 * 60 + 59) * 60 + 59) * 1000
 
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 function base64(bytes: Uint8Array): string {
@@ -920,7 +949,8 @@ function base64(bytes: Uint8Array): string {
 // cell a [codePoint, fg, bg] triplet of little-endian u32, the background
 // the terminal's own (bit 24 alone). ASCII digits and letters only.
 export function clockCells(ms: number, fg: string): string {
-  const text = fmtDuration(Math.max(0, ms)).slice(-CLOCK_CELLS).padStart(CLOCK_CELLS)
+  // past 99h 59m the clock holds there: `100h 00m` is a cell too wide
+  const text = fmtDuration(Math.min(Math.max(0, ms), CLOCK_MAX_MS)).padStart(CLOCK_CELLS)
   const color = /^#[0-9a-f]{6}$/i.test(fg) ? parseInt(fg.slice(1), 16) : 0x01000000
   const words = new Uint32Array(CLOCK_CELLS * 3)
   for (let i = 0; i < CLOCK_CELLS; i++) {

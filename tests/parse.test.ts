@@ -20,12 +20,14 @@ test('cellWidth mirrors the engine ruler on the glyphs the mod draws', async () 
     [cp(0x274c) + ' fail', 7],
     [cp(0x4e2d) + cp(0x6587), 4],
     ['e' + cp(0x301), 1],
-    [G.bullet + ' next', 6],
+    [G.tee + G.rule + ' ' + G.tick, 4],
     [G.check + ' task', 6],
     [G.ring + ' sub', 5],
     [G.rule.repeat(5), 5],
-    [G.bar + ' quote', 7],
-    [G.capL + 'x' + G.capR, 3],
+    [G.mark + ' quote', 7],
+    // the engine's reply bullet and Nerd Font pill caps, in replies glass draws
+    [cp(0x23fa) + ' next', 6],
+    [cp(0xe0b6) + 'x' + cp(0xe0b4), 3],
     [cp(0x1b) + '[38;2;1;2;3m' + 'ab' + cp(0x1b) + '[39m', 2],
   ]
   for (const [s, want] of cases) expect(cellWidth(s)).toBe(want)

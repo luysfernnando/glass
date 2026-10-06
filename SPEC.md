@@ -2,7 +2,9 @@
 
 The contract for how glass draws Claude Code's transcript on the terminal.
 Code follows this file; undocumented deviations are bugs. Settled by a
-design panel and an investigation round on 2026-10-02.
+design panel and an investigation round on 2026-10-02. The file grows by
+pass: a later section replaces an earlier one where they differ, and a
+bullet or section marked (Superseded) is history, not a rule.
 
 ## Global
 
@@ -14,22 +16,23 @@ design panel and an investigation round on 2026-10-02.
   `Bun.stringWidth(s, { ambiguousIsNarrow: true })`. Never code-point length.
 - Glyph encoding: every non-ASCII glyph comes from `hooks/glyphs.ts`, built
   with `String.fromCodePoint`. No literal or `\u` escape outside ASCII in
-  `hooks/`, comments included. Check: `grep -rnP "[^\x00-\x7F]" hooks/` prints
-  nothing.
+  `hooks/`, comments included. Check: `LC_ALL=C grep -rn '[^ -~]' hooks/`
+  prints nothing (BSD grep on macOS has no `-P`).
 - Rhythm: `marginTop: 1` on every block except the first of a text block and
   any block right under a heading. Never `marginBottom`, never spacer boxes.
-  The first block of a reply adds `marginTop: 1` above the bullet.
+  The first block of a reply keeps `marginTop: 1`. No reply bullet: the
+  assistant header carries it.
 - Tint only on the two cards, code fences and the Bottom line (`blockBg`,
   >= 1.2:1 over the terminal bg). Cards hug their content: width = widest
   row plus padding, floor 60 cells, cap M. Inline code has no tint.
-- `dimColor` only on fence headers and the footer. Never on prose.
+- `dimColor` only on fence headers. Never on prose.
 - Never `wrap: 'truncate*'` in the reply body. A width mistake must wrap,
   never lose text.
 - A tree that would be refused reverts the whole message to the engine's
   renderer. So: reply text is normalized on entry (CRLF to LF, C0 controls
   other than tab and newline removed), Text and Code strings stay under
-  10000 characters (long fences split at line boundaries, gutter numbering
-  carrying on), `Link` only gets `https:` or `http://localhost` hrefs, props
+  10000 characters (a longer run goes as several strings side by side in
+  the same Text, so it draws the same), `Link` only gets `https:` or `http://localhost` hrefs, props
   are set conditionally rather than passed as `undefined`.
 
 ## Inline
@@ -54,7 +57,7 @@ design panel and an investigation round on 2026-10-02.
   the two cells other blocks leave blank. Needs the reader = a question
   mark, an imperative opener, or an attention phrase (asks, things not
   done, risks), the tables in `hooks/prose.ts`. Never on list items,
-  headings, code, cards or the first block under the bullet. Off for the
+  headings, code or cards. Off for the
   whole turn when the prompt asked for writing (`write`, `draft`, …
   among its first six words).
 - `**bold**` bold in `bold`. `*italic*` italic. `~~strike~~` strikethrough.
@@ -103,8 +106,9 @@ design panel and an investigation round on 2026-10-02.
 - Table: no vertical borders. Bold `bold` header, one `rule` row of `─`
   segments joined by two spaces, body rows joined by two spaces, cells
   padded with spaces measured by `cellWidth` (pills counted). Numeric
-  columns right-align unless the markdown alignment says otherwise. A table
-  wider than `columns - 4` falls back to the engine's `Markdown` with the
+  columns right-align unless the separator names a side (`:--`, `--:`,
+  `:-:`); a bare `---` names none. A table wider than `M - 2` (the quote's
+  measure inside a quote) falls back to the engine's `Markdown` with the
   raw lines. The separator row must match the header's cell count; a bare
   `---` under a line with `|` is a rule. A table start interrupts a
   paragraph. Streaming reflows widths per committed row; jitter accepted.
@@ -115,7 +119,7 @@ design panel and an investigation round on 2026-10-02.
   thick, and the bar vanished on wrapped and list rows. Changed 2026-10-02.
   Box has no single-side border, so the bar is a glyph column.)
 - Bottom line card: detection is monotonic. Once the head line is
-  `**Bottom line**` the block is a card for the rest of the stream. Every
+  `**Bottom line**`, `**Bottom line**:` or `**Bottom line:**` the block is a card for the rest of the stream. Every
   following line, or the items of a list right after a title-only card, is
   a row; `Verified:`, `Issue:` and `Fix:` take their label and color, any
   other row gets a blank 8-cell label. Card = `Box backgroundColor blockBg`
@@ -157,7 +161,7 @@ design panel and an investigation round on 2026-10-02.
 
 ## Footer
 
-- Replaces `Baked for 12s`: `Box marginLeft 2 marginTop 1`, one dim line
+- (Superseded: the footer line is gone, see the second pass.) Replaces `Baked for 12s`: `Box marginLeft 2 marginTop 1`, one dim line
   `12s · 3 tools · 322k ctx · 1.6k out · done 3:31 PM` (the finish time in
   the machine's locale, as the engine's own line had it). Tools omitted at zero, tokens
   omitted when unknown, the whole line hidden under 3s with no tools.
@@ -183,7 +187,8 @@ load before, 2026-10-03). Rows already on screen keep theirs.
 
 ## Verification
 
-- `claude plugin validate .`, `npx tsc -p .`, the ASCII grep above.
+- `claude plugin validate .`, `npx -p typescript tsc -p .` (a bare `npx
+  tsc` fetches an unrelated `tsc` package), the ASCII grep above.
 - `claude plugin test .` runs `tests/*.test.ts`: width fixtures, glyph
   integrity, parser edge cases, streaming callout.
 - Live in Ghostty after a reload: a prose pill, a pill in a table, a table
@@ -210,8 +215,8 @@ One rule, as Empryo's: bright for the live thing, muted one step for the
 done thing, faint for scaffolding, saturated color only on status marks.
 Four text steps, all palette keys (no `dimColor` on colored text): `text`
 (prose, as today), `meta` (times, counts, durations, args of a done row),
-`faint` (connectors, folds, hints), and `bold`. `dimColor` keeps its two
-sites (fence header, footer) and gains none.
+`faint` (connectors, folds, hints), and `bold`. `dimColor` keeps one site
+(the fence header) and gains none.
 
 ### User row (`UserMessage`, origin `composer`)
 
@@ -239,9 +244,9 @@ sites (fence header, footer) and gains none.
 - Every main-loop tool row is one line of a tree: a connector, a status
   mark, the tool name, a dim subject, and a right-aligned duration.
   `├─ ✓ Bash  git log --oneline -1 · 3 lines                      0.8s`
-  Connector `├─` in `faint`; the last call of a finished turn draws `└─`
-  (the last id is written at `turn.complete`, and the row redraws).
-  Running rows draw `├─` always.
+  Connector `├─` in `faint` on every row. (The last call drew `└─` at
+  first; the third pass dropped it, since knowing the last call needs a
+  subscription to the turn.)
 - Status mark: `✓` in `ok`, `✗` in `err` (errored or interrupted), `○` in
   `meta` while running. The dot of 0.2 goes away.
 - Tool name in `tool`, bold while running, plain once done. Subject as
@@ -267,21 +272,23 @@ sites (fence header, footer) and gains none.
   `faint`, `◉` in `meta`. (A `Click to expand` Button was the first
   design; it never received its press live, dropped 2026-10-03.) A group
   with any errored or interrupted call opens on its own, so a red mark
-  never hides behind a count. `/expand` sets `expandAll` and every group
-  opens; `/collapse` clears it. The `expanded` set stays for a per-group
-  route. (ctrl+o was reported not to open a group either, 2026-10-03;
+  never hides behind a count. `/expand` sets `expandAllNow` and every
+  group opens; `/collapse` clears it. There is no per-group route: no
+  press reaches a transcript Button. (ctrl+o was reported not to open a group either, 2026-10-03;
   the commands are the route that does not depend on the engine's keys.) A group with any errored call adds
-  `· N failed` in `err`. While `isActive`, the row ends in `…` instead of
-  the button.
+  `· N failed` in `err`. While `isActive`, the row ends in `…`.
 - A `Button` never sits inside a `Text`: the validator refuses the tree
-  (`Button inside an inline element`). The fold button and the footer's
-  `Copy` are sibling boxes in the row, after the text.
-- Verify live before shipping: that a `Button` inside a transcript row
+  (`Button inside an inline element`). No transcript row draws a Button
+  now; the band's chevron is the one Button glass draws.
+- (Superseded: the press never arrived, so the fold button went.) Verify live before shipping: that a `Button` inside a transcript row
   receives `ui.press` (the types say every surface; the mounted test only
   shows the tree validates). If it does not, the fold line is text and
   ctrl+o remains the way in.
 
 ### Footer (`TurnDuration`)
+
+(Superseded by the second pass: `TurnDuration` draws `display: none`, and
+the dots line carries the counts. Kept as history.)
 
 - Line 1, the stats, `■` in `faint` then `meta`:
   `■ 2m 26s · 17 actions · 3 edits · 2 failed · $0.58 · 1.8M in · 5.3k out · 90% cached`
@@ -304,11 +311,14 @@ sites (fence header, footer) and gains none.
 
 ### Events after the turn (`UserMessage`, origin `task-notification`)
 
-- Drawn as tree rows under the footer, same geometry as tool rows:
+- Drawn as tree rows after the turn, same geometry as tool rows:
   `├─ ✓ Background agent finished · <summary>           1m 12s`
   `✓` in `ok` unless `task.status` reads as failed, then `✗` in `err`.
   Summary is `e.props.text`'s first line in `meta`; duration from
-  `task.durationMs` when present. The last one known draws `└─`.
+  `task.durationMs` when present, none under 100 ms. Every event row
+  draws `├─`: knowing the last needs a subscription to the session's
+  messages, as with tool rows. The row's hover key is the message's
+  `requestId`, so two notifications with the same first line stay apart.
 - `isExpanded` true (ctrl+o) passes to the engine, so the full text shows.
 
 ### Background band (`AbovePrompt`)
@@ -320,7 +330,7 @@ sites (fence header, footer) and gains none.
   2026-10-05). A one-cell `accent` rail on the left (`▎` per row, as the
   quote bar), header `◌ background · N` with `N` in `accent` bold, the
   elapsed time of the oldest live agent at the right in `meta`.
-- One row per live agent, newest last, at most 5, then `+N more` in
+- (Superseded by the second pass's rounded frame.) One row per live agent, newest last, at most 5, then `+N more` in
   `faint`: `◆ <description, truncated 18> · <model> · <stage>`. `◆` in
   `warn`, description in `bold`, model in `accent`, stage in `meta`. Stage
   is the last tool name that agent called (`tool.call` with its
@@ -362,9 +372,10 @@ sites (fence header, footer) and gains none.
 ### Glyphs
 
 Added to `hooks/glyphs.ts`, by code point as the rule requires: `├`
-U+251C, `└` U+2514, `│` U+2502, `✓` U+2713, `✗` U+2717, `○` U+25CB, `◉`
-U+25C9, `◆` U+25C6, `◌` U+25CC, `■` U+25AA, `▸` U+25B8, `▾` U+25BE. Each
-gets a `cellWidth` fixture.
+U+251C, `│` U+2502, `✓` U+2713, `✗` U+2717, `○` U+25CB, `◉` U+25C9, `◆`
+U+25C6, `◌` U+25CC, `▸` U+25B8, `▾` U+25BE. Each gets a `cellWidth`
+fixture. (`└` and `■` went with the elbow and the footer; `glyphs.ts`
+holds only glyphs the mod draws.)
 
 ### State
 
@@ -372,9 +383,12 @@ gets a `cellWidth` fixture.
 `cacheTokens`, `costUsd`, `lastToolId`. The atoms, all under `plugin:
 'glass'`: `turns`, `prompts` (text, submit and start times, turn id; last
 48), `calls` (turn id -> main-loop calls with status and wall time; last
-48 turns), `folded` (turn ids `/fold` hid), `expandAll` (`/expand`), `expanded` (engine group
-request ids the person opened), `agents` (live subagents), `band` (`open`
-or `closed`). See the second pass below for what each draws.
+48 turns), `agents` (live subagents), `band` (`open` or `closed`). See
+the second pass below for what each draws. `/fold` and `/expand` are
+module state (`foldedTurns`, `expandAllNow`), which a render hook reads
+without subscribing; a hot reload opens everything again. The module
+records (call -> turn, call -> wall time, a turn's call order, unfolded
+group calls) keep the last 48 turns, as the atoms do.
 
 ### Not drawn, and why
 
@@ -390,8 +404,9 @@ or `closed`). See the second pass below for what each draws.
 - `claude plugin test .`: a mounted render of each new tree (user row with
   header, a tree row running and done, a group fold, the footer with every
   field, the band with 6 agents), width fixtures for the new glyphs.
-- Live in Ghostty: the fold button press, the footer buttons, a `└─` on
-  the last row after `turn.complete`, hover on a tree row, the band under
+- (Superseded in part: no fold button, footer or `└─` remains.) Live in
+  Ghostty: the fold button press, the footer buttons, a `└─` on the last
+  row after `turn.complete`, hover on a tree row, the band under
   5 Agent calls, a task-notification row, a 190-column resize.
 
 ### Second pass: the Empryo turn pattern (2026-10-02, after the first live look)
@@ -402,15 +417,15 @@ finished turn; these rules replace the ones above where they differ.
 - The dots line. Under the assistant header, indented 2: one dot per
   main-loop call in call order, grouped by consecutive tool with a space
   between groups, `ok` green, `err` red, hollow in `meta` while running;
-  then two spaces and the summary in `bold`; then a chevron Button.
+  then two spaces and the summary in `bold`. (A chevron Button and a
+  `⧉ Copy` Button were here; both went, see below and the fourth pass.)
   Folded (`▸`): the tools in first-seen order with counts, `Bash ×3 ·
-  Read ×2`. Unfolded (`▾`): `17 actions · 3 edits · 2 failed`. At the
-  right once the turn is done: `⧉ Copy`, a plain dim Button. Drawn only
+  Read ×2`. Unfolded (`▾`): `17 actions · 3 edits · 2 failed`. Drawn only
   for turns glass saw start (`prompts[].turnId`).
 - Folding, on demand only (owner's call, 2026-10-03: a finished turn
   folded by itself at first, and the chevron Button never received its
   press live, so the tree was a one-way door). Every turn's tree stays
-  open. `folded` holds the turn ids `/fold` tucked away (every finished
+  open. `foldedTurns` holds the turn ids `/fold` tucked away (every finished
   turn in `turns` at that moment); `/unfold` empties it; a new turn
   leaves it at `turn.start`. A folded turn's `ToolUse`, `ToolGroup` and
   `ToolResult` rows draw `display: none`; rows of calls glass never
@@ -420,7 +435,7 @@ finished turn; these rules replace the ones above where they differ.
   column reads it (the `times` atom is gone).
 - The footer line is gone (owner's request, 2026-10-03): the engine's
   `TurnDuration` row draws `display: none`; the dots line carries the
-  counts and `Copy`; cost and tokens stay in `turns` for later. A done
+  counts; cost and tokens stay in `turns` for later. A done
   tree row steps everything after the tool name to `faint`, paths and
   the duration included (same request).
 - (Superseded.) Footer actions, from the left: `◎ Review`, `↻ Till pass`, `⑂ Fork`,
@@ -449,15 +464,14 @@ finished turn; these rules replace the ones above where they differ.
 - The trunk is concrete (owner's request, 2026-10-03: the `⎿` connector
   and the engine's collapsed body left the line in pieces). Every body
   row under a tool row (`trunked`) carries `│` in `faint` down a 3-cell
-  column, as tall as the row once wrapped (`rowsOf`), the content under
-  the mark. Every Bash result is glass's: stdout and stderr painted for
+  column, one row tall (output lines clip to one row since 0.4.1), the
+  content under the mark. Every Bash result is glass's: stdout and stderr painted for
   the first 3 lines, the rest `… +N lines`; a failed command's text the
   same way with its error words in `err`; a file-changing one as below; one
   that printed nothing as a single `faint` `(No output)` line (2026-10-06:
   the engine's own body drew its corner bracket off the trunk). The
-  engine keeps only interrupted results and raw escape-coded output. Under
-  the turn's last row (`lastToolId`) the column is blank, since the elbow
-  above closed the tree. The trade: a long result's ctrl+o expansion is no
+  engine keeps only interrupted results and raw escape-coded output. (A
+  blank column under the turn's last row went with the elbow.) The trade: a long result's ctrl+o expansion is no
   longer the engine's collapsed body; verify live whether the verbose
   transcript still shows the whole output.
   The painted Bash body sits at the engine's own column (`marginLeft 2`,
@@ -578,7 +592,7 @@ finished turn; these rules replace the ones above where they differ.
 
 - Running rows tick. While a main-loop call runs, the row's right column is
   a `Raster` keyed `clock`, 7 cells, the elapsed time in `meta` right-aligned
-  (`fmtDuration`). One ticker, `$.clock.every(1000)`, blits every running
+  (`fmtDuration`; from an hour on `2h 05m`, so seven cells hold it whole). One ticker, `$.clock.every(1000)`, blits every running
   call's clock by its `tool_use_id` (`RasterBlitArgs.requestId` names a tool
   row as a site): no redraw, no state write. It starts at the first live
   call or agent and cancels itself once nothing runs. Unverified live:
@@ -638,3 +652,36 @@ finished turn; these rules replace the ones above where they differ.
 - A fence's tabs expand to four spaces, as in diff cards. A tab-indented
   line drew its indent in the page color, not the card's `blockBg`, and
   the card's width counted each tab as one cell.
+
+### 0.4.19 (2026-10-06): audit fixes
+
+- The documented checks run as written on macOS: `npx -p typescript tsc
+  -p .` and `LC_ALL=C grep -rn '[^ -~]' hooks/`. tsc passes again.
+- A numeric table column right-aligns when its separator names no side.
+- `**Bottom line:**` (colon inside the bold) forms the card.
+- The band's rows fit their frame on any terminal: from 84 columns as
+  before; narrower, the file column goes first, then the model, the name,
+  the tokens and the stage give up cells. The closed strip drops its
+  oldest faces. `clip` to zero cells draws nothing, not a stray `…`.
+  Unverified live.
+- Durations from an hour on read `2h 05m`, in the clock and the tree. Past
+  99h 59m the clock holds there.
+- A Bash output line is cut to 1000 characters and loses its control
+  characters before it is painted: a minified JSON line or a stray bell
+  got the whole tree refused. A carriage return starts the line over, as
+  a terminal does, so a progress bar shows its last pass.
+- A comment-only line in a shell fence draws in `comment`.
+- A quoted Bottom line or table: the quote bar asks the same width
+  question the card and the table do, so it no longer drifts below 62
+  columns. An over-wide table inside a quote is the engine's Markdown,
+  whose height glass estimates as it does raw html.
+- Dead code out: the Copy button and `onCopy`, the per-group expand route
+  and its `expanded` atom, the never-read `folded` and `expandAll` atoms,
+  the reply bullet, the `last` options and the elbow, `turnOf`, `rowsOf`,
+  and glyphs only the tests used.
+- A finished reply's parse is kept (the newest 64 by text), so `/fold`,
+  resizes and palette changes do not parse every reply again. Links, URLs
+  and code words are matched in place instead of copying the rest of the
+  line each time.
+- Known limit: a reply tree past the engine's 100,000 serialized
+  characters is still refused whole and drawn by the engine.
