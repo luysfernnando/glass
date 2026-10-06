@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
-import { cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -82,7 +82,8 @@ function bashBody(t: Elements['terminal'], p: Palette, output: unknown, isErrore
     const moreFiles = typeof diff?.moreFiles === 'number' ? diff.moreFiles : 0
     return renderBashResult(t, p, lines, files, { maxLines: MAX_PAINTED_LINES, moreFiles, columns: cols })
   }
-  if (text === '' || text.includes(ESC)) return null
+  if (text === '') return renderNoOutput(t, p)
+  if (text.includes(ESC)) return null
   return renderToolOutput(t, p, lines, { columns: cols, maxLines: MAX_PAINTED_LINES })
 }
 

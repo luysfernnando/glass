@@ -451,7 +451,9 @@ finished turn; these rules replace the ones above where they differ.
   column, as tall as the row once wrapped (`rowsOf`), the content under
   the mark. Every Bash result is glass's: stdout and stderr painted for
   the first 3 lines, the rest `… +N lines`; a failed command's text the
-  same way with its error words in `err`; a file-changing one as below. The
+  same way with its error words in `err`; a file-changing one as below; one
+  that printed nothing as a single `faint` `(No output)` line (2026-10-06:
+  the engine's own body drew its corner bracket off the trunk). The
   engine keeps only interrupted results and raw escape-coded output. Under
   the turn's last row (`lastToolId`) the column is blank, since the elbow
   above closed the tree. The trade: a long result's ctrl+o expansion is no

@@ -875,6 +875,12 @@ export function renderAgentLaunch(t: Table, p: Palette, remote: boolean): Render
   return trunked(t, p, 1, [t.Text({ color: p.faint, wrap: 'truncate-end', children: [text] })])
 }
 
+// A Bash command that printed nothing, in place of the engine's body (its
+// corner bracket broke the trunk, 2026-10-06): one trunked line in `faint`.
+export function renderNoOutput(t: Table, p: Palette): RenderElement {
+  return trunked(t, p, 1, [t.Text({ color: p.faint, wrap: 'truncate-end', children: ['(No output)'] })])
+}
+
 // ---- live clock ----------------------------------------------------------
 
 /** the hover group a call's dot and its tree row share */
