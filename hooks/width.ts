@@ -60,3 +60,43 @@ export function cellWidth(s: string): number {
   for (const ch of clean) n += graphemeWidth(ch)
   return n
 }
+
+// HORIZONTAL ELLIPSIS, U+2026, as glyphs.ts has it (width.ts stays standalone)
+const ELLIPSIS = cp(0x2026)
+
+/** the longest head of `s` within `n` cells */
+function headCells(s: string, n: number): string {
+  let out = ''
+  for (const ch of s) {
+    if (cellWidth(out + ch) > n) break
+    out += ch
+  }
+  return out
+}
+
+/** the longest tail of `s` within `n` cells */
+function tailCells(s: string, n: number): string {
+  const chars = [...s]
+  let out = ''
+  for (let i = chars.length - 1; i >= 0; i--) {
+    if (cellWidth(chars[i] + out) > n) break
+    out = chars[i] + out
+  }
+  return out
+}
+
+/** cut to `n` cells in the middle: the head and the tail stay, an ellipsis between */
+export function clipMiddle(s: string, n: number): string {
+  if (cellWidth(s) <= n) return s
+  if (n <= 0) return ''
+  const head = Math.ceil((n - 1) / 2)
+  return headCells(s, head) + ELLIPSIS + tailCells(s, n - 1 - head)
+}
+
+/** a path cut to `n` cells, its file name kept whole when it fits: `hooks/...render.ts` */
+export function clipPath(s: string, n: number): string {
+  if (cellWidth(s) <= n) return s
+  const base = s.slice(s.lastIndexOf('/') + 1)
+  if (base === s || cellWidth(base) + 2 > n) return clipMiddle(s, n)
+  return headCells(s, n - cellWidth(base) - 2) + ELLIPSIS + '/' + base
+}

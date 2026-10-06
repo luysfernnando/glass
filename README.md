@@ -29,16 +29,18 @@ stored or what the model reads.
   turns whose prompt asked for writing.
 - **Private notes.** A paragraph opening with `Private` or `Privately`
   draws italic and quiet.
-- **Code cards.** Fences on a tinted card sized to the code, a dim language
-  header, a line count and gutter past eight lines. glass's own
-  highlighter does the coloring, in the palette's code keys.
+- **Code cards.** Fences on a tinted card sized to the code, a quiet
+  language header, a line count and gutter past eight lines. glass's own
+  highlighter does the coloring, in the palette's code keys; a shell fence
+  takes the same colors as a command in prose.
 - **Diff cards.** An Edit, Write or file-changing Bash result as a rounded
   card with the file in its top border, `╭─ SPEC.md +1 -1 ───╮`: one
   number column, `+` and `-` rows on a quiet tint, one context line each
   side, the code painted the same way, the frame on the tree trunk.
 - **Headings, lists, quotes, tables.** Bold colored headings with no rules,
   `•` `◦` `☐` `☑` markers, a quote bar, borderless tables with aligned
-  columns and right-aligned numbers.
+  columns and right-aligned numbers. A table a little too wide squeezes
+  its widest column instead of falling back to boxes.
 - **Turn headers.** `◆ You · 1:11 PM ────` as one titled rule over your
   prompt, then `◉ Claude · 1:14 PM` once the turn starts, with a dots line
   under it: one dot per tool call, grouped by tool, green, a red `✗` for a

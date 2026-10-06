@@ -14,7 +14,7 @@ import { paintLine } from './output'
 import type { Palette } from './palette'
 import { measure } from './render'
 import { shellSpans } from './shell'
-import { cellWidth } from './width'
+import { cellWidth, clipPath } from './width'
 
 type Table = Elements['terminal']
 type Press = (e: UiPressArgument) => void
@@ -86,6 +86,13 @@ function fit(s: string, n: number): string {
   return c + ' '.repeat(Math.max(0, n - cellWidth(c)))
 }
 
+// a path padded or cut to exactly `n` cells, cut in the middle so the file
+// name stays: `hooks/...render.ts`, not `hooks/rend...`
+function fitPath(s: string, n: number): string {
+  const c = clipPath(s, n)
+  return c + ' '.repeat(Math.max(0, n - cellWidth(c)))
+}
+
 // a row of air above a tree row, with the trunk drawn through it so the
 // tree stays one line (the owner wants a blank between runs, 2026-10-03)
 // Tree rows sit 2 cells in from each edge (owner's request, 2026-10-03:
@@ -128,11 +135,18 @@ export type UserRow = {
 }
 
 // the dots: one per call in call order, grouped by consecutive tool with a
-// space between groups; `ok` green, `err` red, hollow while running
+// space between groups; `ok` green, `err` red, hollow while running. Past
+// DOTS_MAX calls the first DOTS_SHOWN draw and `+N` in `faint` stands for
+// the rest, so the summary after them is never pushed off the row (45
+// calls filled 80 columns with dots, 2026-10-06); the summary keeps every
+// count, failures included.
+const DOTS_MAX = 16
+const DOTS_SHOWN = 12
 function dots(t: Table, p: Palette, calls: GlassCall[]): RenderNode[] {
   const out: RenderNode[] = []
   let prev: string | null = null
-  for (const c of calls) {
+  const shown = calls.length > DOTS_MAX ? calls.slice(0, DOTS_SHOWN) : calls
+  for (const c of shown) {
     if (prev !== null && c.tool !== prev) out.push(t.Text({ children: [' '] }))
     prev = c.tool
     const mark = c.status === 'running' ? G.hollow : c.status === 'failed' ? G.cross : G.disc
@@ -140,6 +154,7 @@ function dots(t: Table, p: Palette, calls: GlassCall[]): RenderNode[] {
     // the dot and its tree row light together under the pointer
     out.push(t.Text({ color, hover: { scope: callScope(c.id), backgroundColor: p.rowHover }, children: [mark] }))
   }
+  if (shown.length < calls.length) out.push(t.Text({ color: p.faint, children: [` +${calls.length - shown.length}`] }))
   return out
 }
 
@@ -489,7 +504,7 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
   const edge = (s: string) => t.Text({ color: p.faint, children: [s] })
   const out: RenderElement[] = []
   const fixed = 3 + cellWidth(verb + counts) + 3
-  const shown = o.path ? clip(name, Math.max(4, width - fixed)) : ''
+  const shown = o.path ? clipPath(name, Math.max(4, width - fixed)) : ''
   const titleW = o.path ? cellWidth(verb + shown + counts) + 1 : 0
   out.push(
     t.Text({
@@ -836,7 +851,7 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
             ' ',
             t.Text({ color: p.meta, children: [fit(a.tokens > 0 ? fmtTokens(a.tokens) : '', cols.tokens)] }),
             ' ',
-            t.Text({ color: p.faint, children: [fit(a.file, cols.file)] }),
+            t.Text({ color: p.faint, children: [fitPath(rel(a.file), cols.file)] }),
           ],
         }),
         edge(' ' + G.pipe),

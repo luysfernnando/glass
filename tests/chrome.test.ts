@@ -1,14 +1,14 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { CLOCK_CELLS, callScope, clip, clockCells, renderAgentLaunch, fmtCost, fmtDuration, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, safeText } from '../hooks/chrome'
+import { CLOCK_CELLS, callScope, clip, clockCells, renderAgentLaunch, fmtCost, fmtDuration, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, safeText, setCwd } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { highlight, highlightLine, langOf } from '../hooks/highlight'
 import { parseMarkdown } from '../hooks/markdown'
 import { quoteRows, renderReply } from '../hooks/render'
 import type { CodeSpan } from '../hooks/highlight'
 import { PALETTES } from '../hooks/palette'
-import { cellWidth } from '../hooks/width'
+import { cellWidth, clipMiddle, clipPath } from '../hooks/width'
 
 // the sandbox has timers; the engine's es2023 lib does not declare them
 declare const setTimeout: (fn: (value?: unknown) => void, ms: number) => unknown
@@ -509,9 +509,79 @@ test('a table: a numeric column right-aligns when the separator names no side, a
   expect(auto[3]).toBe('bb    22')
   const named = lines(tableOf('| name | n |\n|:---|:---|\n| a | 1 |\n| bb | 22 |'))
   expect(named[2]).toBe('a     1')
-  // wider than the measure: the engine's Markdown draws it
-  const wide = tableOf('| a | b |\n|---|---|\n| ' + 'x'.repeat(30) + ' | ' + 'y'.repeat(30) + ' |', 60)
+  // too wide even with every column at four cells: the engine's Markdown draws it
+  const cells = Array.from({ length: 12 }, (_, i) => `col${i}x`)
+  const wide = tableOf('| ' + cells.join(' | ') + ' |\n|' + cells.map(() => '---').join('|') + '|\n| ' + cells.join(' | ') + ' |', 60)
   expect((wide as unknown as { type: string }).type).toBe('Markdown')
+})
+
+test('a table a little too wide squeezes its widest column, the cell cut in the middle', async () => {
+  const md = '| file | what changed | lines |\n|---|---|---|\n| hooks/chrome.ts | the band columns shrink on narrow terminals | 1000 |\n| hooks/render.ts | text splits at ten thousand | 614 |'
+  const rows = lines(tableOf(md, 60))
+  // the measure is 58; two cells kept free
+  for (const row of rows) expect(cellWidth(row)).toBeLessThanOrEqual(56)
+  expect(rows[2]).toContain('the band columns' + G.ellipsis)
+  expect(rows[2]).toContain('narrow terminals'.slice(-6))
+  expect(rows[2]!.endsWith('1000')).toBe(true)
+  // a quote counts the squeezed table as rows, not as the engine's fallback
+  const quoted = parseMarkdown(md.split('\n').map(l => '> ' + l).join('\n'))
+  if (quoted[0]?.kind !== 'quote') throw new Error('expected a quote')
+  expect(quoteRows(quoted[0].blocks, 60)).toBe(4)
+})
+
+test('a shell fence paints with the prose keys: the same flag, string and operator colors', async () => {
+  const cmd = 'git push -m "x" --force && echo done | tee log'
+  const prose = elements(reply('Run `' + cmd + '` now.'))
+  const fence = elements(reply('```bash\n' + cmd + '\n```'))
+  const colorOf = (all: ReturnType<typeof elements>, text: string) => all.find(n => n.type === 'Text' && (n.props.children as unknown[])?.[0] === text)?.props.color
+  for (const token of ['git', '--force', '"x"', '&&', '|']) {
+    expect(colorOf(fence, token)).toBeDefined()
+    expect(colorOf(fence, token)).toBe(colorOf(prose, token))
+  }
+  expect(colorOf(fence, '--force')).toBe(p.flag)
+})
+
+test('the fence header draws in faint, no dimColor left in a reply', async () => {
+  const fence = '```ts\n' + Array.from({ length: 10 }, (_, i) => `const a${i} = ${i}`).join('\n') + '\n```'
+  const all = elements(reply(fence))
+  expect(all.some(n => n.props.dimColor)).toBe(false)
+  expect(all.find(n => n.type === 'Text' && (n.props.children as unknown[])?.[0] === 'TS')?.props.color).toBe(p.faint)
+})
+
+test('H2 steps one shade under H1 toward meta; H3 keeps its own key', async () => {
+  const all = elements(reply('# One\n\n## Two\n\n### Three'))
+  const color = (s: string) => all.find(n => n.type === 'Text' && n.props.bold && JSON.stringify(n.props.children).includes(s))?.props.color as string
+  expect(color('One')).toBe(p.heading)
+  expect(color('Three')).toBe(p.heading3)
+  expect(color('Two')).not.toBe(p.heading)
+  expect(color('Two')).toMatch(/^#[0-9a-f]{6}$/)
+})
+
+test('paths cut in the middle keep the file name: band file column, diff title', async () => {
+  expect(clipPath('node_modules/@anthropic-ai/claude-code/types/index.d.ts', 20)).toBe('node_mod' + G.ellipsis + '/index.d.ts')
+  expect(cellWidth(clipPath('node_modules/@anthropic-ai/claude-code/types/index.d.ts', 20))).toBe(20)
+  expect(clipMiddle('abcdefghij', 5)).toBe('ab' + G.ellipsis + 'ij')
+  // the band draws a file under the session's directory relative to it
+  setCwd('/repo')
+  const agent = { agentId: 'a', description: 'Audit', kind: 'Explore', model: 'claude-haiku-4-5', effort: 'low', stage: 'Read', file: '/repo/hooks/render.ts', tokens: 0, startedAt: 0 }
+  const band = lines(renderBand(t, p, { agents: [agent], now: 1000, columns: 100, open: true, onToggle: null, tasksCommand: null }))
+  expect(band[1]).toContain('hooks/render.ts')
+  expect(band[1]).not.toContain('/repo')
+  const diff = flat(renderDiff(t, p, [{ oldStart: 1, newStart: 1, lines: ['-a', '+b'] }], { path: '/repo/node_modules/@anthropic-ai/claude-code/types/plugin-hooks/index.d.ts', columns: 64 }))
+  expect(diff).toContain(G.ellipsis + '/index.d.ts')
+  setCwd('')
+})
+
+test('the dots line past 16 calls: the first 12 dots, +N, and the summary still whole', async () => {
+  const tools = ['Read', 'Read', 'Read', 'Grep', 'Bash', 'Bash', 'Edit', 'Read', 'Read', 'Bash']
+  const calls = Array.from({ length: 45 }, (_, i) => ({ id: `c${i}`, tool: tools[i % tools.length]!, status: (i === 17 ? 'failed' : 'ok') as 'failed' | 'ok', ms: 100 }))
+  const row = flat(renderUserRow(t, p, { text: 'x', submittedAt: 0, startedAt: 0, turn: { turnId: 'x', calls, done: null }, columns: 80 }))
+  expect(row).toContain(' +33')
+  expect(row).toContain('1 failed')
+  expect([...row].filter(ch => ch === G.disc || ch === G.cross).length).toBe(12)
+  // sixteen or fewer: every dot
+  const few = flat(renderUserRow(t, p, { text: 'x', submittedAt: 0, startedAt: 0, turn: { turnId: 'x', calls: calls.slice(0, 16), done: null }, columns: 80 }))
+  expect(few).not.toContain('+')
 })
 
 test('a Bottom line head forms with the colon inside the bold too', async () => {

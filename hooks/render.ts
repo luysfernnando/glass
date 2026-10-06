@@ -12,7 +12,7 @@ import { bareWord, isUrl, pathLike } from './paths'
 import { isPrivateNote, needsAttention } from './prose'
 import { proseSpans, shellSpans } from './shell'
 import type { SpanKind } from './shell'
-import { cellWidth } from './width'
+import { cellWidth, clipMiddle } from './width'
 
 type Table = Elements['terminal']
 
@@ -58,6 +58,18 @@ function cut(s: string): string[] {
 }
 // a tinted card never gets narrower than this
 const CARD_MIN = 60
+// how far H2 steps from the heading color toward `meta`
+const H2_STEP = 0.4
+// a table column squeezed to fit never gets narrower than this
+const COL_MIN = 4
+
+// a color `k` of the way from `a` to `b`; a non-hex color stays `a`
+function blend(a: string, b: string, k: number): string {
+  const hex = /^#[0-9a-f]{6}$/i
+  if (!hex.test(a) || !hex.test(b)) return a
+  const ch = (s: string, i: number) => parseInt(s.slice(1 + 2 * i, 3 + 2 * i), 16)
+  return '#' + [0, 1, 2].map(i => Math.round(ch(a, i) + (ch(b, i) - ch(a, i)) * k).toString(16).padStart(2, '0')).join('')
+}
 
 // inside backticks a path needs a slash or a `:line` suffix:
 // `hooks/render.ts:88`, `src/main.rs`, `~/.zshrc`; not `shell.ts`
@@ -130,7 +142,8 @@ function renderBlock(c: Ctx, b: Block): RenderElement {
     case 'heading':
       return t.Text({
         bold: true,
-        color: b.level >= 3 ? p.heading3 : p.heading,
+        // H2 one step under H1, toward `meta`, so section levels survive a long reply
+        color: b.level >= 3 ? p.heading3 : b.level === 2 ? blend(p.heading, p.meta, H2_STEP) : p.heading,
         children: renderInlines(c, b.inlines),
       })
     case 'code':
@@ -235,9 +248,9 @@ function renderFence(c: Ctx, lang: string, source: string): RenderElement {
       t.Box({
         flexDirection: 'row',
         children: [
-          t.Text({ dimColor: true, children: [lang ? lang.toUpperCase() : ''] }),
+          t.Text({ color: p.faint, children: [lang ? lang.toUpperCase() : ''] }),
           t.Box({ flexGrow: 1, children: [] }),
-          t.Text({ dimColor: true, children: [`${lines} lines`] }),
+          t.Text({ color: p.faint, children: [`${lines} lines`] }),
         ],
       }),
     )
@@ -359,8 +372,8 @@ function blockRows(b: Block, m: number): number {
     case 'quote':
       return quoteRows(b.blocks, m)
     case 'table':
-      // an over-wide table is the engine's Markdown, estimated as raw is
-      return tableFits(b.header, b.rows, m) ? b.rows.length + 2 : wrappedLines([{ kind: 'text', text: b.raw }], m)
+      // a table too wide even squeezed is the engine's Markdown, estimated as raw is
+      return tableColumns(b.header, b.rows, m) ? b.rows.length + 2 : wrappedLines([{ kind: 'text', text: b.raw }], m)
     case 'callout': {
       const rowWidth = (r: CalloutRow) => 2 + LABEL_WIDTH + 2 + inlineWidth(r.inlines) + 1
       const width = cardWidth(m, Math.max(0, ...b.rows.map(rowWidth)))
@@ -377,21 +390,41 @@ function tableWidths(header: Inline[][], rows: Inline[][][]): number[] {
   )
 }
 
-// whether glass draws the table at measure `m`, two cells kept free; the
-// quote bar asks the same question renderTable does
-function tableFits(header: Inline[][], rows: Inline[][][], m: number): boolean {
-  const total = tableWidths(header, rows).reduce((a, w) => a + w, 0) + 2 * (header.length - 1)
-  return total <= m - 2
+// the column widths glass draws the table with at measure `m`, two cells
+// kept free: too wide, the widest column gives up a cell at a time down to
+// COL_MIN; null when even that does not fit. The quote bar asks the same
+// question renderTable does.
+function tableColumns(header: Inline[][], rows: Inline[][][], m: number): number[] | null {
+  const widths = tableWidths(header, rows)
+  const room = m - 2 - 2 * (header.length - 1)
+  let over = widths.reduce((a, w) => a + w, 0) - room
+  while (over > 0) {
+    const widest = widths.indexOf(Math.max(...widths))
+    if ((widths[widest] ?? 0) <= COL_MIN) return null
+    widths[widest]!--
+    over--
+  }
+  return widths
+}
+
+// a cell past its column's width: its text cut in the middle (styling goes,
+// the cell being plain text from there)
+function squeeze(inlines: Inline[], w: number): Inline[] {
+  return inlineWidth(inlines) <= w ? inlines : [{ kind: 'text', text: clipMiddle(inlineText(inlines), w) }]
 }
 
 // row-separator table: bold header, one rule, two-cell gaps, no verticals;
 // numeric columns right-align unless the markdown says otherwise; a table
-// wider than the measure falls back to the engine's renderer
+// wider than the measure squeezes its widest columns, cells cut in the
+// middle, and falls back to the engine's renderer only when that is not
+// enough (a table three cells too wide jumped to the engine's boxes)
 function renderTable(c: Ctx, header: Inline[][], align: (Align | null)[], rows: Inline[][][], raw: string): RenderElement {
   const { t, p } = c
   const cols = header.length
-  const widths = tableWidths(header, rows)
-  if (!tableFits(header, rows, c.m)) return t.Markdown({ text: raw.slice(0, MAX_TEXT) })
+  const widths = tableColumns(header, rows, c.m)
+  if (!widths) return t.Markdown({ text: raw.slice(0, MAX_TEXT) })
+  header = header.map((h, i) => squeeze(h, widths[i] ?? COL_MIN))
+  rows = rows.map(r => r.map((cell, i) => squeeze(cell, widths[i] ?? COL_MIN)))
   const numeric = (col: number) =>
     rows.length > 0 && rows.every(r => /^[\d.,]+%?$/.test(inlineText(r[col] ?? [])))
   const cell = (inlines: Inline[], col: number, isHeader: boolean): RenderElement => {

@@ -25,7 +25,8 @@ bullet or section marked (Superseded) is history, not a rule.
 - Tint only on the two cards, code fences and the Bottom line (`blockBg`,
   >= 1.2:1 over the terminal bg). Cards hug their content: width = widest
   row plus padding, floor 60 cells, cap M. Inline code has no tint.
-- `dimColor` only on fence headers. Never on prose.
+- No `dimColor` in a reply: the fence header draws in `faint` (0.4.20),
+  so every dim step is a palette key.
 - Never `wrap: 'truncate*'` in the reply body. A width mistake must wrap,
   never lose text.
 - A tree that would be refused reverts the whole message to the engine's
@@ -75,7 +76,8 @@ bullet or section marked (Superseded) is history, not a rule.
 ## Blocks
 
 - Paragraph: `Box width M` holding one wrapping Text.
-- Headings: H1 and H2 bold `heading`; H3 and deeper bold `heading3`. No
+- Headings: H1 bold `heading`; H2 bold, one step from `heading` toward
+  `meta` (0.4.20); H3 and deeper bold `heading3`. No
   rules, no `#`. Hierarchy comes from color and the blank line above.
   (A trailing rule was dropped with the full-width measure: a 188-cell
   rule is heavy, and the reference apps draw none.)
@@ -84,12 +86,13 @@ bullet or section marked (Superseded) is history, not a rule.
   Items are `M - depth*2` wide, indented `depth*2`. Zero rows between items.
 - Fence: a `blockBg` card, `paddingX 1`, sized to its widest line (floor
   60, cap M). Tabs expand to four spaces: the terminal skips a tab's
-  cells without the tint and the engine counts it one cell. Header row only when the block exceeds 8 lines: dim
-  uppercase language left, dim `N lines` right. The
+  cells without the tint and the engine counts it one cell. Header row only when the block exceeds 8 lines: `faint`
+  uppercase language left, `faint` `N lines` right. The
   body is glass's own highlighter (`hooks/highlight.ts`): one row per
   line, keywords in `codeKw`, calls in `codeFn`, types in `codeType`,
   strings in `codeStr`, numbers and constants in `codeNum`, comments in
-  `comment`; shell fences through `shellSpans`; prose files and fences
+  `comment`; shell fences through `shellSpans`, in the prose keys, so a
+  command reads the same in a fence and in prose; prose files and fences
   (`md`, `txt`, `rst`, `adoc`...) paint nothing, since a README diff is
   English. A `faint` gutter from
   line 1 once over 8 lines. A diagram draws as typed: a fence with no
@@ -108,8 +111,10 @@ bullet or section marked (Superseded) is history, not a rule.
   padded with spaces measured by `cellWidth` (pills counted). Numeric
   columns right-align unless the separator names a side (`:--`, `--:`,
   `:-:`); a bare `---` names none. A table wider than `M - 2` (the quote's
-  measure inside a quote) falls back to the engine's `Markdown` with the
-  raw lines. The separator row must match the header's cell count; a bare
+  measure inside a quote) squeezes its widest column a cell at a time,
+  down to 4, a squeezed cell cut in the middle as plain text; only a table
+  too wide even then falls back to the engine's `Markdown` with the raw
+  lines. The separator row must match the header's cell count; a bare
   `---` under a line with `|` is a rule. A table start interrupts a
   paragraph. Streaming reflows widths per committed row; jitter accepted.
 - Quote: a `quoteBar`-colored `▎` on every row of the quote (the row count
@@ -215,8 +220,8 @@ One rule, as Empryo's: bright for the live thing, muted one step for the
 done thing, faint for scaffolding, saturated color only on status marks.
 Four text steps, all palette keys (no `dimColor` on colored text): `text`
 (prose, as today), `meta` (times, counts, durations, args of a done row),
-`faint` (connectors, folds, hints), and `bold`. `dimColor` keeps one site
-(the fence header) and gains none.
+`faint` (connectors, folds, hints), and `bold`. `dimColor` has no site
+left: the fence header moved to `faint` in 0.4.20.
 
 ### User row (`UserMessage`, origin `composer`)
 
@@ -685,3 +690,26 @@ finished turn; these rules replace the ones above where they differ.
   line each time.
 - Known limit: a reply tree past the engine's 100,000 serialized
   characters is still refused whole and drawn by the engine.
+
+### 0.4.20 (2026-10-06): the visual audit, first half
+
+- A shell fence paints with the prose keys: a command, flag, string or
+  operator reads the same in a fence as in backticks. (The fence mapped
+  them onto the code keys, so `--force` and `|` drew differently.)
+- A table a few cells too wide squeezes its widest column, down to 4
+  cells, the cell cut in the middle, before it falls back to the engine's
+  boxed Markdown. The quote bar counts the squeezed table as glass draws it.
+- The fence header draws in `faint`, not the terminal's `dimColor`, which
+  lands on a different step per terminal theme.
+- H2 sits one step under H1, toward `meta`, so section levels survive in a
+  long reply.
+- Paths cut in the middle keep the file name, `hooks/...render.ts`: the
+  band's file column and the diff card's title. The band's file draws
+  relative to the session's directory, as tree rows do (it drew the
+  whole home path). Tree subjects still cut at the end: the engine
+  truncates them.
+- The dots line past 16 calls draws the first 12 dots and `+N` in `faint`;
+  45 calls had filled 80 columns and pushed the summary off the row. The
+  summary keeps every count, failures included.
+- Left for later, each its own decision: the gutter mark's color, the event
+  rows' mark, and inline code's hue (it matches numbers in three palettes).
