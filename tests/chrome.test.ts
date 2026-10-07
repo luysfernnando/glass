@@ -238,6 +238,21 @@ test('mounted: a user row, a tree row, a folded group and the band validate on t
   expect(await event.find({ type: 'Text', text: /9\.0s/ })).toBeDefined()
   await event.unmount()
 
+  // folded, a task that went fine draws nothing (its call's row says it);
+  // a failed one keeps its row
+  const notice = (status: string) => $.ui.mount({
+    plugin: 'glass',
+    surface: 'terminal',
+    component: 'UserMessage',
+    props: { text: 'Agent "Hunt widths" finished', origin: { kind: 'task-notification' }, isExpanded: false, task: { status, durationMs: 9000 } },
+  })
+  const done = await notice('completed')
+  expect(await done.find({ type: 'Text', text: /Hunt widths/ })).toBeUndefined()
+  await done.unmount()
+  const failed = await notice('failed')
+  expect(await failed.find({ type: 'Text', text: /Hunt widths/ })).toBeDefined()
+  await failed.unmount()
+
   const message = await $.ui.mount({
     plugin: 'glass',
     surface: 'terminal',

@@ -344,7 +344,12 @@ export const register: Register = (on, options) => {
       if (notices.size > HISTORY) notices.delete(notices.values().next().value!)
       const task = e.props.task
       const toolId = task?.toolUseId ?? (task?.id ? taskCalls.get(task.id) : undefined)
-      if (toolId && finishBackground(toolId, task?.status === 'failed' || task?.status === 'killed')) $.ui.invalidate('ui.render')
+      const failed = task?.status === 'failed' || task?.status === 'killed'
+      if (toolId && finishBackground(toolId, failed)) $.ui.invalidate('ui.render')
+      // a task that went fine says so on its call's row, which stops
+      // spinning; a row per notification repeated an agent that stopped
+      // twice (owner's request, 2026-10-07: the engine shows none)
+      if (!failed && !e.props.isExpanded) return t.Box({ display: 'none', children: [] })
       return renderEventRow(t, palette, e.props.text, task, e.props.isExpanded)
     }
     // any other row (another agent's message, a scheduled trigger, a
