@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
-import { cleanHint, renderHint, clockCells, isEditTool, setCwd, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { cleanHint, renderHint, clockCells, isEditTool, toolText, setCwd, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -401,7 +401,7 @@ export const register: Register = (on, options) => {
       if (!ticker) ticker = $.clock.every(1000, () => void tick($, palette))
     } else if (e.agentId) {
       const agentId = e.agentId
-      const stage = e.tool
+      const stage = toolText(e.tool)
       const args = e as unknown as Record<string, unknown>
       const file = typeof args.file_path === 'string' ? args.file_path : typeof args.path === 'string' ? args.path : null
       void update($, agents, as => (as ?? []).map(a => (a.agentId === agentId ? { ...a, stage, file: file ?? a.file } : a)))

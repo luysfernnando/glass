@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { CLOCK_CELLS, callScope, clip, clockCells, renderAgentLaunch, fmtCost, fmtDuration, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, safeText, setCwd } from '../hooks/chrome'
+import { CLOCK_CELLS, callScope, clip, clockCells, renderAgentLaunch, fmtCost, fmtDuration, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, safeText, setCwd, toolLabel } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { highlight, highlightLine, langOf } from '../hooks/highlight'
 import { parseMarkdown } from '../hooks/markdown'
@@ -716,4 +716,14 @@ test('0.4.22: numeric columns take signs, currency and units, and the header sit
   // a word column stays left, header included
   const words = lines(tableOf('| name | n |\n|---|---|\n| a | 1 |\n| bb | 22 |'))
   expect(words[0]).toBe('name   n')
+})
+
+test('MCP tool names split into a server and a name, prefixes dropped, one underscore at most', () => {
+  expect(toolLabel('mcp__figma__get_design_context')).toEqual({ server: 'figma', name: 'get_design_context' })
+  expect(toolLabel('mcp__plugin_jev-reach_chrome-devtools__take_screenshot')).toEqual({ server: 'chrome-devtools', name: 'take_screenshot' })
+  expect(toolLabel('mcp__claude_ai_Forecast_MCP__get_project_status')).toEqual({ server: 'forecast', name: 'get_project_status' })
+  expect(toolLabel('mcp__claude_ai_Claude_Docs__batch')).toEqual({ server: 'claude-docs', name: 'batch' })
+  expect(toolLabel('mcp__x__a___b')).toEqual({ server: 'x', name: 'a_b' })
+  expect(toolLabel('Bash')).toEqual({ server: null, name: 'Bash' })
+  expect(toolLabel('some__tool')).toEqual({ server: null, name: 'some_tool' })
 })

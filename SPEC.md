@@ -752,3 +752,18 @@ finished turn; these rules replace the ones above where they differ.
   header sits over its numbers (it stayed left before).
 - A blank line in a fence is one space, so its row is drawn whatever an
   empty Text measures. Unverified live whether it ever vanished.
+
+### 0.4.23 (2026-10-07): MCP tool names
+
+- An MCP tool (`mcp__<server>__<tool>`) draws as its server in `meta`, a
+  space, then the tool name in `tool`: `figma get_design_context`. The
+  server drops the `plugin_<plugin>_` and `claude_ai_` prefixes and a
+  trailing `_MCP`, and reads lowercase with hyphens (`chrome-devtools`,
+  `claude-docs`). A run of underscores in any tool name draws as one.
+  Tree rows, the dots line's counts and the band's stage all use it.
+- A `ToolGroup` row names a server once at its head. Calls to more than one
+  server take a line each under one hover, the built-in tools on a line of
+  their own, in first-seen order; a live group's `N running...` sits on the
+  lines with a running call.
+- Underscores stay: the name keeps one unit, apart from its subject, and
+  matches what permission rules and logs show (owner's choice over spaces).

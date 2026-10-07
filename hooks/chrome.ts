@@ -162,7 +162,34 @@ function dots(t: Table, p: Palette, calls: GlassCall[]): RenderNode[] {
 function toolCounts(calls: GlassCall[]): string {
   const counts = new Map<string, number>()
   for (const c of calls) counts.set(c.tool, (counts.get(c.tool) ?? 0) + 1)
-  return [...counts].map(([tool, n]) => (n > 1 ? `${tool} ${G.times}${n}` : tool)).join(sep)
+  return [...counts].map(([tool, n]) => (n > 1 ? `${toolText(tool)} ${G.times}${n}` : toolText(tool))).join(sep)
+}
+
+// ---- tool names ----------------------------------------------------------
+
+// MCP tools arrive as `mcp__<server>__<tool>`: the label drops `mcp__` and
+// splits the rest, the server drawn once in `meta` before the name. Servers
+// lose the prefixes Claude Code adds (`plugin_<plugin>_`, `claude_ai_`) and
+// a trailing `_MCP`, and read in kebab case; a name's underscore runs fold
+// to one, or to spaces under NAME_SPACES (owner's request, 2026-10-07:
+// `mcp__figma__get_design_context` read as rules, not a name).
+const NAME_SPACES = false
+export type ToolLabel = { server: string | null; name: string }
+export function toolLabel(tool: string): ToolLabel {
+  const m = /^mcp__(.+?)__(.+)$/.exec(tool)
+  if (!m) return { server: null, name: tool.replace(/_+/g, '_') }
+  const server = m[1]!.replace(/^plugin_[^_]+_(?=.)/, '').replace(/^claude_ai_(?=.)/, '').replace(/(?<=.)_mcp$/i, '')
+  const name = NAME_SPACES ? m[2]!.replace(/_+/g, ' ').trim() : m[2]!.replace(/_+/g, '_')
+  return { server: server.toLowerCase().replace(/_+/g, '-'), name: name || m[2]! }
+}
+export function toolText(tool: string): string {
+  const l = toolLabel(tool)
+  return l.server ? `${l.server} ${l.name}` : l.name
+}
+function toolNodes(t: Table, p: Palette, tool: string, bold: boolean): RenderNode[] {
+  const l = toolLabel(tool)
+  const name = t.Text({ color: p.tool, bold, children: [l.name] })
+  return l.server ? [t.Text({ color: p.meta, children: [l.server + ' '] }), name] : [name]
 }
 
 // `<diamond> You . 01:11 PM`, the prompt under it at the measure, then after
@@ -340,7 +367,7 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
         children: [
           t.Text({
             wrap: 'truncate-end',
-            children: [t.Text({ color: p.tool, bold: live, children: [row.tool] }), ...(subject.length ? ['  ', ...subject] : []), ...tail],
+            children: [...toolNodes(t, p, row.tool, live), ...(subject.length ? ['  ', ...subject] : []), ...tail],
           }),
         ],
       }),
@@ -642,33 +669,52 @@ export type GroupOptions = {
 // `|- > Read x3  a.ts . b.ts [1 edit]`, all `faint`, the mark in `meta`; a
 // failed count in `err`; a live group ends in an ellipsis. No fold button:
 // a Button in a transcript row never received its press live (2026-10-03),
-// so /expand opens every group.
+// so /expand opens every group. Each MCP server takes a line of its own,
+// named once at its head, under one hover (owner's request, 2026-10-07).
 export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupCall>, o: GroupOptions): RenderElement {
-  const done = calls.filter(c => !c.isRunning).length
+  const runs = new Map<string, GroupCall[]>()
+  for (const c of calls) {
+    const server = toolLabel(c.tool).server ?? ''
+    const run = runs.get(server)
+    if (run) run.push(c)
+    else runs.set(server, [c])
+  }
+  const lines = [...runs].map(([server, run]) => groupLine(t, p, server, run, o.isActive && (runs.size === 1 || run.some(c => c.isRunning))))
+  return spaced(t, p, t.Box({
+    ...(o.key ? { key: `group:${o.key}`, hover: { backgroundColor: p.rowHover } } : {}),
+    flexDirection: 'column',
+    children: lines,
+  }))
+}
+
+function groupLine(t: Table, p: Palette, server: string, calls: GroupCall[], live: boolean): RenderElement {
   const edits = calls.filter(c => isEditTool(c.tool)).length
   const failed = calls.filter(c => c.isErrored || c.isInterrupted).length
   // what the run touched: the tools with counts, then each subject once
   const counts = new Map<string, number>()
-  for (const c of calls) counts.set(c.tool, (counts.get(c.tool) ?? 0) + 1)
+  for (const c of calls) {
+    const name = toolLabel(c.tool).name
+    counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
   const tools = [...counts].map(([tool, n]) => (n > 1 ? `${tool} ${G.times}${n}` : tool)).join(sep)
   const subjects = [...new Set(calls.map(c => {
     const a = (c.input ?? {}) as Record<string, unknown>
     const s = str(a, 'file_path') ?? str(a, 'path') ?? str(a, 'pattern') ?? str(a, 'query') ?? str(a, 'url') ?? clip((str(a, 'command') ?? '').replace(/\s+/g, ' '), 60)
     return safeText(rel(s).replace(/\s+/g, ' '), 200)
   }).filter(s => s !== ''))]
-  const parts: RenderNode[] = [t.Text({ color: p.tool, children: [tools] })]
+  const parts: RenderNode[] = server ? [t.Text({ color: p.meta, children: [server + ' '] })] : []
+  parts.push(t.Text({ color: p.tool, children: [tools] }))
   if (subjects.length) parts.push('  ' + subjects.join(sep))
   if (edits > 0) parts.push(` [${plural(edits, 'edit')}]`)
   if (failed > 0) parts.push(sep, t.Text({ color: p.err, children: [`${failed} failed`] }))
-  const tail = o.isActive ? sep + `${calls.length - done} running` + G.ellipsis : ''
-  return spaced(t, p, t.Box({
-    ...(o.key ? { key: `group:${o.key}`, hover: { backgroundColor: p.rowHover } } : {}),
+  const tail = live ? sep + `${calls.filter(c => c.isRunning).length} running` + G.ellipsis : ''
+  return t.Box({
     flexDirection: 'row',
     children: [
       rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: p.meta, children: [G.right + ' '] })),
       t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.faint, children: [...parts, tail] })] }),
     ],
-  }))
+  })
 }
 
 // ---- events after the turn -----------------------------------------------
