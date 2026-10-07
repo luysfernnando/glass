@@ -504,7 +504,8 @@ const tableOf = (md: string, columns = 100) => {
 
 test('a table: a numeric column right-aligns when the separator names no side, and keeps a named one', async () => {
   const auto = lines(tableOf('| name | n |\n|---|---|\n| a | 1 |\n| bb | 22 |'))
-  expect(auto[0]).toBe('name  n')
+  // the header follows its column's alignment (0.4.22)
+  expect(auto[0]).toBe('name   n')
   expect(auto[2]).toBe('a      1')
   expect(auto[3]).toBe('bb    22')
   const named = lines(tableOf('| name | n |\n|:---|:---|\n| a | 1 |\n| bb | 22 |'))
@@ -668,3 +669,51 @@ test('no Text string past 10000 characters: a long run goes as several', async (
   }
 })
 
+
+test('0.4.22: a fence under a list item draws as a card under the text, and the quote bar counts it', async () => {
+  const md = '1. Install:\n   ```bash\n   npm i\n   ```\n2. Run it'
+  const tree = reply(md)
+  const card = fenceCard(tree)
+  expect(card).toBeDefined()
+  expect(lines(card!)).toEqual(['npm i'])
+  // the card sits under the item text, in from the marker
+  const holder = elements(tree).find(n => n.type === 'Box' && (n.props.children as RenderNode[])?.[0] === card)
+  expect(holder?.props.marginLeft).toBe(3)
+  // the text row itself has no newline-ridden code span left in it
+  expect(flat(tree)).not.toContain('```')
+  const quoted = parseMarkdown(md.split('\n').map(l => '> ' + l).join('\n'))
+  if (quoted[0]?.kind !== 'quote') throw new Error('expected a quote')
+  // two item rows and one code row
+  expect(quoteRows(quoted[0].blocks, 100)).toBe(3)
+})
+
+test('0.4.22: a blank line in a short fence is a row of its own', async () => {
+  const card = fenceCard(reply('```ts\nconst a = 1\n\nconst b = 2\n```'))!
+  const rows = (card as unknown as { props: { children: { props: { children: unknown[] } }[] } }).props.children
+  expect(rows.length).toBe(3)
+  expect(rows[1]!.props.children).toEqual([' '])
+})
+
+test('0.4.22: a gutter mark reads prose only: a question mark in code or in a URL never marks', async () => {
+  const marked = (md: string) => {
+    const first = (renderReply(t, parseMarkdown(md), p, { columns: 100, marks: true }) as unknown as { props: { children: RenderElement[] } }).props.children[0]!
+    return flat(first).startsWith(G.mark)
+  }
+  expect(marked('Use `foo?.bar` to chain the call.')).toBe(false)
+  expect(marked('See https://x.com/?q=1 for the docs.')).toBe(false)
+  expect(marked('See [the docs](https://x.com/?q=1) for it.')).toBe(false)
+  expect(marked('Did the build pass?')).toBe(true)
+  expect(marked('Run the tests on your machine.')).toBe(true)
+})
+
+test('0.4.22: numeric columns take signs, currency and units, and the header sits over its numbers', async () => {
+  const rows = lines(tableOf('| item | delta | cost |\n|---|---|---|\n| a | -3 | $12 |\n| bb | +1.5k | 80% |\n| c | 12ms |  |'))
+  expect(rows[0]).toBe('item  delta  cost')
+  expect(rows[2]).toBe('a        -3   $12')
+  expect(rows[3]).toBe('bb    +1.5k   80%')
+  // an empty last cell leaves only the column gap behind it
+  expect(rows[4]!.trimEnd()).toBe('c      12ms')
+  // a word column stays left, header included
+  const words = lines(tableOf('| name | n |\n|---|---|\n| a | 1 |\n| bb | 22 |'))
+  expect(words[0]).toBe('name   n')
+})

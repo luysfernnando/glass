@@ -721,3 +721,34 @@ finished turn; these rules replace the ones above where they differ.
   and in rose its foam was both bars', the same `▎` in the same color, so
   a marked paragraph read as a one-line quote. A test keeps `mark` apart
   from `ok`, `quoteBar` and `calloutBar` in every palette.
+
+### 0.4.22 (2026-10-07): the audit's edge cases
+
+- The width ruler follows Bun 1.3's `stringWidth` where it drifted: a
+  grapheme sums per code point, so an Indic conjunct is two cells; marks
+  (Mn, Me, Mc) and the invisible formats (ZWJ, ZWNJ, bidi marks, BOM, tags)
+  are nothing, a soft hyphen and a word joiner a cell; a VS16 lifts a
+  one-cell Emoji-property base (a digit, `#`, `*`, a text-default symbol)
+  to two; a keycap is one; a jamo vowel or tail after its head is nothing;
+  the wide table gains vertical and small forms, kana and jamo supplements,
+  Tangut, the enclosed ideographic block. A sweep of every code point
+  against Bun leaves only code points Bun's own tables predate.
+- A fence indented under a list item (`1. Run:` then a fenced block) is the
+  item's own `blocks`: drawn as a card under the item's text, in from the
+  marker, as wide as the text at most; a quote bar counts its rows. It drew
+  as inline code with newlines in it before. A fence at the margin still
+  ends the list.
+- `![alt](src)` draws as the link its alt text names, the bang gone; a link
+  with a title, `[a](href "title")`, keeps the title out of the text.
+- The gutter mark reads prose only: a `?` inside backticks (`foo?.bar`) or
+  in a link's target never marks the paragraph.
+- Paths: router segments in balanced brackets (`app/[id]/page.tsx`,
+  `app/(auth)/layout.tsx`), extensions by any case (`file.PNG`), more of
+  them (`vue`, `svelte`, `mdx`, `tf`, `jsonc`, `ps1`, fonts, media ...), and
+  the conventional names (`Makefile`, `Dockerfile`, `Gemfile` ...) with
+  their case.
+- A numeric table column counts a sign, a currency mark, a percent or a
+  short unit (`-3`, `$12`, `1.5k`, `12ms`), ignores empty cells, and its
+  header sits over its numbers (it stayed left before).
+- A blank line in a fence is one space, so its row is drawn whatever an
+  empty Text measures. Unverified live whether it ever vanished.

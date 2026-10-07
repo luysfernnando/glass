@@ -62,6 +62,9 @@ const CARD_MIN = 60
 const H2_STEP = 0.4
 // a table column squeezed to fit never gets narrower than this
 const COL_MIN = 4
+// a table cell that reads as a number: an optional sign or currency mark, digits
+// with separators, then a percent or a short unit (`1.5k`, `12ms`, `3GB`)
+const NUMERIC_RE = new RegExp('^[-+]?[$' + String.fromCodePoint(0xa3, 0x20ac) + ']?\\d[\\d.,]*(?:%|[A-Za-z]{1,2})?$')
 
 // a color `k` of the way from `a` to `b`; a non-hex color stays `a`
 function blend(a: string, b: string, k: number): string {
@@ -77,6 +80,14 @@ const PATH_RE = /^(?:~|\.{1,2})?[\w.-]*(?:\/[\w.-]+)+\/?(?::\d+(?::\d+)?)?$|^[\w
 
 export function measure(columns: number): number {
   return Math.max(20, columns - 2)
+}
+
+// the words of a run of inlines: code spans and link targets left out, so a
+// `?` in `foo?.bar` or in a URL's query never marks the paragraph (0.4.22)
+function proseText(inlines: Inline[]): string {
+  return inlines
+    .map(n => (n.kind === 'text' ? n.text : n.kind === 'code' || n.kind === 'link' ? ' ' : proseText(n.children)))
+    .join('')
 }
 
 // cells a run of inlines takes once drawn
@@ -111,7 +122,7 @@ export function renderReply(t: Table, blocks: Block[], p: Palette, o: RenderOpti
     const marginTop = i === 0 ? (o.first ? 1 : 0) : prev === 'heading' ? 0 : 1
     // a paragraph that asks something of the reader gets a gutter mark in
     // the two cells every other block leaves blank
-    const marked = o.marks && b.kind === 'paragraph' && !isPrivateNote(inlineText(b.inlines)) && needsAttention(inlineText(b.inlines))
+    const marked = o.marks && b.kind === 'paragraph' && !isPrivateNote(inlineText(b.inlines)) && needsAttention(proseText(b.inlines))
     if (marked) {
       rows.push(
         t.Box({
@@ -259,9 +270,11 @@ function renderFence(c: Ctx, lang: string, source: string): RenderElement {
   // line, the gutter in `faint` once over 8 lines: the engine's `Code`
   // paints with a theme the owner rejected (2026-10-03)
   highlight(code, lang.toLowerCase()).forEach((spans, i) => {
+    // a blank line is one space, so its row is drawn: a Text with no text
+    // may measure no rows at all, and the card would lose its blank lines
     const body = t.Text({
       wrap: diagram ? 'truncate-end' : 'wrap',
-      children: spans.flatMap((s): RenderNode[] => (s.kind === 'plain' ? cut(s.text) : [t.Text({ color: p[CODE_COLOR[s.kind]], children: cut(s.text) })])),
+      children: spans.length === 0 ? [' '] : spans.flatMap((s): RenderNode[] => (s.kind === 'plain' ? cut(s.text) : [t.Text({ color: p[CODE_COLOR[s.kind]], children: cut(s.text) })])),
     })
     children.push(
       gutter
@@ -297,25 +310,40 @@ function renderList(c: Ctx, items: ListItem[]): RenderElement {
     if (/^\d/.test(it.marker)) return t.Text({ color: p.orderedNum, children: [it.marker.padEnd(numWidth) + ' '] })
     return t.Text({ color: p.bullet, children: [(it.depth > 0 ? G.ring : G.dot) + ' '] })
   }
+  const row = (it: ListItem) =>
+    t.Box({
+      flexDirection: 'row',
+      // nested items end at the measure like everything else
+      width: Math.max(10, m - it.depth * 2),
+      marginLeft: it.depth * 2,
+      children: [
+        marker(it),
+        t.Box({
+          flexGrow: 1,
+          flexShrink: 1,
+          children: [t.Text({ wrap: 'wrap', children: renderInlines(c, it.inlines) })],
+        }),
+      ],
+    })
   return t.Box({
     flexDirection: 'column',
-    children: items.map(it =>
-      t.Box({
-        flexDirection: 'row',
-        // nested items end at the measure like everything else
-        width: Math.max(10, m - it.depth * 2),
-        marginLeft: it.depth * 2,
-        children: [
-          marker(it),
-          t.Box({
-            flexGrow: 1,
-            flexShrink: 1,
-            children: [t.Text({ wrap: 'wrap', children: renderInlines(c, it.inlines) })],
-          }),
-        ],
-      }),
-    ),
+    children: items.map(it => {
+      if (!it.blocks?.length) return row(it)
+      // a fence typed under the item sits under its text, at the text's
+      // left edge, as wide as the item's text at most (0.4.22)
+      const indent = it.depth * 2 + itemMarker(it, numWidth)
+      const inner = { ...c, m: Math.max(10, m - indent) }
+      return t.Box({
+        flexDirection: 'column',
+        children: [row(it), ...it.blocks.map(b => t.Box({ marginLeft: indent, children: [renderBlock(inner, b)] }))],
+      })
+    }),
   })
+}
+
+// cells an item's marker takes before its text
+function itemMarker(it: ListItem, numWidth: number): number {
+  return /^\d/.test(it.marker) && !it.task ? numWidth + 1 : 2
 }
 
 // A quote: a thin continuous bar down the left edge, one quarter-block
@@ -361,8 +389,10 @@ function blockRows(b: Block, m: number): number {
       const ordered = b.items.filter(it => /^\d/.test(it.marker))
       const numWidth = Math.max(0, ...ordered.map(it => cellWidth(it.marker)))
       return b.items.reduce((n, it) => {
-        const marker = /^\d/.test(it.marker) && !it.task ? numWidth + 1 : 2
-        return n + wrappedLines(it.inlines, Math.max(10, m - it.depth * 2) - marker)
+        const marker = itemMarker(it, numWidth)
+        const width = Math.max(10, m - it.depth * 2) - marker
+        const under = (it.blocks ?? []).reduce((k, inner) => k + blockRows(inner, Math.max(10, m - it.depth * 2 - marker)), 0)
+        return n + wrappedLines(it.inlines, width) + under
       }, 0)
     }
     case 'rule':
@@ -425,14 +455,19 @@ function renderTable(c: Ctx, header: Inline[][], align: (Align | null)[], rows: 
   if (!widths) return t.Markdown({ text: raw.slice(0, MAX_TEXT) })
   header = header.map((h, i) => squeeze(h, widths[i] ?? COL_MIN))
   rows = rows.map(r => r.map((cell, i) => squeeze(cell, widths[i] ?? COL_MIN)))
-  const numeric = (col: number) =>
-    rows.length > 0 && rows.every(r => /^[\d.,]+%?$/.test(inlineText(r[col] ?? [])))
+  // `42`, `-3`, `1.5k`, `$12`, `80%`, `12ms`; an empty cell does not decide
+  const numeric = (col: number) => {
+    const cells = rows.map(r => inlineText(r[col] ?? []).trim()).filter(x => x !== '')
+    return cells.length > 0 && cells.every(x => NUMERIC_RE.test(x))
+  }
   const cell = (inlines: Inline[], col: number, isHeader: boolean): RenderElement => {
     const pad = Math.max(0, (widths[col] ?? 0) - inlineWidth(inlines))
     const a: Align = align[col] ?? (numeric(col) ? 'right' : 'left')
-    const left = isHeader ? 0 : a === 'right' ? pad : a === 'center' ? Math.floor(pad / 2) : 0
+    // the header sits where its column's cells do, so `Count` ends over its numbers
     const last = col === cols - 1
-    const right = last && left === 0 ? 0 : pad - left
+    // the last column never pads to its right, nor to its left when empty
+    const left = last && inlineWidth(inlines) === 0 ? 0 : a === 'right' ? pad : a === 'center' ? Math.floor(pad / 2) : 0
+    const right = last ? 0 : pad - left
     return t.Text({
       ...(isHeader ? { bold: true, color: p.bold } : {}),
       children: [' '.repeat(left), ...renderInlines(c, inlines), ' '.repeat(right) + (last ? '' : '  ')],

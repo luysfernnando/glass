@@ -10,7 +10,8 @@ export type Inline =
   | { kind: 'bold' | 'italic' | 'strike'; children: Inline[] }
   | { kind: 'link'; text: string; href: string }
 
-export type ListItem = { depth: number; marker: string; task?: 'todo' | 'done'; inlines: Inline[] }
+// `blocks`: fences indented under the item, drawn under its text (0.4.22)
+export type ListItem = { depth: number; marker: string; task?: 'todo' | 'done'; inlines: Inline[]; blocks?: Block[] }
 export type CalloutRow = { label: string; inlines: Inline[] }
 export type Align = 'left' | 'center' | 'right'
 
@@ -33,6 +34,8 @@ const RULE_RE = /^\s*([-*_])(\s*\1){2,}\s*$/
 const TABLE_SEP_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/
 // the info string may carry attributes after the language: ```ts title=x
 const FENCE_RE = /^(\s{0,3})(`{3,}|~{3,})\s*([\w+#.-]*)[^`]*$/
+// a fence indented under a list item, any depth
+const ITEM_FENCE_RE = /^(\s+)(`{3,}|~{3,})\s*([\w+#.-]*)[^`]*$/
 const QUOTE_RE = /^\s*>\s?(.*)$/
 const RAW_START_RE = /^\s*<[a-zA-Z!/]/
 // `**Bottom line**`, `**Bottom line**:` and `**Bottom line:**`
@@ -121,19 +124,36 @@ export function parseMarkdown(input: string): Block[] {
       continue
     }
     if (LIST_RE.test(line)) {
-      const items: { depth: number; marker: string; text: string }[] = []
+      const items: { depth: number; marker: string; text: string; blocks: Block[] }[] = []
       while (i < lines.length) {
         const l = lines[i]!
         if (l.trim() === '') {
-          if (i + 1 < lines.length && LIST_RE.test(lines[i + 1]!)) {
+          // a blank inside an item's fence is the fence's; otherwise the
+          // list goes on only into another item
+          if (i + 1 < lines.length && (LIST_RE.test(lines[i + 1]!) || ITEM_FENCE_RE.test(lines[i + 1]!)) && items.length > 0) {
             i++
             continue
           }
           break
         }
         const m = LIST_RE.exec(l)
+        const fence = items.length > 0 ? ITEM_FENCE_RE.exec(l) : null
         if (m) {
-          items.push({ depth: Math.floor(m[1]!.length / 2), marker: m[2]!, text: m[3]! })
+          items.push({ depth: Math.floor(m[1]!.length / 2), marker: m[2]!, text: m[3]!, blocks: [] })
+        } else if (fence) {
+          // a fence typed under the item (`1. Run:` then an indented block):
+          // its lines lose the item's indent and draw as a card under the
+          // text, not as inline code with newlines in it (0.4.22)
+          const indent = fence[1]!.length
+          const marks = fence[2]!
+          const close = new RegExp(`^\\s*\\${marks[0]}{${marks.length},}\\s*$`)
+          const body: string[] = []
+          i++
+          while (i < lines.length && !close.test(lines[i]!)) {
+            const row = lines[i++]!
+            body.push(row.slice(Math.min(indent, row.length - row.trimStart().length)))
+          }
+          items[items.length - 1]!.blocks.push({ kind: 'code', lang: fence[3] ?? '', source: body.join('\n') })
         } else if (/^\s+\S/.test(l) && items.length > 0) {
           items[items.length - 1]!.text += '\n' + l.trim()
         } else {
@@ -145,12 +165,14 @@ export function parseMarkdown(input: string): Block[] {
         kind: 'list',
         items: items.map(it => {
           const task = TASK_RE.exec(it.text)
-          if (!task) return { depth: it.depth, marker: it.marker, inlines: parseInline(it.text) }
+          const blocks = it.blocks.length ? { blocks: it.blocks } : {}
+          if (!task) return { depth: it.depth, marker: it.marker, inlines: parseInline(it.text), ...blocks }
           return {
             depth: it.depth,
             marker: it.marker,
             task: task[1] === ' ' ? 'todo' : 'done',
             inlines: parseInline(task[2]!),
+            ...blocks,
           }
         }),
       })
@@ -222,7 +244,8 @@ export function inlineText(inlines: Inline[]): string {
 
 // sticky: matched at `lastIndex`, so a long run is never copied per bracket
 const URL_RE = /https?:\/\/[^\s<>)]+/y
-const MD_LINK_RE = /\[([^\]]+)\]\(([^)\s]+)\)/y
+// `[label](href)` and `[label](href "title")`; the title is not drawn
+const MD_LINK_RE = /\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/y
 
 export function parseInline(src: string): Inline[] {
   const out: Inline[] = []
@@ -273,13 +296,16 @@ export function parseInline(src: string): Inline[] {
         continue
       }
     }
-    if (c === '[') {
-      MD_LINK_RE.lastIndex = i
+    // a link, or an image `![alt](src)`, which a terminal shows as the link
+    // its alt text names (the bang drew as text before 0.4.22)
+    if (c === '[' || (c === '!' && src[i + 1] === '[')) {
+      const at = c === '!' ? i + 1 : i
+      MD_LINK_RE.lastIndex = at
       const m = MD_LINK_RE.exec(src)
       if (m) {
         flush()
         out.push({ kind: 'link', text: m[1]!, href: m[2]! })
-        i += m[0].length
+        i = at + m[0].length
         continue
       }
     }
