@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { CLOCK_CELLS, callRun, callScope, renderRunRow, editRunKeys, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, rel, safeText, setCwd, setHome } from '../hooks/chrome'
+import { CLOCK_CELLS, callRun, callScope, renderRunRow, editRunKeys, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, rel, safeText, setCwd, setHome, shortPath } from '../hooks/chrome'
 import type { RunCall } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { highlight, langOf } from '../hooks/highlight'
@@ -221,7 +221,9 @@ test('mounted: a user row, a tree row, a folded group and the band validate on t
       isExpanded: false,
     },
   })
-  expect(await group.find({ type: 'Text', text: /a\.ts/ })).toBeDefined()
+  // reads and searches by count alone: no path, no pattern
+  expect(await group.find({ type: 'Text', text: /^Read$/ })).toBeDefined()
+  expect(await group.find({ type: 'Text', text: /a\.ts/ })).toBeUndefined()
   await group.unmount()
 
   // a task's notification and another agent's message: both rows carry a
@@ -498,6 +500,25 @@ test('rel: a path in the project is relative, a session temp path keeps what is 
   expect(rel('/etc/hosts')).toBe('/etc/hosts')
   setCwd('')
   setHome('')
+})
+
+test('rel: a Windows path matches the cwd and a Git Bash HOME', () => {
+  setCwd('C:\\Users\\u\\proj')
+  setHome('/c/Users/u')
+  expect(rel('C:\\Users\\u\\proj\\src\\a.ts')).toBe('src/a.ts')
+  expect(rel('c:/Users/u/proj/src/a.ts')).toBe('src/a.ts')
+  expect(rel('C:\\Users\\u\\.claude\\settings.json')).toBe('~/.claude/settings.json')
+  expect(rel('C:\\Users\\u\\AppData\\Local\\Temp\\claude\\C--proj\\2f83c9bc-51ba-44fb-bfd5-5222bf9471f8\\scratchpad\\t.py')).toBe('…/scratchpad/t.py')
+  expect(rel('D:\\other\\x.ts')).toBe('D:\\other\\x.ts')
+  setCwd('')
+  setHome('')
+})
+
+test('shortPath: a long path keeps its last two parts, a short one stays', () => {
+  setCwd('C:\\Users\\u\\proj')
+  expect(shortPath('C:\\Users\\u\\proj\\src\\a.ts')).toBe('src/a.ts')
+  expect(shortPath('C:\\Users\\u\\proj\\modules\\agents\\claude\\mods\\agent-hud\\hooks\\register.tsx')).toBe('…/hooks/register.tsx')
+  setCwd('')
 })
 
 test('edit runs: back-to-back edits join, text or another tool between splits, a file joins across', () => {

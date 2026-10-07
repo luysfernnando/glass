@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
-import { FLAT_TOOLS, callRun, editRunKeys, renderRunRow, spinCells, cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, setHome, lineCounts, rel, spaced, trunked, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { FLAT_TOOLS, callRun, editRunKeys, renderRunRow, spinCells, cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, setHome, lineCounts, rel, shortPath, spaced, trunked, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk, RunCall, TreeOptions, TreeRow } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -786,13 +786,6 @@ export const register: Register = (on, options) => {
     return h ? renderHint($.ui.resolve(e), palette, h) : next(e)
   })
 
-  // ---- spinner: the action count while tools run -------------------------
-  on('ui.render', { component: 'Spinner' }, ($, e, next) => {
-    if (e.surface !== 'terminal' || e.props.mode !== 'tool-use' || live.tools === 0) return next(e)
-    const n = live.tools
-    return next({ ...e, props: { ...e.props, suffix: `${G.ellipsis} ${G.middot} ${n} ${n === 1 ? 'action' : 'actions'}` } })
-  })
-
   // ---- background band ---------------------------------------------------
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
@@ -907,7 +900,7 @@ function callSubject(args: object): string {
   const a = args as Record<string, unknown>
   const s = (k: string) => (typeof a[k] === 'string' && (a[k] as string).trim() !== '' ? (a[k] as string) : null)
   const path = s('file_path') ?? s('path') ?? s('notebook_path')
-  return s('description') ?? (path ? rel(path) : null) ?? s('pattern') ?? s('query') ?? s('url') ?? s('skill') ?? s('command') ?? ''
+  return s('description') ?? (path ? shortPath(path) : null) ?? s('pattern') ?? s('query') ?? s('url') ?? s('skill') ?? s('command') ?? ''
 }
 
 type Header = { text: string; startedAt: number; turnId: string }

@@ -96,21 +96,42 @@ export function spaced(t: Table, p: Palette, row: RenderElement, air = false): R
 // the whole home path); set at session.start, empty draws paths whole
 let cwd = ''
 export function setCwd(dir: string): void {
-  cwd = dir.replace(/\/+$/, '')
+  cwd = slashed(dir).replace(/\/+$/, '')
 }
 let home = ''
 export function setHome(dir: string): void {
-  home = dir.replace(/\/+$/, '')
+  home = slashed(dir).replace(/\/+$/, '')
 }
-// Claude Code's per-session temp folder: <tmp>/claude-<uid>/<project>/<session>/
-const SESSION_TMP = /^\/(?:private\/)?tmp\/claude-\d+\/[^/]+\/[0-9a-f-]{36}\//
-export function rel(path: string): string {
-  if (cwd && path.startsWith(cwd + '/')) return path.slice(cwd.length + 1)
-  // a session's scratchpad, tasks or images: the part under the session folder
-  const tmp = SESSION_TMP.exec(path)
-  if (tmp) return G.ellipsis + '/' + path.slice(tmp[0].length)
-  if (home && path.startsWith(home + '/')) return '~' + path.slice(home.length)
+// A path with `/` between its parts and a lowercase drive: Windows hands
+// `C:\Users\x`, Git Bash's HOME `/c/Users/x`, so neither matched the cwd
+// and every path drew whole (2026-10-07).
+function slashed(path: string): string {
   return path
+    .replace(/\\/g, '/')
+    .replace(/^\/([a-z])(?=\/|$)/i, '$1:')
+    .replace(/^([a-z]):/i, (_, d: string) => `${d.toLowerCase()}:`)
+}
+// Claude Code's per-session temp folder: <tmp>/claude-<uid>/<project>/<session>/,
+// on Windows <AppData>/Local/Temp/claude/<project>/<session>/
+const SESSION_TMP = /^(?:\/(?:private\/)?tmp\/claude-\d+|[a-z]:\/.*\/Temp\/claude)\/[^/]+\/[0-9a-f-]{36}\//i
+export function rel(path: string): string {
+  const p = slashed(path)
+  if (cwd && p.startsWith(cwd + '/')) return p.slice(cwd.length + 1)
+  // a session's scratchpad, tasks or images: the part under the session folder
+  const tmp = SESSION_TMP.exec(p)
+  if (tmp) return G.ellipsis + '/' + p.slice(tmp[0].length)
+  if (home && p.startsWith(home + '/')) return '~' + p.slice(home.length)
+  return path
+}
+// chars a tree row's path keeps before it shortens to its last two parts
+const SHORT_PATH = 40
+// A tree row's path: rel, cut to `…/hooks/register.tsx` past SHORT_PATH,
+// so the row's other parts keep their room (owner's request, 2026-10-07).
+export function shortPath(path: string): string {
+  const r = rel(path)
+  if (r.length <= SHORT_PATH) return r
+  const parts = slashed(r).split('/').filter(s => s !== '')
+  return parts.length <= 2 ? r : `${G.ellipsis}/${parts.slice(-2).join('/')}`
 }
 
 const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`
@@ -288,7 +309,7 @@ function subjectNodes(t: Table, p: Palette, tool: string, input: unknown, live: 
   const other = str(args, 'pattern') ?? str(args, 'query') ?? str(args, 'description') ?? str(args, 'skill') ?? str(args, 'prompt') ?? str(args, 'command')
   // a done row steps everything after the name down to faint, paths included
   if (other && !path) out.push(t.Text({ ...(live ? {} : { color: p.faint }), children: [safeText(other.replace(/\s*\n\s*/g, ' '), 200)] }))
-  if (path) out.push(t.Text({ color: live ? p.path : p.faint, children: [safeText(rel(path), 400)] }))
+  if (path) out.push(t.Text({ color: live ? p.path : p.faint, children: [safeText(shortPath(path), 400)] }))
   if (url) out.push(t.Text({ color: live ? p.url : p.faint, underline: live, children: [safeText(url, 400)] }))
   if (other && path) out.push(t.Text({ color: live ? p.meta : p.faint, children: [sep + safeText(other.replace(/\s*\n\s*/g, ' '), 200)] }))
   return out
@@ -709,11 +730,13 @@ export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupC
   const running = calls.length - done
   const tail = o.isActive ? sep + (running > 1 ? `${running} running` : 'running') + G.ellipsis : ''
   const lines = [...byTool].map(([tool, group], i) => {
-    const subjects = [...new Set(group.map(c => {
+    // reads and searches by count alone, as on a run's row
+    const subjects = FLAT_TOOLS.has(tool) ? [] : [...new Set(group.map(c => {
       const a = (c.input ?? {}) as Record<string, unknown>
       // a command's own description says what it did; the command is the fallback
-      const s = str(a, 'description') ?? str(a, 'file_path') ?? str(a, 'path') ?? str(a, 'pattern') ?? str(a, 'query') ?? str(a, 'url') ?? clip((str(a, 'command') ?? '').replace(/\s+/g, ' '), 60)
-      return safeText(rel(s).replace(/\s+/g, ' '), 200)
+      const path = str(a, 'file_path') ?? str(a, 'path')
+      const s = str(a, 'description') ?? (path ? shortPath(path) : null) ?? str(a, 'pattern') ?? str(a, 'query') ?? str(a, 'url') ?? clip((str(a, 'command') ?? '').replace(/\s+/g, ' '), 60)
+      return safeText(s.replace(/\s+/g, ' '), 200)
     }).filter(s => s !== ''))]
     // the tool's name in the terminal's own color, as an Edit row's Button
     // label must be (owner's request, 2026-10-05: one color for every name)
@@ -794,7 +817,9 @@ export function renderRunRow(t: Table, p: Palette, calls: ReadonlyArray<RunCall>
   for (const c of calls) counts.set(c.tool, (counts.get(c.tool) ?? 0) + 1)
   const name = [...counts].map(([tool, n]) => (n > 1 ? `${tool} ${G.times}${n}` : tool)).join(sep)
   const now = [...calls].reverse().find(c => c.status === 'running') ?? calls[calls.length - 1]
-  const subject = now ? safeText(now.subject.replace(/\s+/g, ' '), 200) : ''
+  // a read or a search says nothing its count does not (owner's request,
+  // 2026-10-07): an edit's path and a command's description stay
+  const subject = now && !FLAT_TOOLS.has(now.tool) ? safeText(now.subject.replace(/\s+/g, ' '), 200) : ''
   const mark = running && o.spin && 'Raster' in t
     ? t.Raster({ key: 'spin', columns: 1, rows: 1, cells: o.spin })
     : t.Text({ color: running || background > 0 ? p.meta : failed > 0 ? p.err : p.ok, children: [running || background > 0 ? G.hollow : failed > 0 ? G.cross : G.tick] })
@@ -820,7 +845,14 @@ export function renderRunRow(t: Table, p: Palette, calls: ReadonlyArray<RunCall>
         flexShrink: 1,
         flexDirection: 'row',
         overflow: 'hidden',
-        children: [press('mark', (o.isOpen ? G.down : G.right) + ' ', p.meta), press('name', name, p.bold), ...(subject ? [press('subject', '  ' + subject, p.meta, true)] : []), ...tail],
+        // a Button never truncates: a long subject wrapped under the row and
+        // broke the tree's trunk (2026-10-07), so it is a Text that cuts and
+        // gives way first, the counts after it kept whole
+        children: [
+          t.Box({ flexShrink: 0, flexDirection: 'row', children: [press('mark', (o.isOpen ? G.down : G.right) + ' ', p.meta), press('name', name, p.bold)] }),
+          ...(subject ? [t.Box({ flexShrink: 1, minWidth: 0, children: [t.Text({ wrap: 'truncate-end', dimColor: true, children: ['  ' + subject] })] })] : []),
+          t.Box({ flexShrink: 0, flexDirection: 'row', children: tail }),
+        ],
       }),
       ...(right ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.faint, children: [right] })] })] : []),
     ],

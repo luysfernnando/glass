@@ -335,8 +335,9 @@ sites (fence header, footer) and gains none.
 
 ### Spinner
 
-- `Spinner` draws `<word>… · N actions` while `mode` is `tool-use`, else
-  the engine's line with the suffix untouched. One `Text`, `meta`.
+- Not glass's: agent-hud draws the whole terminal line (what Claude is
+  doing, the turn's time and counts), so a suffix from here never showed
+  (2026-10-07).
 
 ### Past turns
 
