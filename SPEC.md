@@ -767,3 +767,10 @@ finished turn; these rules replace the ones above where they differ.
   lines with a running call.
 - Underscores stay: the name keeps one unit, apart from its subject, and
   matches what permission rules and logs show (owner's choice over spaces).
+
+### 0.4.24 (2026-10-07): the MCP server steps down
+
+- An MCP tool's server draws in `faint`, the subject's tone, not `meta`:
+  on water `meta` sat one step above the path after it, nearly prose. Only
+  the tool name keeps a color; a palette hue on the server was turned down
+  as a second colored word beside the name.

@@ -168,11 +168,12 @@ function toolCounts(calls: GlassCall[]): string {
 // ---- tool names ----------------------------------------------------------
 
 // MCP tools arrive as `mcp__<server>__<tool>`: the label drops `mcp__` and
-// splits the rest, the server drawn once in `meta` before the name. Servers
+// splits the rest, the server drawn once in `faint` before the name. Servers
 // lose the prefixes Claude Code adds (`plugin_<plugin>_`, `claude_ai_`) and
 // a trailing `_MCP`, and read in kebab case; a name's underscore runs fold
 // to one, or to spaces under NAME_SPACES (owner's request, 2026-10-07:
-// `mcp__figma__get_design_context` read as rules, not a name).
+// `mcp__figma__get_design_context` read as rules, not a name). The server
+// was `meta` first, which read lighter than the faint subject on water.
 const NAME_SPACES = false
 export type ToolLabel = { server: string | null; name: string }
 export function toolLabel(tool: string): ToolLabel {
@@ -189,7 +190,7 @@ export function toolText(tool: string): string {
 function toolNodes(t: Table, p: Palette, tool: string, bold: boolean): RenderNode[] {
   const l = toolLabel(tool)
   const name = t.Text({ color: p.tool, bold, children: [l.name] })
-  return l.server ? [t.Text({ color: p.meta, children: [l.server + ' '] }), name] : [name]
+  return l.server ? [t.Text({ color: p.faint, children: [l.server + ' '] }), name] : [name]
 }
 
 // `<diamond> You . 01:11 PM`, the prompt under it at the measure, then after
@@ -702,7 +703,7 @@ function groupLine(t: Table, p: Palette, server: string, calls: GroupCall[], liv
     const s = str(a, 'file_path') ?? str(a, 'path') ?? str(a, 'pattern') ?? str(a, 'query') ?? str(a, 'url') ?? clip((str(a, 'command') ?? '').replace(/\s+/g, ' '), 60)
     return safeText(rel(s).replace(/\s+/g, ' '), 200)
   }).filter(s => s !== ''))]
-  const parts: RenderNode[] = server ? [t.Text({ color: p.meta, children: [server + ' '] })] : []
+  const parts: RenderNode[] = server ? [t.Text({ color: p.faint, children: [server + ' '] })] : []
   parts.push(t.Text({ color: p.tool, children: [tools] }))
   if (subjects.length) parts.push('  ' + subjects.join(sep))
   if (edits > 0) parts.push(` [${plural(edits, 'edit')}]`)
