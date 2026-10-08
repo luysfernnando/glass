@@ -12,7 +12,7 @@ import { bareWord, isUrl, pathLike } from './paths'
 import { isPrivateNote, needsAttention } from './prose'
 import { proseSpans, shellSpans } from './shell'
 import type { SpanKind } from './shell'
-import { cellWidth } from './width'
+import { cellWidth, clipMiddle } from './width'
 
 type Table = Elements['terminal']
 
@@ -21,14 +21,10 @@ type Ctx = {
   p: Palette
   /** the prose measure in cells */
   m: number
-  /** the terminal's width */
-  columns: number
 }
 
 export type RenderOptions = {
-  /** draw the bullet that opens a reply */
-  bullet: boolean
-  /** the first text block of a reply: keeps a blank row above, bullet or not */
+  /** the first text block of a reply: keeps a blank row above */
   first?: boolean
   columns: number
   /** gutter marks beside paragraphs that need the reader; off when the prompt asked for writing */
@@ -44,8 +40,39 @@ const LABEL_COLOR: Record<string, keyof Palette> = {
 
 // the API bounds a Text or Code string at this many characters
 const MAX_TEXT = 10000
+
+// A run as strings the API takes: past MAX_TEXT characters it goes as
+// several, side by side in the same Text, so it draws the same. A cut
+// never splits a surrogate pair.
+function cut(s: string): string[] {
+  if (s.length <= MAX_TEXT) return [s]
+  const out: string[] = []
+  for (let i = 0; i < s.length; ) {
+    let end = Math.min(s.length, i + MAX_TEXT)
+    const last = s.charCodeAt(end - 1)
+    if (end < s.length && last >= 0xd800 && last <= 0xdbff) end--
+    out.push(s.slice(i, end))
+    i = end
+  }
+  return out
+}
 // a tinted card never gets narrower than this
 const CARD_MIN = 60
+// how far H2 steps from the heading color toward `meta`
+const H2_STEP = 0.4
+// a table column squeezed to fit never gets narrower than this
+const COL_MIN = 4
+// a table cell that reads as a number: an optional sign or currency mark, digits
+// with separators, then a percent or a short unit (`1.5k`, `12ms`, `3GB`)
+const NUMERIC_RE = new RegExp('^[-+]?[$' + String.fromCodePoint(0xa3, 0x20ac) + ']?\\d[\\d.,]*(?:%|[A-Za-z]{1,2})?$')
+
+// a color `k` of the way from `a` to `b`; a non-hex color stays `a`
+function blend(a: string, b: string, k: number): string {
+  const hex = /^#[0-9a-f]{6}$/i
+  if (!hex.test(a) || !hex.test(b)) return a
+  const ch = (s: string, i: number) => parseInt(s.slice(1 + 2 * i, 3 + 2 * i), 16)
+  return '#' + [0, 1, 2].map(i => Math.round(ch(a, i) + (ch(b, i) - ch(a, i)) * k).toString(16).padStart(2, '0')).join('')
+}
 
 // inside backticks a path needs a slash or a `:line` suffix:
 // `hooks/render.ts:88`, `src/main.rs`, `~/.zshrc`; not `shell.ts`
@@ -53,6 +80,14 @@ const PATH_RE = /^(?:~|\.{1,2})?[\w.-]*(?:\/[\w.-]+)+\/?(?::\d+(?::\d+)?)?$|^[\w
 
 export function measure(columns: number): number {
   return Math.max(20, columns - 2)
+}
+
+// the words of a run of inlines: code spans and link targets left out, so a
+// `?` in `foo?.bar` or in a URL's query never marks the paragraph (0.4.22)
+function proseText(inlines: Inline[]): string {
+  return inlines
+    .map(n => (n.kind === 'text' ? n.text : n.kind === 'code' || n.kind === 'link' ? ' ' : proseText(n.children)))
+    .join('')
 }
 
 // cells a run of inlines takes once drawn
@@ -75,43 +110,29 @@ function cardWidth(m: number, content: number): number {
 }
 
 export function renderReply(t: Table, blocks: Block[], p: Palette, o: RenderOptions): RenderElement {
-  const c: Ctx = { t, p, m: measure(o.columns), columns: o.columns }
+  const c: Ctx = { t, p, m: measure(o.columns) }
   const rows: RenderElement[] = []
   let prev: Block['kind'] | null = null
   blocks.forEach((b, i) => {
     const el = renderBlock(c, b)
-    if (i === 0 && o.bullet) {
-      // the engine's own message row keeps a blank above the bullet; without
-      // it the reply sits glued to the tool output before it
+    // one rhythm rule: a blank above every block except the first and any
+    // block right under a heading; the reply's first block keeps a blank,
+    // so it never sits glued to the tool rows above. No bullet: the
+    // assistant header under the user row carries it.
+    const marginTop = i === 0 ? (o.first ? 1 : 0) : prev === 'heading' ? 0 : 1
+    // a paragraph that asks something of the reader gets a gutter mark in
+    // the two cells every other block leaves blank
+    const marked = o.marks && b.kind === 'paragraph' && !isPrivateNote(inlineText(b.inlines)) && needsAttention(proseText(b.inlines))
+    if (marked) {
       rows.push(
         t.Box({
           flexDirection: 'row',
-          marginTop: 1,
-          children: [
-            t.Text({ color: p.accent, children: [G.bullet + ' '] }),
-            t.Box({ flexDirection: 'column', flexGrow: 1, flexShrink: 1, children: [el] }),
-          ],
+          marginTop,
+          children: [t.Text({ color: p.mark, children: [G.mark + ' '] }), t.Box({ flexDirection: 'column', flexGrow: 1, flexShrink: 1, children: [el] })],
         }),
       )
     } else {
-      // one rhythm rule: a blank above every block except the first and any
-      // block right under a heading; the reply's first block keeps the blank
-      // the bullet row had, so it never sits glued to the tool rows above
-      const marginTop = i === 0 ? (o.first ? 1 : 0) : prev === 'heading' ? 0 : 1
-      // a paragraph that asks something of the reader gets a gutter mark in
-      // the two cells every other block leaves blank
-      const marked = o.marks && b.kind === 'paragraph' && !isPrivateNote(inlineText(b.inlines)) && needsAttention(inlineText(b.inlines))
-      if (marked) {
-        rows.push(
-          t.Box({
-            flexDirection: 'row',
-            marginTop,
-            children: [t.Text({ color: p.mark, children: [G.mark + ' '] }), t.Box({ flexDirection: 'column', flexGrow: 1, flexShrink: 1, children: [el] })],
-          }),
-        )
-      } else {
-        rows.push(t.Box({ flexDirection: 'column', marginLeft: 2, marginTop, children: [el] }))
-      }
+      rows.push(t.Box({ flexDirection: 'column', marginLeft: 2, marginTop, children: [el] }))
     }
     prev = b.kind
   })
@@ -125,14 +146,15 @@ function renderBlock(c: Ctx, b: Block): RenderElement {
       // Claude's own planning note, drawn italic in a quiet color so the
       // real answer stands out
       if (isPrivateNote(inlineText(b.inlines))) {
-        return t.Box({ width: m, children: [t.Text({ wrap: 'wrap', italic: true, color: p.private, children: [inlineText(b.inlines)] })] })
+        return t.Box({ width: m, children: [t.Text({ wrap: 'wrap', italic: true, color: p.private, children: cut(inlineText(b.inlines)) })] })
       }
       return t.Box({ width: m, children: [t.Text({ wrap: 'wrap', children: renderInlines(c, b.inlines) })] })
     }
     case 'heading':
       return t.Text({
         bold: true,
-        color: b.level >= 3 ? p.heading3 : p.heading,
+        // H2 one step under H1, toward `meta`, so section levels survive a long reply
+        color: b.level >= 3 ? p.heading3 : b.level === 2 ? blend(p.heading, p.meta, H2_STEP) : p.heading,
         children: renderInlines(c, b.inlines),
       })
     case 'code':
@@ -237,9 +259,9 @@ function renderFence(c: Ctx, lang: string, source: string): RenderElement {
       t.Box({
         flexDirection: 'row',
         children: [
-          t.Text({ dimColor: true, children: [lang ? lang.toUpperCase() : ''] }),
+          t.Text({ color: p.faint, children: [lang ? lang.toUpperCase() : ''] }),
           t.Box({ flexGrow: 1, children: [] }),
-          ...(gutter ? [t.Text({ dimColor: true, children: [`${lines} lines`] })] : []),
+          t.Text({ color: p.faint, children: [`${lines} lines`] }),
         ],
       }),
     )
@@ -248,9 +270,11 @@ function renderFence(c: Ctx, lang: string, source: string): RenderElement {
   // line, the gutter in `faint` once over 8 lines: the engine's `Code`
   // paints with a theme the owner rejected (2026-10-03)
   highlight(code, lang.toLowerCase()).forEach((spans, i) => {
+    // a blank line is one space, so its row is drawn: a Text with no text
+    // may measure no rows at all, and the card would lose its blank lines
     const body = t.Text({
       wrap: diagram ? 'truncate-end' : 'wrap',
-      children: spans.map(s => (s.kind === 'plain' ? s.text : t.Text({ color: p[CODE_COLOR[s.kind]], children: [s.text] }))),
+      children: spans.length === 0 ? [' '] : spans.flatMap((s): RenderNode[] => (s.kind === 'plain' ? cut(s.text) : [t.Text({ color: p[CODE_COLOR[s.kind]], children: cut(s.text) })])),
     })
     children.push(
       gutter
@@ -286,25 +310,40 @@ function renderList(c: Ctx, items: ListItem[]): RenderElement {
     if (/^\d/.test(it.marker)) return t.Text({ color: p.orderedNum, children: [it.marker.padEnd(numWidth) + ' '] })
     return t.Text({ color: p.bullet, children: [(it.depth > 0 ? G.ring : G.dot) + ' '] })
   }
+  const row = (it: ListItem) =>
+    t.Box({
+      flexDirection: 'row',
+      // nested items end at the measure like everything else
+      width: Math.max(10, m - it.depth * 2),
+      marginLeft: it.depth * 2,
+      children: [
+        marker(it),
+        t.Box({
+          flexGrow: 1,
+          flexShrink: 1,
+          children: [t.Text({ wrap: 'wrap', children: renderInlines(c, it.inlines) })],
+        }),
+      ],
+    })
   return t.Box({
     flexDirection: 'column',
-    children: items.map(it =>
-      t.Box({
-        flexDirection: 'row',
-        // nested items end at the measure like everything else
-        width: Math.max(10, m - it.depth * 2),
-        marginLeft: it.depth * 2,
-        children: [
-          marker(it),
-          t.Box({
-            flexGrow: 1,
-            flexShrink: 1,
-            children: [t.Text({ wrap: 'wrap', children: renderInlines(c, it.inlines) })],
-          }),
-        ],
-      }),
-    ),
+    children: items.map(it => {
+      if (!it.blocks?.length) return row(it)
+      // a fence typed under the item sits under its text, at the text's
+      // left edge, as wide as the item's text at most (0.4.22)
+      const indent = it.depth * 2 + itemMarker(it, numWidth)
+      const inner = { ...c, m: Math.max(10, m - indent) }
+      return t.Box({
+        flexDirection: 'column',
+        children: [row(it), ...it.blocks.map(b => t.Box({ marginLeft: indent, children: [renderBlock(inner, b)] }))],
+      })
+    }),
   })
+}
+
+// cells an item's marker takes before its text
+function itemMarker(it: ListItem, numWidth: number): number {
+  return /^\d/.test(it.marker) && !it.task ? numWidth + 1 : 2
 }
 
 // A quote: a thin continuous bar down the left edge, one quarter-block
@@ -350,8 +389,10 @@ function blockRows(b: Block, m: number): number {
       const ordered = b.items.filter(it => /^\d/.test(it.marker))
       const numWidth = Math.max(0, ...ordered.map(it => cellWidth(it.marker)))
       return b.items.reduce((n, it) => {
-        const marker = /^\d/.test(it.marker) && !it.task ? numWidth + 1 : 2
-        return n + wrappedLines(it.inlines, Math.max(10, m - it.depth * 2) - marker)
+        const marker = itemMarker(it, numWidth)
+        const width = Math.max(10, m - it.depth * 2) - marker
+        const under = (it.blocks ?? []).reduce((k, inner) => k + blockRows(inner, Math.max(10, m - it.depth * 2 - marker)), 0)
+        return n + wrappedLines(it.inlines, width) + under
       }, 0)
     }
     case 'rule':
@@ -361,35 +402,72 @@ function blockRows(b: Block, m: number): number {
     case 'quote':
       return quoteRows(b.blocks, m)
     case 'table':
-      return b.rows.length + 2
+      // a table too wide even squeezed is the engine's Markdown, estimated as raw is
+      return tableColumns(b.header, b.rows, m) ? b.rows.length + 2 : wrappedLines([{ kind: 'text', text: b.raw }], m)
     case 'callout': {
       const rowWidth = (r: CalloutRow) => 2 + LABEL_WIDTH + 2 + inlineWidth(r.inlines) + 1
-      const width = Math.max(CARD_MIN, Math.min(m, Math.max(0, ...b.rows.map(rowWidth))))
+      const width = cardWidth(m, Math.max(0, ...b.rows.map(rowWidth)))
       const textWidth = width - 2 - LABEL_WIDTH - 2 - 1
       return 1 + Math.max(1, b.rows.reduce((n, r) => n + wrappedLines(r.inlines, textWidth), 0))
     }
   }
 }
 
-// row-separator table: bold header, one rule, two-cell gaps, no verticals;
-// numeric columns right-align unless the markdown says otherwise; a table
-// wider than the terminal falls back to the engine's renderer
-function renderTable(c: Ctx, header: Inline[][], align: Align[], rows: Inline[][][], raw: string): RenderElement {
-  const { t, p } = c
-  const cols = header.length
-  const widths = Array.from({ length: cols }, (_, col) =>
+// each column's width: its widest cell, header included
+function tableWidths(header: Inline[][], rows: Inline[][][]): number[] {
+  return Array.from({ length: header.length }, (_, col) =>
     Math.max(1, inlineWidth(header[col] ?? []), ...rows.map(r => inlineWidth(r[col] ?? []))),
   )
-  const total = widths.reduce((a, w) => a + w, 0) + 2 * (cols - 1)
-  if (total > c.columns - 4) return t.Markdown({ text: raw.slice(0, MAX_TEXT) })
-  const numeric = (col: number) =>
-    rows.length > 0 && rows.every(r => /^[\d.,]+%?$/.test(inlineText(r[col] ?? [])))
+}
+
+// the column widths glass draws the table with at measure `m`, two cells
+// kept free: too wide, the widest column gives up a cell at a time down to
+// COL_MIN; null when even that does not fit. The quote bar asks the same
+// question renderTable does.
+function tableColumns(header: Inline[][], rows: Inline[][][], m: number): number[] | null {
+  const widths = tableWidths(header, rows)
+  const room = m - 2 - 2 * (header.length - 1)
+  let over = widths.reduce((a, w) => a + w, 0) - room
+  while (over > 0) {
+    const widest = widths.indexOf(Math.max(...widths))
+    if ((widths[widest] ?? 0) <= COL_MIN) return null
+    widths[widest]!--
+    over--
+  }
+  return widths
+}
+
+// a cell past its column's width: its text cut in the middle (styling goes,
+// the cell being plain text from there)
+function squeeze(inlines: Inline[], w: number): Inline[] {
+  return inlineWidth(inlines) <= w ? inlines : [{ kind: 'text', text: clipMiddle(inlineText(inlines), w) }]
+}
+
+// row-separator table: bold header, one rule, two-cell gaps, no verticals;
+// numeric columns right-align unless the markdown says otherwise; a table
+// wider than the measure squeezes its widest columns, cells cut in the
+// middle, and falls back to the engine's renderer only when that is not
+// enough (a table three cells too wide jumped to the engine's boxes)
+function renderTable(c: Ctx, header: Inline[][], align: (Align | null)[], rows: Inline[][][], raw: string): RenderElement {
+  const { t, p } = c
+  const cols = header.length
+  const widths = tableColumns(header, rows, c.m)
+  if (!widths) return t.Markdown({ text: raw.slice(0, MAX_TEXT) })
+  header = header.map((h, i) => squeeze(h, widths[i] ?? COL_MIN))
+  rows = rows.map(r => r.map((cell, i) => squeeze(cell, widths[i] ?? COL_MIN)))
+  // `42`, `-3`, `1.5k`, `$12`, `80%`, `12ms`; an empty cell does not decide
+  const numeric = (col: number) => {
+    const cells = rows.map(r => inlineText(r[col] ?? []).trim()).filter(x => x !== '')
+    return cells.length > 0 && cells.every(x => NUMERIC_RE.test(x))
+  }
   const cell = (inlines: Inline[], col: number, isHeader: boolean): RenderElement => {
     const pad = Math.max(0, (widths[col] ?? 0) - inlineWidth(inlines))
     const a: Align = align[col] ?? (numeric(col) ? 'right' : 'left')
-    const left = isHeader ? 0 : a === 'right' ? pad : a === 'center' ? Math.floor(pad / 2) : 0
+    // the header sits where its column's cells do, so `Count` ends over its numbers
     const last = col === cols - 1
-    const right = last && left === 0 ? 0 : pad - left
+    // the last column never pads to its right, nor to its left when empty
+    const left = last && inlineWidth(inlines) === 0 ? 0 : a === 'right' ? pad : a === 'center' ? Math.floor(pad / 2) : 0
+    const right = last ? 0 : pad - left
     return t.Text({
       ...(isHeader ? { bold: true, color: p.bold } : {}),
       children: [' '.repeat(left), ...renderInlines(c, inlines), ' '.repeat(right) + (last ? '' : '  ')],
@@ -520,10 +598,10 @@ function renderProse(c: Ctx, text: string): RenderNode[] {
   const out: RenderNode[] = []
   const spans = proseSpans(text)
   let pos = 0
-  const colored = (s: string, kind: SpanKind): RenderNode => (kind === 'plain' ? s : t.Text({ color: p[kind], children: [s] }))
+  const colored = (s: string, kind: SpanKind): RenderNode[] => (kind === 'plain' ? cut(s) : [t.Text({ color: p[kind], children: cut(s) })])
   for (const s of spans) {
     if (s.start > pos) out.push(...renderWords(c, text.slice(pos, s.start)))
-    out.push(colored(text.slice(s.start, s.end), s.kind))
+    out.push(...colored(text.slice(s.start, s.end), s.kind))
     pos = s.end
   }
   if (pos < text.length) out.push(...renderWords(c, text.slice(pos)))
@@ -532,12 +610,12 @@ function renderProse(c: Ctx, text: string): RenderNode[] {
 
 // paths and URLs in a run of plain prose
 function renderWords(c: Ctx, text: string): RenderNode[] {
-  if (!/[/.@]/.test(text)) return [text]
+  if (!/[/.@]/.test(text)) return cut(text)
   const { t, p } = c
   const out: RenderNode[] = []
   let buf = ''
   const flush = () => {
-    if (buf) out.push(buf)
+    if (buf) out.push(...cut(buf))
     buf = ''
   }
   for (const part of text.split(/(\s+)/)) {
@@ -549,7 +627,7 @@ function renderWords(c: Ctx, text: string): RenderNode[] {
     if (isUrl(word)) {
       buf += lead
       flush()
-      out.push(t.Text({ color: p.url, underline: true, children: [word] }))
+      out.push(t.Text({ color: p.url, underline: true, children: cut(word) }))
       buf += tail
       continue
     }
@@ -557,7 +635,7 @@ function renderWords(c: Ctx, text: string): RenderNode[] {
     if (path) {
       buf += lead
       flush()
-      out.push(t.Text({ color: p.path, children: [path.path] }))
+      out.push(t.Text({ color: p.path, children: cut(path.path) }))
       if (path.lineno) out.push(t.Text({ color: p.num, children: [path.lineno] }))
       buf += tail
       continue
@@ -570,7 +648,7 @@ function renderWords(c: Ctx, text: string): RenderNode[] {
 
 function renderLink(c: Ctx, label: string, href: string): RenderElement {
   const { t, p } = c
-  const styled = t.Text({ color: p.url, underline: true, children: [label] })
+  const styled = t.Text({ color: p.url, underline: true, children: cut(label) })
   const safe = safeHref(href)
   return safe ? t.Link({ href: safe, children: [styled] }) : styled
 }
@@ -596,9 +674,9 @@ function renderCode(c: Ctx, code: string): RenderElement {
   const spans = shellSpans(code)
   if (spans) {
     return t.Text({
-      children: spans.map(s => (s.kind === 'plain' ? s.text : t.Text({ color: p[s.kind], children: [s.text] }))),
+      children: spans.flatMap((s): RenderNode[] => (s.kind === 'plain' ? cut(s.text) : [t.Text({ color: p[s.kind], children: cut(s.text) })])),
     })
   }
-  if (PATH_RE.test(code)) return t.Text({ color: p.path, children: [code] })
-  return t.Text({ color: p.code, children: [code] })
+  if (PATH_RE.test(code)) return t.Text({ color: p.path, children: cut(code) })
+  return t.Text({ color: p.code, children: cut(code) })
 }

@@ -44,7 +44,11 @@ export type Palette = {
   calloutText: string
   /** Claude's own planning note (a paragraph opening with Private), drawn italic */
   private: string
-  /** gutter mark beside a paragraph that asks something of the reader */
+  /**
+   * gutter mark beside a paragraph that asks something of the reader: the
+   * palette's warn, never ok (it is not "done") and never a bar's color
+   * (the quote and Bottom line bars are the same glyph)
+   */
   mark: string
   /** one step under prose: times, counts, durations, the subject of a done tool row */
   meta: string
@@ -102,7 +106,7 @@ const tidepool: Palette = {
   fix: '#d2bdff', // iris
   calloutText: '#c5d8e6',
   private: '#486e6e', // the teal the owner set as CLAUDE_HL_PRIVATE
-  mark: '#9cce8b', // olive, the owner's green
+  mark: '#e9b873', // warn (gold): a gutter mark reads "read this", apart from ok and the bars
   meta: '#7aa2b5', // punctuation
   faint: '#48708c', // muted
   rowHover: '#0e2a3a', // the block tint
@@ -151,7 +155,7 @@ const undertow: Palette = {
   fix: '#c9a7e0',
   calloutText: '#e7e6e9',
   private: '#52535c',
-  mark: '#4fd1a0',
+  mark: '#e8a04c', // warn
   meta: '#8a8d94',
   faint: '#52535c',
   rowHover: '#1e2024',
@@ -204,7 +208,7 @@ const water: Palette = {
   fix: '#3bb8d8',
   calloutText: '#d4d4dc', // a step under textPrimary, so the labels lead
   private: '#6e6c82', // as faint
-  mark: '#009a8b',
+  mark: '#de7c00', // warn: the teal it had was the quote bar's, the same glyph
   meta: '#8e8ca1', // textSecondary
   faint: '#6e6c82', // textMuted lifted one step: #5c5a6e is 2.7:1 on night-owl's ground
   rowHover: '#0e2a3a', // same step; Empryo's brandDim #0e2030 is 1.11:1 here
@@ -257,7 +261,7 @@ export const PALETTES: Record<PaletteName, Palette> = {
     fix: '#c678dd',
     calloutText: '#dcdfe4',
     private: '#4b6a6a', // a teal step under the comment grey
-    mark: '#98c379',
+    mark: '#e5c07b', // warn
     meta: '#8a97a8', // the theme's line-number grey, lifted
     faint: '#4f5b6b', // its gutter grey
     rowHover: '#0e2a3a',
@@ -304,7 +308,7 @@ export const PALETTES: Record<PaletteName, Palette> = {
     fix: '#c4a7e7', // iris
     calloutText: '#e0def4',
     private: '#6e6a86', // muted
-    mark: '#9ccfd8',
+    mark: '#f6c177', // warn: the foam it had was both bars'
     meta: '#908caa', // subtle
     faint: '#6e6a86', // muted
     rowHover: '#0e2a3a',

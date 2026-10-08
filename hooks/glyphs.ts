@@ -2,14 +2,10 @@
 // tool path has dropped private-use literals on the way into a file before
 // (the pill caps once shipped as ''), so no glyph outside printable ASCII
 // is ever written as a literal in hooks/, comments included. Verify with:
-//   grep -rnP "[^\x00-\x7F]" hooks/   -> must print nothing
+//   LC_ALL=C grep -rn '[^ -~]' hooks/   -> must print nothing
 const cp = (n: number) => String.fromCodePoint(n)
 
 export const G = {
-  /** reply and tool-row bullet: BLACK CIRCLE FOR RECORD, U+23FA */
-  bullet: cp(0x23fa),
-  /** card and quote bar: LEFT HALF BLOCK, U+258C */
-  bar: cp(0x258c),
   /** gutter mark beside a paragraph that needs the reader: LEFT ONE QUARTER BLOCK, U+258E */
   mark: cp(0x258e),
   /** rules and table header line: BOX DRAWINGS LIGHT HORIZONTAL, U+2500 */
@@ -19,18 +15,12 @@ export const G = {
   ring: cp(0x25e6),
   box: cp(0x2610),
   check: cp(0x2611),
-  /** footer separator: MIDDLE DOT, U+00B7 */
+  /** separator: MIDDLE DOT, U+00B7 */
   middot: cp(0x00b7),
-  /** Nerd Font powerline rounds, the optional pill caps: U+E0B6 left, U+E0B4 right */
-  capL: cp(0xe0b6),
-  capR: cp(0xe0b4),
-  /** the engine's tool-output connector: DENTISTRY SYMBOL LIGHT VERTICAL AND BOTTOM LEFT, U+23BF */
-  connector: cp(0x23bf),
   /** HORIZONTAL ELLIPSIS, U+2026 */
   ellipsis: cp(0x2026),
-  /** tree connectors: BOX DRAWINGS LIGHT VERTICAL AND RIGHT U+251C, UP AND RIGHT U+2514, VERTICAL U+2502 */
+  /** tree connectors: BOX DRAWINGS LIGHT VERTICAL AND RIGHT U+251C, VERTICAL U+2502 */
   tee: cp(0x251c),
-  elbow: cp(0x2514),
   pipe: cp(0x2502),
   /** status marks: CHECK MARK U+2713, BALLOT X U+2717, WHITE CIRCLE U+25CB */
   tick: cp(0x2713),
@@ -58,13 +48,8 @@ export const G = {
   disc: cp(0x25cf),
   /** the agent face's smile: UNDERTIE U+203F */
   smile: cp(0x203f),
-  /** action icons: TWO JOINED SQUARES U+29C9 (copy), BULLSEYE U+25CE (review, open), CLOCKWISE OPEN CIRCLE ARROW U+21BB (loop), OCR FORK U+2442 */
-  copy: cp(0x29c9),
   /** DOWNWARDS ARROW U+2193: the engine's `down to manage` key */
   arrowDown: cp(0x2193),
   /** LEFTWARDS ARROW U+2190: the engine's `left for agents` key */
   arrowLeft: cp(0x2190),
-  eye: cp(0x25ce),
-  loop: cp(0x21bb),
-  fork: cp(0x2442),
 }

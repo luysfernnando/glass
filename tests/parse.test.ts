@@ -20,12 +20,14 @@ test('cellWidth mirrors the engine ruler on the glyphs the mod draws', async () 
     [cp(0x274c) + ' fail', 7],
     [cp(0x4e2d) + cp(0x6587), 4],
     ['e' + cp(0x301), 1],
-    [G.bullet + ' next', 6],
+    [G.tee + G.rule + ' ' + G.tick, 4],
     [G.check + ' task', 6],
     [G.ring + ' sub', 5],
     [G.rule.repeat(5), 5],
-    [G.bar + ' quote', 7],
-    [G.capL + 'x' + G.capR, 3],
+    [G.mark + ' quote', 7],
+    // the engine's reply bullet and Nerd Font pill caps, in replies glass draws
+    [cp(0x23fa) + ' next', 6],
+    [cp(0xe0b6) + 'x' + cp(0xe0b4), 3],
     [cp(0x1b) + '[38;2;1;2;3m' + 'ab' + cp(0x1b) + '[39m', 2],
   ]
   for (const [s, want] of cases) expect(cellWidth(s)).toBe(want)
@@ -205,4 +207,79 @@ test('the hint line drops its key reminders and keeps the vim and permission mod
   expect(cleanHint(`${auto} (shift+tab to cycle) ${mid} -- INSERT -- ${mid} ${left} for agents`)).toEqual({ vim: '-- INSERT --', rest: auto })
   expect(cleanHint('? for shortcuts')).toBeNull()
   expect(cleanHint('esc to interrupt')).toBeNull()
+})
+
+test('0.4.22: the width ruler follows Bun on marks, selectors, keycaps, jamo and the wide ranges', async () => {
+  const cps = (...n: number[]) => String.fromCodePoint(...n)
+  // Indic sums per code point: a conjunct is two cells, not one grapheme
+  expect(cellWidth(cps(0x928, 0x94d, 0x92e))).toBe(2)
+  expect(cellWidth(cps(0x938, 0x94d, 0x924, 0x947))).toBe(2)
+  // a selector lifts an Emoji-property base only: a digit yes, a letter no
+  expect(cellWidth('5' + cps(0xfe0f))).toBe(2)
+  expect(cellWidth('a' + cps(0xfe0f))).toBe(1)
+  expect(cellWidth(cps(0x26a0, 0xfe0f))).toBe(2)
+  // a keycap is one cell, a flag pair one, a skin tone adds nothing
+  expect(cellWidth('#' + cps(0xfe0f, 0x20e3))).toBe(1)
+  expect(cellWidth(cps(0x1f1fa, 0x1f1f8))).toBe(1)
+  expect(cellWidth(cps(0x1f44d, 0x1f3fd))).toBe(2)
+  // a jamo tail after its head is nothing; alone it is a cell
+  expect(cellWidth(cps(0x1100, 0x1161, 0x11a8))).toBe(2)
+  expect(cellWidth(cps(0x1161))).toBe(1)
+  // the soft hyphen and the word joiner take a cell in Bun; the zero-width space does not
+  expect(cellWidth('a' + cps(0xad) + 'b')).toBe(3)
+  expect(cellWidth('a' + cps(0x200b) + 'b')).toBe(2)
+  // wide ranges the old table missed: vertical forms, small forms, kana supplement, jamo extended-A
+  for (const c of [0xfe10, 0xfe50, 0x1b000, 0xa960, 0x1f200, 0x17000]) expect(cellWidth(cps(c))).toBe(2)
+  for (const c of [0xff00, 0x3248, 0xa4cf, 0x4dc0]) expect(cellWidth(cps(c))).toBe(1)
+})
+
+test('0.4.22: a fence typed under a list item is the item\'s block, not inline code', async () => {
+  const ordered = parseMarkdown('1. Install:\n   ```bash\n   npm i\n\n   npm test\n   ```\n2. Run it')[0]
+  if (ordered?.kind !== 'list') throw new Error('expected a list')
+  expect(ordered.items.length).toBe(2)
+  expect(inlineText(ordered.items[0]!.inlines)).toBe('Install:')
+  expect(ordered.items[0]!.blocks).toEqual([{ kind: 'code', lang: 'bash', source: 'npm i\n\nnpm test' }])
+  expect(ordered.items[1]!.blocks).toBeUndefined()
+  const bullets = parseMarkdown('- Note:\n  ~~~\n  x\n  ~~~\n- Done')[0]
+  if (bullets?.kind !== 'list') throw new Error('expected a list')
+  expect(bullets.items[0]!.blocks).toEqual([{ kind: 'code', lang: '', source: 'x' }])
+  expect(inlineText(bullets.items[1]!.inlines)).toBe('Done')
+  // a fence at the margin still ends the list, as before
+  const split = parseMarkdown('- a\n```\nx\n```\n- b')
+  expect(split.map(b => b.kind)).toEqual(['list', 'code', 'list'])
+})
+
+test('0.4.22: an image is its link without the bang; a link keeps its title out of the text', async () => {
+  const image = parseMarkdown('See ![diagram](https://x.com/a.png) here')
+  if (image[0]?.kind !== 'paragraph') throw new Error('expected a paragraph')
+  expect(image[0].inlines).toEqual([
+    { kind: 'text', text: 'See ' },
+    { kind: 'link', text: 'diagram', href: 'https://x.com/a.png' },
+    { kind: 'text', text: ' here' },
+  ])
+  const titled = parseMarkdown('See [docs](https://x.com "Docs") now')
+  if (titled[0]?.kind !== 'paragraph') throw new Error('expected a paragraph')
+  expect(titled[0].inlines).toEqual([
+    { kind: 'text', text: 'See ' },
+    { kind: 'link', text: 'docs', href: 'https://x.com' },
+    { kind: 'text', text: ' now' },
+  ])
+  // a lone bang before text that is not a link stays
+  const bang = parseMarkdown('Wow! [not](a link')
+  if (bang[0]?.kind !== 'paragraph') throw new Error('expected a paragraph')
+  expect(inlineText(bang[0].inlines)).toBe('Wow! [not](a link')
+})
+
+test('0.4.22: paths with router brackets, new extensions, any case, and the conventional names', async () => {
+  expect(pathLike('app/[id]/page.tsx')?.path).toBe('app/[id]/page.tsx')
+  expect(pathLike('app/(auth)/layout.tsx')?.path).toBe('app/(auth)/layout.tsx')
+  // unbalanced brackets are prose, as is a bracket with no slash
+  expect(pathLike('foo(bar.js')).toBeNull()
+  expect(pathLike('[x].ts')).toBeNull()
+  for (const f of ['main.vue', 'x.svelte', 'a.mdx', 'infra.tf', 'index.jsonc', 'file.PNG', 'run.ps1']) expect(pathLike(f)?.path).toBe(f)
+  expect(pathLike('Makefile')?.path).toBe('Makefile')
+  expect(pathLike('Dockerfile')?.path).toBe('Dockerfile')
+  expect(pathLike('makefile')).toBeNull()
+  expect(pathLike('and/or')).toBeNull()
+  expect(pathLike('e.g.')).toBeNull()
 })

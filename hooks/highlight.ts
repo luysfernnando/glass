@@ -2,13 +2,17 @@
 // and the script languages, painting with the palette's code keys. The
 // engine's `Code` element paints with its own theme, which the owner
 // rejected (2026-10-03); this keeps fences and diffs in the mod's colors.
-// Shell fences go through `shellSpans` so a command reads as it does in
-// prose. Line by line: a block comment opened on one line carries to the
+// Shell fences go through `shellSpans` and paint with the prose keys, so a
+// command reads in a fence exactly as it does in prose: the same command,
+// flag, string and operator colors (they took the code keys until 0.4.20,
+// so `--force` and `|` drew differently in the two places). Line by line: a block comment opened on one line carries to the
 // next through `State`.
 import type { Palette } from './palette'
 import { shellSpans } from './shell'
+import type { SpanKind } from './shell'
 
-export type CodeKind = 'kw' | 'fn' | 'type' | 'str' | 'num' | 'comment' | 'plain'
+// `sh.*`: a shell token in a fence, painted with the prose key of its kind
+export type CodeKind = 'kw' | 'fn' | 'type' | 'str' | 'num' | 'comment' | 'plain' | `sh.${Exclude<SpanKind, 'plain' | 'comment'>}`
 export type CodeSpan = { text: string; kind: CodeKind }
 
 /** the palette key a code kind paints with */
@@ -19,6 +23,15 @@ export const CODE_COLOR: Record<Exclude<CodeKind, 'plain'>, keyof Palette> = {
   str: 'codeStr',
   num: 'codeNum',
   comment: 'comment',
+  'sh.cmd': 'cmd',
+  'sh.sub': 'sub',
+  'sh.flag': 'flag',
+  'sh.str': 'str',
+  'sh.path': 'path',
+  'sh.op': 'op',
+  'sh.num': 'num',
+  'sh.var': 'var',
+  'sh.url': 'url',
 }
 
 const SHELL_LANGS = new Set(['sh', 'bash', 'zsh', 'shell', 'console', 'fish'])
@@ -66,8 +79,12 @@ export function langOf(hint: string): string {
 export function highlightLine(line: string, lang: string, state: State = { inBlock: false }): CodeSpan[] {
   if (PROSE_LANGS.has(lang)) return line === '' ? [] : [{ text: line, kind: 'plain' }]
   if (SHELL_LANGS.has(lang)) {
+    // a comment-only line: shellSpans wants a command first, and the
+    // fallback below opens comments with `//`
+    const note = /^(\s*)(#.*)$/.exec(line)
+    if (note) return [...(note[1] ? [{ text: note[1], kind: 'plain' as const }] : []), { text: note[2]!, kind: 'comment' }]
     const spans = shellSpans(line, true)
-    if (spans) return spans.map(s => ({ text: s.text, kind: s.kind === 'plain' ? 'plain' : s.kind === 'str' ? 'str' : s.kind === 'num' ? 'num' : s.kind === 'comment' ? 'comment' : s.kind === 'cmd' || s.kind === 'sub' ? 'kw' : s.kind === 'flag' || s.kind === 'var' ? 'type' : 'plain' }))
+    if (spans) return spans.map(s => ({ text: s.text, kind: s.kind === 'plain' || s.kind === 'comment' ? s.kind : (`sh.${s.kind}` as const) }))
   }
   const hash = HASH_LANGS.has(lang)
   const dash = DASH_LANGS.has(lang)
@@ -132,8 +149,14 @@ export function highlightLine(line: string, lang: string, state: State = { inBlo
       IDENT.lastIndex = i
       const m = IDENT.exec(line)!
       const word = m[0]
-      const after = line.slice(i + word.length).match(/^\s*(\S)?/)?.[1]
-      const before = line.slice(0, i).trimEnd().slice(-1)
+      // the nearest non-space character after the word and before it,
+      // found in place: copying the line per word was quadratic
+      let a = i + word.length
+      while (a < n && /\s/.test(line[a]!)) a++
+      const after = line[a]
+      let b = i - 1
+      while (b >= 0 && /\s/.test(line[b]!)) b--
+      const before = b >= 0 ? line[b]! : ''
       let kind: CodeKind = 'plain'
       if (KEYWORDS.has(word) && before !== '.') kind = 'kw'
       else if (CONSTANTS.has(word)) kind = 'num'

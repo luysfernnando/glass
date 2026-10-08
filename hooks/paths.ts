@@ -3,10 +3,15 @@
 // extension or a dotfile is needed, so "and/or" and "e.g." stay plain.
 
 export const EXTENSIONS = new Set(
-  `rs ts tsx js jsx mjs cjs json toml yaml yml md txt py go rb java kt swift c cc cpp h
-hpp cs php html css scss sh zsh lock sql env xml svg png jpg jpeg gif csv log ini cfg conf lua vim el
-ex exs erl hs ml scala dart proto graphql gql wasm zip tar gz pdf ipynb sum mod`.split(/\s+/),
+  `rs ts tsx js jsx mjs cjs mts cts json jsonc toml yaml yml md mdx txt py pyi go rb java kt kts swift c cc cpp h
+hpp cs php html htm css scss sass less sh bash zsh fish lock sql env xml svg png jpg jpeg gif webp ico csv tsv log ini cfg conf lua vim el
+ex exs erl hs ml scala dart proto graphql gql wasm zip tar gz tgz pdf ipynb sum mod
+vue svelte astro tf hcl nix zig jl r m mm tex bib rst adoc ps1 bat cmd gradle properties
+pem crt key plist ttf otf woff woff2 mp3 mp4 wav sqlite db bak mk cmake prisma sol toml`.split(/\s+/),
 )
+
+// files named by convention, no extension: a path when the case matches
+export const SPECIAL_NAMES = new Set(['Makefile', 'Dockerfile', 'Justfile', 'Gemfile', 'Rakefile', 'Procfile', 'Containerfile', 'Vagrantfile'])
 
 const isWord = (c: string) => /[A-Za-z0-9_]/.test(c)
 
@@ -34,14 +39,28 @@ export function pathLike(tok: string): PathMatch | null {
   }
   const p = tok.slice(0, end)
   if (p.length < 2 || p.includes('//')) return null
-  if (![...p].every(c => isWord(c) || '/.-~@+'.includes(c))) return null
+  // brackets inside a path segment are a router's (`app/[id]/page.tsx`,
+  // `app/(auth)/layout.tsx`): allowed only balanced, so `foo(bar.js` stays prose
+  if (![...p].every(c => isWord(c) || '/.-~@+[]()'.includes(c))) return null
+  if (/[[\]()]/.test(p) && !(p.includes('/') && balanced(p, '[', ']') && balanced(p, '(', ')'))) return null
   const rooted = p.startsWith('/') || p.startsWith('./') || p.startsWith('../') || p.startsWith('~/')
   const last = p.split('/').pop() ?? p
   const dot = last.lastIndexOf('.')
-  const extOk = dot > 0 && EXTENSIONS.has(last.slice(dot + 1))
+  const extOk = dot > 0 && EXTENSIONS.has(last.slice(dot + 1).toLowerCase())
+  const special = SPECIAL_NAMES.has(last)
   const dotfile = !p.includes('/') && p.startsWith('.') && /^[\w.-]+$/.test(p.slice(1)) && /[A-Za-z]/.test(p.slice(1))
-  if (!(rooted || extOk || dotfile)) return null
+  if (!(rooted || extOk || special || dotfile)) return null
   return { path: p, lineno: tok.slice(end) }
+}
+
+// as many openers as closers, every closer after its opener
+function balanced(p: string, open: string, close: string): boolean {
+  let depth = 0
+  for (const c of p) {
+    if (c === open) depth++
+    else if (c === close && --depth < 0) return false
+  }
+  return depth === 0
 }
 
 /** strip the brackets and quotes a word in prose may carry: `(src/x.rs),` */

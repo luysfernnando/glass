@@ -2,18 +2,19 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
-import { FLAT_TOOLS, callRun, editRunKeys, renderRunRow, spinCells, cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, setHome, lineCounts, rel, shortPath, spaced, trunked, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { FLAT_TOOLS, toolText, callRun, editRunKeys, renderRunRow, spinCells, cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, setHome, lineCounts, rel, shortPath, spaced, trunked, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk, RunCall, TreeOptions, TreeRow } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
+import type { Block } from './markdown'
 import { paletteNamed } from './palette'
 import type { Palette } from './palette'
 import { writeIntent } from './prose'
 import { renderReply } from './render'
 
-// The turns this session, newest last. A footer row finds its own turn in
+// The turns this session, newest last. A user row finds its own turn in
 // here: a `read` while a render hook runs subscribes that row, so every
-// `update` draws every footer again, and each must still find its data.
+// `update` draws every user row again, and each must still find its data.
 const turns = atom({ plugin: 'glass', key: 'turns' } as const, [] as GlassTurn[])
 // the prompts the person submitted, newest last: a user row finds its turn
 // by text, and the assistant header appears once the turn starts
@@ -21,12 +22,8 @@ const prompts = atom({ plugin: 'glass', key: 'prompts' } as const, [] as GlassPr
 // every main-loop call by turn: the dots line, the tree's times, and which
 // rows a folded turn hides
 const calls = atom({ plugin: 'glass', key: 'calls' } as const, {} as Record<string, GlassCall[]>)
-// turns whose tree shows: the live one, and any the person unfolded
-const folded = atom({ plugin: 'glass', key: 'folded' } as const, [] as string[])
 // the engine's folded groups the person opened with the fold row's button
 const expanded = atom({ plugin: 'glass', key: 'expanded' } as const, [] as string[])
-// /expand: every folded group of reads and searches opens; /collapse undoes it
-const expandAll = atom({ plugin: 'glass', key: 'expandAll' } as const, false as boolean)
 // subagents still running, for the band above the prompt
 const agents = atom({ plugin: 'glass', key: 'agents' } as const, [] as GlassAgent[])
 const band = atom({ plugin: 'glass', key: 'band' } as const, 'open' as 'open' | 'closed')
@@ -35,6 +32,8 @@ const HISTORY = 48
 // chars of a streaming call's input read for its subject: the path and the
 // description come first, a Write's content after them
 const INPUT_HEAD = 2000
+// finished replies whose parse is kept for their redraws
+const PARSED_MAX = 64
 
 const ANSWER_MAX = 20000
 
@@ -126,7 +125,7 @@ export const register: Register = (on, options) => {
   // gutter marks are off for a turn whose prompt asked for writing: the
   // reply is then the thing itself and asks nothing of the reader
   let marks = true
-  // the slash commands this session has, for the footer's actions
+  // the slash commands this session has, for the band's `/tasks` hint
   let commands = new Set<string>()
   // the names and types of subagents this session spawned: their folded
   // `Message from` rows hide, since the finished row says the same
@@ -214,16 +213,35 @@ export const register: Register = (on, options) => {
   let hasCwd = false
   let foldedTurns = new Set<string>()
   let expandAllNow = false
+  // the module records keep the turns the atoms keep: past HISTORY turns
+  // the oldest turn's calls go, so a long session does not grow them forever
+  const forgetOldTurns = () => {
+    for (const [old, list] of turnOrder) {
+      if (turnOrder.size <= HISTORY) break
+      turnOrder.delete(old)
+      foldedTurns.delete(old)
+      for (const c of list) {
+        callTurn.delete(c.id)
+        callMs.delete(c.id)
+        grouped.delete(c.id)
+      }
+    }
+  }
+  // a finished message redraws on every /fold, resize and palette change:
+  // its parse is kept, the newest few by text
+  const parsed = new Map<string, Block[]>()
+  const parse = (text: string): Block[] => {
+    const hit = parsed.get(text)
+    if (hit) return hit
+    const blocks = parseMarkdown(text)
+    parsed.set(text, blocks)
+    if (parsed.size > PARSED_MAX) parsed.delete(parsed.keys().next().value!)
+    return blocks
+  }
 
   // the live main-loop turn; a hot reload resets it, which only affects the
-  // footer of the turn that reloaded
+  // totals of the turn that reloaded
   const live = { turnId: '', startedAt: 0, tools: 0, edits: 0, failed: 0, lastToolId: null as string | null, costStart: null as number | null }
-
-  // which turn a main-loop call belongs to, from the calls record
-  const turnOf = (record: Record<string, GlassCall[]>, id: string): string | null => {
-    for (const [turnId, list] of Object.entries(record)) if (list.some(c => c.id === id)) return turnId
-    return null
-  }
 
   on('config.set', { key: 'glass.palette' }, async ($, e, next) => {
     const result = await next(e)
@@ -253,13 +271,11 @@ export const register: Register = (on, options) => {
     return next(e)
   })
   on('command.run', { command: 'expand' }, async $ => {
-    await update($, expandAll, () => true)
     expandAllNow = true
     $.ui.invalidate('ui.render')
     return { text: 'Every folded run is open. /collapse folds them again.' }
   })
   on('command.run', { command: 'collapse' }, async $ => {
-    await update($, expandAll, () => false)
     expandAllNow = false
     $.ui.invalidate('ui.render')
     return { text: 'Runs of reads and searches fold again.' }
@@ -268,13 +284,11 @@ export const register: Register = (on, options) => {
   // ---- folding on demand -------------------------------------------------
   on('command.run', { command: 'fold' }, async $ => {
     const ids = ((await read($, turns)) ?? []).map(h => h.turnId)
-    await update($, folded, () => ids.slice(-HISTORY))
     foldedTurns = new Set(ids.slice(-HISTORY))
     $.ui.invalidate('ui.render')
     return { text: ids.length ? `Folded ${ids.length} turn${ids.length === 1 ? '' : 's'}. /unfold opens them again.` : 'Nothing to fold yet.' }
   })
   on('command.run', { command: 'unfold' }, async $ => {
-    await update($, folded, () => [])
     foldedTurns = new Set()
     $.ui.invalidate('ui.render')
     return { text: 'Every turn is open.' }
@@ -296,8 +310,7 @@ export const register: Register = (on, options) => {
     // blank first row (`first: false`): the node sits on its first text row.
     const columns = e.viewport?.columns ?? 80
     const first = e.props.isFirstOfReply
-    const reply = renderReply(t, parseMarkdown(text), palette, {
-      bullet: false,
+    const reply = renderReply(t, parse(text), palette, {
       first: false,
       columns: columns - 5,
       marks: false,
@@ -350,7 +363,7 @@ export const register: Register = (on, options) => {
       // spinning; a row per notification repeated an agent that stopped
       // twice (owner's request, 2026-10-07: the engine shows none)
       if (!failed && !e.props.isExpanded) return t.Box({ display: 'none', children: [] })
-      return renderEventRow(t, palette, e.props.text, task, e.props.isExpanded)
+      return renderEventRow(t, palette, e.requestId, e.props.text, task, e.props.isExpanded)
     }
     // any other row (another agent's message, a scheduled trigger, a
     // bridge): one muted row; ctrl+o keeps the engine's body
@@ -411,8 +424,8 @@ export const register: Register = (on, options) => {
     return wrap(body ? t.Box({ flexDirection: 'column', children: [row, body] }) : row)
   })
 
-  // the engine's folded run of reads and searches: one tree row with a
-  // button that unfolds it where it is
+  // the engine's folded run of reads and searches: one tree row; /expand
+  // opens every group where it is
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
     // a run of reads and searches alone has nothing to open: its row lists
@@ -435,8 +448,8 @@ export const register: Register = (on, options) => {
     if (run && !run.isOpen && !holdsFailed) return isHead ? drawRun($, runCtx(), $.ui.resolve(e), run, e.requestId) : $.ui.resolve(e).Box({ display: 'none', children: [] })
     const wrap = async (el: RenderElement | Promise<RenderElement>) => underRunRow($, runCtx(), $.ui.resolve(e), run, isHead, e.requestId, await el)
     const id = e.requestId
-    // open when asked (/expand or this group's id), or on its own when a
-    // call in it failed: a red mark must never hide behind a count
+    // open after /expand, or on its own when a call in it failed: a red
+    // mark must never hide behind a count
     const failed = e.props.calls.some((c: { isErrored?: boolean; isInterrupted?: boolean }) => c.isErrored || c.isInterrupted)
     const all = expandAllNow
     if ((all && !flatOnly) || failed || ((await read($, expanded)) ?? []).includes(id)) {
@@ -560,8 +573,8 @@ export const register: Register = (on, options) => {
       return Object.fromEntries([...entries, [turnId, []]])
     })
     // a new turn always shows its tree
-    await update($, folded, xs => (xs ?? []).filter(x => x !== turnId))
     foldedTurns.delete(turnId)
+    forgetOldTurns()
     return next(e)
   })
 
@@ -591,7 +604,7 @@ export const register: Register = (on, options) => {
       if (!ticker) ticker = $.clock.every(TICK_MS, () => void tick($, palette))
     } else if (e.agentId) {
       const agentId = e.agentId
-      const stage = e.tool
+      const stage = toolText(e.tool)
       const args = e as unknown as Record<string, unknown>
       const file = typeof args.file_path === 'string' ? args.file_path : typeof args.path === 'string' ? args.path : null
       void update($, agents, as => (as ?? []).map(a => (a.agentId === agentId ? { ...a, stage, file: file ?? a.file } : a)))
@@ -777,7 +790,7 @@ export const register: Register = (on, options) => {
 
   // ---- footer ------------------------------------------------------------
   // The engine's `Baked for 12s` line is dropped by request: the dots line
-  // under the user row carries the counts and Copy, and the turn's cost and
+  // under the user row carries the counts, and the turn's cost and
   // tokens stay in state for anything that wants them later.
   on('ui.render', { component: 'TurnDuration' }, ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
@@ -944,7 +957,7 @@ function editCard(t: Elements['terminal'], palette: Palette, output: unknown, in
   if (hunks.length === 0) return null
   const args = input as { file_path?: unknown } | undefined
   const path = typeof out?.filePath === 'string' ? out.filePath : typeof args?.file_path === 'string' ? args.file_path : ''
-  return renderDiff(t, palette, hunks, { path, columns, last: false, ...(created ? { verb: 'Created' } : {}) })
+  return renderDiff(t, palette, hunks, { path, columns, ...(created ? { verb: 'Created' } : {}) })
 }
 
 /** The file's name, `Created ` before it for a new file, for a folded card's line. */

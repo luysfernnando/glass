@@ -6,8 +6,8 @@ https://github.com/user-attachments/assets/365252bf-4b60-49c3-902b-b8e127592d28
 
 Claude Code draws replies in one markdown style: inline code in a fixed
 lavender, no color for commands, tables in boxes, tool rows in gray. glass
-replaces the drawing of assistant replies, tool-row headers and the turn
-footer with its own, inside the same TUI. Hooks, skills, MCP, permissions
+replaces the drawing of assistant replies, tool rows and turn headers
+with its own, inside the same TUI. Hooks, skills, MCP, permissions
 and Remote Control are untouched: it changes what is drawn, never what is
 stored or what the model reads.
 
@@ -20,7 +20,8 @@ stored or what the model reads.
 - **Paths and links anywhere.** `src/main.rs:42:7` with its line number in
   the number color, `README.md`, `.gitignore`, `~/.config/app.toml`. URLs
   underlined; `https` links are real OSC 8 links.
-- **A Bottom line card.** A reply opening with `**Bottom line**` and
+- **A Bottom line card.** A reply opening with `**Bottom line**` (or
+  `**Bottom line:**`) and
   `Verified:` / `Issue:` / `Fix:` rows becomes a tinted card with a thin
   bar and colored labels. Forms while streaming, never flickers.
 - **Gutter marks.** A `▎` beside any paragraph that asks something of you:
@@ -28,16 +29,18 @@ stored or what the model reads.
   turns whose prompt asked for writing.
 - **Private notes.** A paragraph opening with `Private` or `Privately`
   draws italic and quiet.
-- **Code cards.** Fences on a tinted card sized to the code, a dim language
-  header, a line count and gutter past eight lines. glass's own
-  highlighter does the coloring, in the palette's code keys.
+- **Code cards.** Fences on a tinted card sized to the code, a quiet
+  language header, a line count and gutter past eight lines. glass's own
+  highlighter does the coloring, in the palette's code keys; a shell fence
+  takes the same colors as a command in prose.
 - **Diff cards.** An Edit, Write or file-changing Bash result as a rounded
   card with the file in its top border, `╭─ SPEC.md +1 -1 ───╮`: one
   number column, `+` and `-` rows on a quiet tint, one context line each
   side, the code painted the same way, the frame on the tree trunk.
 - **Headings, lists, quotes, tables.** Bold colored headings with no rules,
   `•` `◦` `☐` `☑` markers, a quote bar, borderless tables with aligned
-  columns and right-aligned numbers.
+  columns and right-aligned numbers. A table a little too wide squeezes
+  its widest column instead of falling back to boxes.
 - **Turn headers.** `◆ You · 1:11 PM ────` as one titled rule over your
   prompt, then `◉ Claude · 1:14 PM` once the turn starts, with a dots line
   under it: one dot per tool call, grouped by tool, green, a red `✗` for a
@@ -106,10 +109,14 @@ paths gold, links mint.
 
 ```
 claude plugin validate .
-npx tsc -p .            # after the engine has laid .claude-plugin/types
-claude plugin test .    # tests/*.test.ts, run in the engine's own sandbox
-grep -rnP "[^\x00-\x7F]" hooks/   # must print nothing
+npx -p typescript tsc -p .   # after the engine has laid .claude-plugin/types
+claude plugin test .         # tests/*.test.ts, run in the engine's own sandbox
+LC_ALL=C grep -rn '[^ -~]' hooks/   # must print nothing
 ```
+
+`scripts/check.sh` runs all four and checks that both manifests carry
+the same version. CI runs it on every push and pull request, without tsc:
+the types only exist once the engine has loaded the plugin.
 
 Every non-ASCII glyph is built from a code point in `hooks/glyphs.ts`.
 Literals outside ASCII are forbidden in `hooks/`: the tool path that

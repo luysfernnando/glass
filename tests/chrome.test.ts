@@ -4,12 +4,15 @@ import type { Elements, RenderElement, RenderNode } from 'claude-code'
 import { CLOCK_CELLS, callRun, callScope, renderRunRow, editRunKeys, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, rel, safeText, setCwd, setHome, shortPath } from '../hooks/chrome'
 import type { RunCall } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
-import { highlight, langOf } from '../hooks/highlight'
+import { highlight, highlightLine, langOf } from '../hooks/highlight'
 import { parseMarkdown } from '../hooks/markdown'
 import { quoteRows, renderReply } from '../hooks/render'
 import type { CodeSpan } from '../hooks/highlight'
 import { PALETTES } from '../hooks/palette'
-import { cellWidth } from '../hooks/width'
+import { cellWidth, clipMiddle, clipPath } from '../hooks/width'
+
+// the sandbox has timers; the engine's es2023 lib does not declare them
+declare const setTimeout: (fn: (value?: unknown) => void, ms: number) => unknown
 
 const p = PALETTES.tidepool
 const cp = (n: number) => String.fromCodePoint(n)
@@ -31,7 +34,7 @@ const flat = (node: RenderNode) => strings(node).join('')
 const lines = (node: RenderElement) => (((node as { props?: { children?: RenderNode[] } }).props?.children ?? []) as RenderNode[]).map(flat)
 
 test('the new glyphs are one cell each', async () => {
-  for (const g of [G.tee, G.elbow, G.pipe, G.tick, G.cross, G.hollow, G.fisheye, G.diamond, G.dotted, G.square, G.right, G.down, G.arcTL, G.arcTR, G.arcBL, G.arcBR, G.disc, G.smile, G.copy, G.eye, G.loop, G.fork, G.times, G.middot, G.ellipsis, G.connector]) {
+  for (const g of [G.tee, G.pipe, G.tick, G.cross, G.hollow, G.fisheye, G.diamond, G.dotted, G.right, G.down, G.arcTL, G.arcTR, G.arcBL, G.arcBR, G.disc, G.smile, G.times, G.middot, G.ellipsis]) {
     expect(cellWidth(g)).toBe(1)
   }
 })
@@ -65,7 +68,7 @@ test('a user row: its time, then the assistant header and the dots line once the
     { id: 'c', tool: 'Read', status: 'running' as const, ms: null },
   ]
   // live: the counts by tool, no chevron, no Copy
-  const liveRow = flat(renderUserRow(t, p, { text: 'hello', submittedAt: 0, startedAt: 60_000, turn: { turnId: 'x', calls, done: null, onCopy: null }, columns: 80 }))
+  const liveRow = flat(renderUserRow(t, p, { text: 'hello', submittedAt: 0, startedAt: 60_000, turn: { turnId: 'x', calls, done: null }, columns: 80 }))
   expect(liveRow).toContain(G.fisheye + ' Claude')
   expect(liveRow).toContain(G.disc + G.cross + ' ' + G.hollow)
   expect(liveRow).toContain('1 failed')
@@ -73,15 +76,15 @@ test('a user row: its time, then the assistant header and the dots line once the
   expect(liveRow).not.toContain(G.down)
   expect(liveRow).not.toContain(G.right)
   expect(liveRow).not.toContain('Copy')
-  // done: the totals and Copy
-  const unfolded = flat(renderUserRow(t, p, { text: 'hello', submittedAt: 0, startedAt: 60_000, turn: { turnId: 'x', calls, done: turn, onCopy: () => {} }, columns: 80 }))
+  // done: the totals, still no Copy
+  const unfolded = flat(renderUserRow(t, p, { text: 'hello', submittedAt: 0, startedAt: 60_000, turn: { turnId: 'x', calls, done: turn }, columns: 80 }))
   expect(unfolded).not.toContain('Copy')
   expect(unfolded).toContain('17 actions')
   expect(unfolded).toContain('3 edits')
   expect(unfolded).toContain('2 failed')
 })
 
-test('a tree row: hollow mark while live, tick and line count once done, elbow on the last', async () => {
+test('a tree row: hollow mark while live, tick and line count once done, the tee on every row', async () => {
   const base = { tool_use_id: 't1', tool: 'Bash', input: { command: 'git status' }, isErrored: false, isInterrupted: false }
   const live = flat(renderTreeRow(t, p, { ...base, isRunning: true }, { last: false, durationMs: null }))
   expect(live.startsWith(G.tee + G.rule + ' ' + G.hollow + ' Bash')).toBe(true)
@@ -92,7 +95,7 @@ test('a tree row: hollow mark while live, tick and line count once done, elbow o
   expect(done).toContain('3 lines')
   expect(done.endsWith('0.8s')).toBe(true)
   // a done Bash row keeps its command's token colors
-  const doneTree = JSON.stringify(renderTreeRow(t, p, { ...base, isRunning: false }, { last: true, durationMs: 800 }))
+  const doneTree = JSON.stringify(renderTreeRow(t, p, { ...base, isRunning: false }, { last: false, durationMs: 800 }))
   expect(doneTree).toContain(JSON.stringify({ type: 'Text', props: { color: p.cmd, children: ['git'] } }))
   const failed = flat(renderTreeRow(t, p, { ...base, isRunning: false, isErrored: true }, { last: false, durationMs: 50 }))
   expect(failed).toContain(G.cross + ' Bash')
@@ -146,15 +149,15 @@ test('the band: a frame the band wide with five agents and a fold, or one strip 
 })
 
 test('an event row: a tick and the first line, a cross on a failed task, the duration at the right', async () => {
-  const ok = flat(renderEventRow(t, p, 'Agent "Hunt widths" finished\nmore detail', { status: 'completed', durationMs: 72_000 }))
+  const ok = flat(renderEventRow(t, p, 'm1', 'Agent "Hunt widths" finished\nmore detail', { status: 'completed', durationMs: 72_000 }))
   expect(ok.startsWith(G.tee + G.rule + ' ' + G.tick + ' Agent  Hunt widths')).toBe(true)
   expect(ok).not.toContain('more detail')
   expect(ok.endsWith('1m 12s')).toBe(true)
-  const bad = flat(renderEventRow(t, p, 'Agent died', { status: 'failed' }))
+  const bad = flat(renderEventRow(t, p, 'm2', 'Agent died', { status: 'failed' }))
   expect(bad).toContain(G.cross + ' Agent died')
   expect(bad.endsWith('Agent died')).toBe(true)
   // expanded, the body follows the row
-  const full = flat(renderEventRow(t, p, 'Agent finished\nthe report', { status: 'completed' }, true))
+  const full = flat(renderEventRow(t, p, 'm3', 'Agent finished\nthe report', { status: 'completed' }, true))
   expect(full).toContain('the report')
   const msg = flat(renderMessageRow(t, p, 'Explore'))
   expect(msg.startsWith(G.tee + G.rule + ' ' + G.ring + ' Message from @Explore')).toBe(true)
@@ -168,8 +171,6 @@ test('painted Bash output: the connector, then each line with its words in their
   expect(text).toContain(G.pipe + 'third')
   expect(text).not.toContain('fourth')
   expect(text).toContain(G.pipe + G.ellipsis + ' +1 line')
-  // under the turn's last row the trunk column is blank
-  expect(flat(renderToolOutput(t, p, ['x'], { columns: 80, maxLines: 3, last: true })).startsWith(' x')).toBe(true)
   expect(text).toContain('M hooks/render.ts')
   expect(text).toContain('14 passed, 0 failed')
   // the path and the status words carry their palette colors
@@ -377,7 +378,7 @@ test('0.4.2: the clock cells decode to the elapsed time, a running row carries t
   walk(running)
   expect(found.some(n => n.type === 'Raster' && n.props.columns === CLOCK_CELLS && n.props.key === 'clock')).toBe(true)
   expect(found.some(n => n.type === 'Box' && (n.props.hover as { scope?: string } | undefined)?.scope === callScope('toolu_x'))).toBe(true)
-  const row = renderUserRow(t, p, { text: 'hi', submittedAt: 0, startedAt: 0, turn: { turnId: 'x', calls: [{ id: 'toolu_x', tool: 'Bash', status: 'running', ms: null }], done: null, onCopy: null }, columns: 80 })
+  const row = renderUserRow(t, p, { text: 'hi', submittedAt: 0, startedAt: 0, turn: { turnId: 'x', calls: [{ id: 'toolu_x', tool: 'Bash', status: 'running', ms: null }], done: null }, columns: 80 })
   const dots: { type: string; props: Record<string, unknown> }[] = []
   const walk2 = (n: RenderNode) => {
     if (typeof n === 'string') return
@@ -441,7 +442,7 @@ function fenceCard(node: RenderNode): RenderElement | undefined {
   return undefined
 }
 
-const reply = (md: string, columns = 100) => renderReply(t, parseMarkdown(md), p, { bullet: false, columns, marks: false })
+const reply = (md: string, columns = 100) => renderReply(t, parseMarkdown(md), p, { columns, marks: false })
 
 test('a box-drawing diagram over eight lines draws as itself: no header row, no line numbers', async () => {
   const card = fenceCard(reply('```\n' + boxDiagram.join('\n') + '\n```'))!
@@ -452,7 +453,7 @@ test('a box-drawing diagram over eight lines draws as itself: no header row, no 
 test('a diagram row wider than the card truncates instead of wrapping', async () => {
   const wide = cp(0x250c) + cp(0x2500).repeat(70) + cp(0x2510)
   const card = fenceCard(reply('```\n' + wide + '\n' + cp(0x2502) + '\n```', 40))!
-  const rows = ((card as { props: { children: RenderElement[] } }).props.children)
+  const rows = ((card as unknown as { props: { children: RenderElement[] } }).props.children)
   for (const row of rows) expect((row as { props: { wrap?: string } }).props.wrap).toBe('truncate-end')
 })
 
