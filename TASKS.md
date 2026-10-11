@@ -144,8 +144,13 @@ DEMO.md walk, then T4.3 commits, T4.4 /rv, T4.5 release.
 - [ ] **T4.3 `scripts/check.sh` green**, both manifests at `0.5.0`,
       commit `0.5.0: <rule>` per feature as the log does (one commit per
       task is fine). Blocks: T4.2.
-- [ ] **T4.4 /rv session** on the diff from `glass--v0.4.25`. Fix what it
-      finds, re-run T4.3. Blocks: T4.3.
+- [x] **T4.4 /rv session** on the diff from `glass--v0.4.25`. Fix what it
+      finds, re-run T4.3. Blocks: T4.3. Ran 2026-10-11 after the 0.5.0
+      push: three candidates, one confirmed (the agent-finished notification
+      could fire inside a live turn after a mid-turn hot reload, since
+      `live.active` was module memory), fixed in 0.5.1 with the `liveTurn`
+      atom. Refuted: palette-switch re-sync (matches the engine limit), Copy
+      truncation (0.3.0 storage cap).
 - [ ] **T4.5 Release.** `claude plugin tag .`, push, `claude plugin update
       glass@glass`, restart, one last pass over DEMO.md on the installed
       copy. Blocks: T4.4.

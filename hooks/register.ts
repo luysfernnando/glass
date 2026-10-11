@@ -26,6 +26,11 @@ const calls = atom({ plugin: 'glass', key: 'calls' } as const, {} as Record<stri
 // subagents still running, for the band above the prompt
 const agents = atom({ plugin: 'glass', key: 'agents' } as const, [] as GlassAgent[])
 const band = atom({ plugin: 'glass', key: 'band' } as const, 'open' as 'open' | 'closed')
+// the main-loop turn now running, or null between turns. State, not module
+// memory: a hot reload mid-turn rebuilds the module but the host keeps this,
+// so an agent finishing inside that turn is not mistaken for one that
+// finished after it (review finding, 0.5.1)
+const liveTurn = atom({ plugin: 'glass', key: 'liveTurn' } as const, null as string | null)
 
 const HISTORY = 48
 // finished replies whose parse is kept for their redraws
@@ -469,6 +474,7 @@ export const register: Register = (on, options) => {
   on('turn.start', async ($, e, next) => {
     live.turnId = e.turnId
     live.active = true
+    await update($, liveTurn, () => e.turnId)
     live.startedAt = await $.clock.now()
     live.tools = 0
     live.edits = 0
@@ -608,8 +614,10 @@ export const register: Register = (on, options) => {
       const done = ((await read($, agents)) ?? []).find(a => a.agentId === agentId)
       await update($, agents, as => (as ?? []).filter(a => a.agentId !== agentId))
       // an agent that finished after its turn ended: the engine says nothing,
-      // so glass does (0.5.0); one that finished inside a turn is on screen
-      if (done && !live.active && notifyOn) {
+      // so glass does (0.5.0); one that finished inside a turn is on screen.
+      // The live turn is read from state, which survives a reload (0.5.1).
+      const mainLive = ((await read($, liveTurn)) ?? null) !== null
+      if (done && !mainLive && notifyOn) {
         const ms = (await $.clock.now()) - done.startedAt
         const label = done.description.length > 60 ? done.description.slice(0, 59) + G.ellipsis : done.description
         await notifyPerson($, ms >= 100 ? `${label} ${G.middot} ${fmtToolTime(ms)}` : label)
@@ -645,6 +653,7 @@ export const register: Register = (on, options) => {
     }
     await update($, turns, h => [...(h ?? []), turn].slice(-HISTORY))
     live.active = false
+    await update($, liveTurn, () => null)
     // a turn that ended with failed calls: the engine's idle notification
     // does not say so (0.5.0)
     if (live.failed > 0 && notifyOn) {

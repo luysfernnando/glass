@@ -524,7 +524,9 @@ and reply blocks interleaved as the model made them, then the
   finished turn, and no API tells a mod whether the terminal is focused.
   Two cases:
   - A background agent finished after its turn: an agent's
-    `turn.complete` arriving while no main-loop turn is live. Text:
+    `turn.complete` arriving while no main-loop turn is live, read from
+    the `liveTurn` atom (0.5.1: module memory reset on a mid-turn reload
+    and fired this inside a live turn; state survives the reload). Text:
     `<description> · <duration>` (description clipped to 60 cells).
   - A turn ended with failures: at the main loop's `turn.complete` with
     `live.failed > 0`. Text: `N calls failed · <tool of the last failed
@@ -543,7 +545,8 @@ Atoms, all under `plugin: 'glass'`: `turns` (last 48: `turnId`,
 `outTokens`, `costUsd`, `lastToolId`, `answer`, `startedAt`, `finishedAt`,
 **(0.5.0)** `serverTools`), `prompts` (text, submit and start times, turn
 id; last 48), `calls` (turn id -> main-loop calls with status and wall
-time), `agents` (live subagents), `band` (`open` or `closed`). Module
+time), `agents` (live subagents), `band` (`open` or `closed`), `liveTurn`
+(the main-loop turn id while one runs, else null; 0.5.1). Module
 records (call -> turn, call -> wall time, a turn's call order, unfolded
 group calls, `foldedTurns`, `expandAllNow`) keep the last 48 turns, as the
 atoms do. Each atom is declared in `types/index.d.ts`; `claude plugin

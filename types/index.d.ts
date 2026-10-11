@@ -85,6 +85,8 @@ declare module 'claude-code' {
       agents: GlassAgent[]
       /** the band above the prompt: the box, or one strip */
       band: 'open' | 'closed'
+      /** the main-loop turn now running, null between turns; kept by the host across a reload (0.5.1) */
+      liveTurn: string | null
     }
   }
 }
