@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { CLOCK_CELLS, callScope, clip, clockCells, renderAgentLaunch, fmtCost, fmtDuration, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderSkillLoad, renderToolOutput, renderTreeRow, renderUserRow, safeText, setCwd, toolLabel } from '../hooks/chrome'
+import { CLOCK_CELLS, callScope, clip, clockCells, renderAgentLaunch, fmtCost, fmtDuration, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderServerToolRows, renderSkillLoad, renderToolOutput, renderTreeRow, renderUserRow, safeText, setCwd, toolLabel } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { highlight, highlightLine, langOf } from '../hooks/highlight'
 import { parseMarkdown } from '../hooks/markdown'
@@ -108,7 +108,8 @@ test('a folded group counts edits and failures and names ctrl+o', async () => {
   ]
   const folded = flat(renderGroupRow(t, p, calls, { isActive: false, key: 'expand:g1' }))
   expect(folded).toContain('Read' + ' ' + G.middot + ' Edit ' + G.middot + ' Grep')
-  expect(folded).toContain('[1 edit]')
+  expect(folded).toContain(G.middot + ' 1 edit')
+  expect(folded).not.toContain('[1 edit]')
   expect(folded).toContain('1 failed')
   expect(folded).not.toContain('ctrl+o to expand')
   expect(folded).not.toContain('Click')
@@ -156,8 +157,10 @@ test('an event row: a tick and the first line, a cross on a failed task, the dur
   expect(bad).toContain(G.cross + ' Agent died')
   expect(bad.endsWith('Agent died')).toBe(true)
   // expanded, the body follows the row
-  const full = flat(renderEventRow(t, p, 'm3', 'Agent finished\nthe report', { status: 'completed' }, true))
+  const full = flat(renderEventRow(t, p, 'm3', 'Agent finished\nthe report\nsecond line', { status: 'completed' }, true))
   expect(full).toContain('the report')
+  // the body hangs off the trunk: a pipe per line, as a Bash body does
+  expect(full).toContain(G.pipe + '\n' + G.pipe + 'the report' + 'second line')
   const msg = flat(renderMessageRow(t, p, 'Explore'))
   expect(msg.startsWith(G.pipe + G.tee + G.rule + ' ' + G.ring + ' Message from @Explore')).toBe(true)
   expect(msg.endsWith('ctrl+o')).toBe(true)
@@ -690,8 +693,8 @@ test('0.4.22: a fence under a list item draws as a card under the text, and the 
   expect(flat(tree)).not.toContain('```')
   const quoted = parseMarkdown(md.split('\n').map(l => '> ' + l).join('\n'))
   if (quoted[0]?.kind !== 'quote') throw new Error('expected a quote')
-  // two item rows and one code row
-  expect(quoteRows(quoted[0].blocks, 100)).toBe(3)
+  // two item rows, one code row, and one row of air each side of the card (0.5.2)
+  expect(quoteRows(quoted[0].blocks, 100)).toBe(5)
 })
 
 test('0.4.22: a blank line in a short fence is a row of its own', async () => {
@@ -733,4 +736,67 @@ test('MCP tool names split into a server and a name, prefixes dropped, one under
   expect(toolLabel('mcp__x__a___b')).toEqual({ server: 'x', name: 'a_b' })
   expect(toolLabel('Bash')).toEqual({ server: null, name: 'Bash' })
   expect(toolLabel('some__tool')).toEqual({ server: null, name: 'some_tool' })
+})
+
+// the 0.5.2 tests walk trees as plain data: `elements()` lists every node
+type El = { type: string; props: Record<string, unknown> }
+const kidsOf = (n: El) => (n.props.children ?? []) as RenderNode[]
+const asEl = (n: RenderNode) => n as unknown as El
+
+test('0.5.2: ordered numbers right-align, a child hangs off its parent text, a card under an item has air', async () => {
+  const blocks = parseMarkdown('9. nine\n10. ten\n    - child\n11. Run:\n    ```\n    npm i\n    ```\n12. after')
+  const tree = renderReply(t, blocks, p, { first: false, columns: 80, marks: false })
+  const list = elements(tree).find(n => n.type === 'Box' && kidsOf(n).length === 5 && kidsOf(n).every(k => typeof k !== 'string' && k.type === 'Box'))
+  expect(list).toBeDefined()
+  const rows = kidsOf(list!).map(asEl)
+  const rowBox = (n: El): El => (n.props.flexDirection === 'row' ? n : asEl(kidsOf(n)[0]!))
+  const marker = (n: El) => flat(kidsOf(rowBox(n))[0]!)
+  expect(marker(rows[0]!)).toBe(' 9. ')
+  expect(marker(rows[1]!)).toBe('10. ')
+  // the child's marker sits at the parent's text column: 4 cells in
+  expect(rowBox(rows[2]!).props.marginLeft).toBe(4)
+  expect(marker(rows[2]!)).toBe(G.ring + ' ')
+  // the card under item 11 and the item after it each get one row of air
+  const card = asEl(kidsOf(rows[3]!)[1]!)
+  expect(card.props.marginTop).toBe(1)
+  expect(card.props.marginLeft).toBe(4)
+  expect(rowBox(rows[4]!).props.marginTop).toBe(1)
+  expect(rowBox(rows[1]!).props.marginTop).toBeUndefined()
+})
+
+test('0.5.2: a card or table under a heading keeps its blank row, a paragraph does not', async () => {
+  const top = (md: string) => kidsOf(asEl(renderReply(t, parseMarkdown(md), p, { first: false, columns: 80, marks: false }))).map(b => asEl(b).props.marginTop)
+  expect(top('## Title\ntext')).toEqual([0, 0])
+  expect(top('## Title\n```\nx\n```')).toEqual([0, 1])
+  expect(top('## Title\n| a | b |\n| --- | --- |\n| 1 | 2 |')).toEqual([0, 1])
+  expect(top('## Title\n**Bottom line**\nVerified: yes')).toEqual([0, 1])
+})
+
+test('0.5.2: a numeric column survives a placeholder and a longer unit', async () => {
+  const dash = String.fromCodePoint(0x2014)
+  const md = '| cost | p95 | rate |\n| --- | --- | --- |\n| $12 | 1.2s | 3GB |\n| ' + dash + ' | 340ms | 4.5MB/s |'
+  // a table row is a Box of cell Texts
+  const body = elements(reply(md, 80)).filter(n => n.type === 'Box' && n.props.flexDirection === 'row' && /GB|MB/.test(flat(n as unknown as RenderNode))).map(n => flat(n as unknown as RenderNode))
+  expect(body.length).toBe(2)
+  // right-aligned: the cells of each column end on one cell
+  expect(body[0]!.trimEnd().endsWith('3GB')).toBe(true)
+  expect(body[1]!.trimEnd().endsWith('4.5MB/s')).toBe(true)
+  expect(body[0]!.indexOf('$12') + 3).toBe(body[1]!.indexOf(dash) + 1)
+})
+
+test('0.5.2: the dots line carries the tree inset on its right; a server row time is faint; the band chevron is dim', async () => {
+  const dots = renderUserRow(t, p, {
+    text: 'x', submittedAt: 1_000_000, startedAt: 1_000_500, columns: 80, folded: false, onFold: () => undefined, onCopy: () => undefined,
+    turn: { turnId: 'd', calls: [{ id: 't1', tool: 'Read', status: 'ok', ms: 300 }], done: { turnId: 'd', durationMs: 1, tools: 1, edits: 0, failed: 0, inTokens: 0, cacheTokens: 0, outTokens: 0, costUsd: 0, lastToolId: 't1', answer: '', startedAt: 0, finishedAt: 1 } },
+  })
+  const dotsRow = elements(dots).find(n => typeof n.props.key === 'string' && n.props.key.startsWith('dots:'))
+  expect(dotsRow?.props.marginRight).toBe(2)
+  const server = renderServerToolRows(t, p, [{ id: 's1', name: 'advisor', startedAt: 0, endedAt: 4200 }])
+  const times = elements(server).filter(n => n.type === 'Text' && flat(n as unknown as RenderNode) === '4.2s')
+  expect(times.length).toBe(1)
+  expect(times[0]!.props.color).toBe(p.faint)
+  const band = renderBand(t, p, { agents: [{ agentId: 'a', description: 'x', kind: 'Explore', model: 'claude-haiku-5-5', effort: 'low', stage: 'Read', file: '', tokens: 1, startedAt: 0 }], now: 1000, columns: 100, open: true, onToggle: () => undefined, tasksCommand: null })
+  const button = elements(band).find(n => n.type === 'Button')
+  expect(button?.props.dimColor).toBe(true)
+  expect(button?.props.hover).toEqual({ backgroundColor: p.rowHover })
 })

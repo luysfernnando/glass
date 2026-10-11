@@ -6,7 +6,17 @@
 //   bun scripts/show.ts diff-card hint      only fixtures whose name contains these
 //   bun scripts/show.ts --theme rose-pine   resolve theme slots through that theme
 //   bun scripts/show.ts --theme dark        ... or the stock dark defaults
+//   bun scripts/show.ts --plain             no colors, for a paste
 //   GLASS_BEFORE=/path/to/old/hooks bun scripts/show.ts
+//
+// Before against the last commit instead of the installed release:
+//   rm -rf /tmp/glass-base && mkdir -p /tmp/glass-base && git archive HEAD hooks types | tar -x -C /tmp/glass-base
+//   GLASS_BEFORE=/tmp/glass-base/hooks bun scripts/show.ts --all
+//
+// Layout is an approximation of the engine's: column boxes stack, row boxes
+// sit side by side, a `space-between` row pushes its last child to the right
+// edge of the room it has (the terminal width less the margins and widths
+// above it), a tinted Box paints its width.
 //
 // The renderers build plain trees and import nothing at runtime from
 // 'claude-code', so both versions load here as ordinary modules. A theme
@@ -38,6 +48,8 @@ const COLUMNS = Math.min(process.stdout.columns ?? 100, 110)
 // arguments: --all, --theme <name>, then fixture name filters
 const argv = process.argv.slice(2)
 const SHOW_ALL = argv.includes('--all')
+const PLAIN = argv.includes('--plain')
+const BEFORE_LABEL = BEFORE.includes('0.4.25') ? 'before 0.4.25' : `before (${BEFORE.replace(/\/hooks\/?$/, '').split('/').pop()})`
 const themeArg = argv.includes('--theme') ? argv[argv.indexOf('--theme') + 1] : undefined
 const want = argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--theme')
 
@@ -70,15 +82,17 @@ const SLOTS = THEME.slots
 
 const ESC = String.fromCodePoint(0x1b)
 function rgb(color: string, bg: boolean): string {
+  if (PLAIN) return ''
   const hex = /^#[0-9a-f]{6}$/i.test(color) ? color : SLOTS[color]
   if (!hex) return ''
   const n = parseInt(hex.slice(1), 16)
   return `${ESC}[${bg ? 48 : 38};2;${(n >> 16) & 255};${(n >> 8) & 255};${n & 255}m`
 }
-const RESET = `${ESC}[0m`
+const RESET = PLAIN ? '' : `${ESC}[0m`
 
 type Style = { fg?: string; bg?: string; bold?: boolean; dim?: boolean; italic?: boolean; underline?: boolean }
 function open(s: Style): string {
+  if (PLAIN) return ''
   let out = ''
   if (s.fg) out += rgb(s.fg, false)
   if (s.bg) out += rgb(s.bg, true)
@@ -109,8 +123,11 @@ function inline(node: Node, inherited: Style): string {
   return (p.children ?? []).map(c => inline(c, s)).join('')
 }
 
-// rows of a tree: a column Box stacks, a row Box joins; margins indent
-function rows(node: Node, inherited: Style = {}): string[] {
+// rows of a tree: a column Box stacks, a row Box joins; margins indent.
+// `room` is the width the node may fill: the terminal less the margins and
+// widths above it, so a `space-between` row can push its last child to its
+// right edge (the duration lane, the dots line's buttons).
+function rows(node: Node, inherited: Style = {}, room = COLUMNS): string[] {
   if (typeof node === 'string') return inline(node, inherited).split('\n')
   const p = node.props
   if (p.display === 'none') return []
@@ -119,18 +136,33 @@ function rows(node: Node, inherited: Style = {}): string[] {
   const kids = p.children ?? []
   const left = typeof p.marginLeft === 'number' ? ' '.repeat(p.marginLeft) : ''
   const top = typeof p.marginTop === 'number' ? p.marginTop : 0
+  const inner = typeof p.width === 'number' ? p.width : room - left.length - (typeof p.marginRight === 'number' ? p.marginRight : 0)
   let out: string[]
   if (p.flexDirection === 'row') {
-    const parts = kids.map(k => rows(k, s))
+    const parts = kids.map(k => rows(k, s, inner))
     const height = Math.max(1, ...parts.map(r => r.length))
     out = []
-    for (let i = 0; i < height; i++) out.push(parts.map(r => r[i] ?? '').join(''))
+    // a child with flexGrow takes the room the others leave, so a right
+    // lane (the duration) ends at the row's edge
+    const grow = kids.findIndex(k => typeof k !== 'string' && typeof k.props.flexGrow === 'number' && k.props.flexGrow > 0)
+    for (let i = 0; i < height; i++) {
+      const cells = parts.map(r => r[i] ?? '')
+      const used = cells.reduce((n, c) => n + visible(c), 0)
+      const gap = ' '.repeat(Math.max(0, inner - used))
+      if (p.justifyContent === 'space-between' && cells.length > 1) {
+        out.push(cells.slice(0, -1).join('') + gap + cells[cells.length - 1])
+      } else if (grow >= 0 && cells.length > 1) {
+        out.push(cells.map((c, j) => (j === grow ? c + gap : c)).join(''))
+      } else {
+        out.push(cells.join(''))
+      }
+    }
   } else {
-    out = kids.flatMap(k => rows(k, s))
+    out = kids.flatMap(k => rows(k, s, inner))
   }
-  if (typeof p.width === 'number' && s.bg) {
-    // a tinted box paints its whole width, as the terminal does
-    out = out.map(r => r + open({ bg: s.bg }) + ' '.repeat(Math.max(0, p.width as number - visible(r))) + RESET)
+  if (typeof p.width === 'number') {
+    // a box with a width fills it; a tinted one paints the fill, as the terminal does
+    out = out.map(r => r + (s.bg ? open({ bg: s.bg }) : '') + ' '.repeat(Math.max(0, p.width as number - visible(r))) + (s.bg ? RESET : ''))
   }
   return [...Array<string>(top).fill(''), ...out.map(r => left + r)]
 }
@@ -161,6 +193,33 @@ const REPLY = [
   'Fix: nothing to do.',
 ].join('\n')
 
+// 0.5.2 polish: nested items under the parent's text, right-aligned numbers,
+// air around a card under an item, a card and a table under a heading
+const LISTS = [
+  '## Steps',
+  '',
+  '```ts',
+  'const n = 1',
+  '```',
+  '',
+  '8. Install the deps:',
+  '   ```',
+  '   npm install',
+  '   ```',
+  '9. Check the tree',
+  '   - a child under the text',
+  '   - a second child',
+  '10. Then open the file',
+  '    - its child',
+  '',
+  '## Results',
+  '',
+  '| file | cost | p95 | rate |',
+  '| --- | --- | --- | --- |',
+  '| render.ts | $12 | 1.2s | 3GB |',
+  '| width.ts | ' + String.fromCodePoint(0x2014) + ' | 340ms | 4.5MB/s |',
+].join('\n')
+
 const turn = {
   turnId: 'demo', durationMs: 146_000, tools: 4, edits: 1, failed: 1, inTokens: 1_800_000, cacheTokens: 1_620_000, outTokens: 5300,
   costUsd: 0.58, lastToolId: 't4', answer: 'done', startedAt: 0, finishedAt: 146_000,
@@ -174,6 +233,16 @@ function fixtures(m: Mods): Record<string, () => Node | null> {
   const columns = COLUMNS
   return {
     reply: () => m.render.renderReply(...([t, m.markdown.parseMarkdown(REPLY), p, { first: true, columns, marks: true }] as never[])),
+    lists: () => m.render.renderReply(...([t, m.markdown.parseMarkdown(LISTS), p, { first: true, columns, marks: false }] as never[])),
+    'event-rows': () =>
+      t.Box({
+        flexDirection: 'column',
+        children: [
+          c.renderEventRow!(t, p, 'm1', 'Agent "Hunt widths" finished\nFound 3 call sites.\nAll under hooks/.', { status: 'completed', durationMs: 72_000 }, true),
+          c.renderGroupRow!(t, p, [{ tool: 'Read', input: { file_path: 'a.ts' }, isRunning: false, isErrored: false, isInterrupted: false }, { tool: 'Edit', input: { file_path: 'b.ts' }, isRunning: false, isErrored: false, isInterrupted: false }], { isActive: false, key: 'g2' }),
+          ...(c.renderServerToolRows ? [c.renderServerToolRows(t, p, [{ id: 's1', name: 'advisor', startedAt: 1000, endedAt: 5200 }])] : []),
+        ],
+      }),
     summary: () => m.render.renderReply(...([t, m.markdown.parseMarkdown('Summary of the session so far: three files changed.'), p, { first: true, columns, marks: true, summary: true }] as never[])),
     'dots-line': () =>
       c.renderUserRow!(t, p, {
@@ -244,7 +313,7 @@ const markPalette = after.palette.PALETTES[PALETTE] ?? after.palette.PALETTES.ti
 const MARK = `${rgb(markPalette.meta ?? '#8e8ca1', false)}${String.fromCodePoint(0x258e)}${RESET} `
 const SAME = '  '
 
-console.log(dim(`palette ${PALETTE}, theme slots from ${THEME.name}, before ${before ? '0.4.25' : 'none'}`))
+console.log(dim(`palette ${PALETTE}, theme slots from ${THEME.name}, ${before ? BEFORE_LABEL : 'no before'}, ${COLUMNS} columns`))
 console.log('')
 
 function paint(mods: Mods | null, name: string): string[] | null {
@@ -266,10 +335,10 @@ for (const name of names) {
     continue
   }
   console.log(title(`== ${name}`) + (same ? dim('  identical before and after') : ''))
-  console.log(dim('-- before 0.4.25'))
+  console.log(dim('-- ' + BEFORE_LABEL))
   if (a === null) console.log(dim('   (nothing drawn)'))
   else for (const r of a) console.log(SAME + r)
-  console.log(dim('-- after 0.5.0' + (same ? '' : '   (marked rows differ)')))
+  console.log(dim('-- after (working tree)' + (same ? '' : '   (marked rows differ)')))
   if (b === null) console.log(dim('   (nothing drawn)'))
   else b.forEach((r, i) => console.log((a && a[i] === r ? SAME : MARK) + r))
   console.log('')

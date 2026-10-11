@@ -115,7 +115,10 @@ demo/              (0.5.0) before/ and after/ text dumps for review
   terminal, 2026-10-02. The engine's `maxProseWidth` setting of 2.1.282 is
   not honored, by this decision; revisit only if the owner asks.)
 - Rhythm: `marginTop: 1` on every block except the first of a text block
-  and any block right under a heading. Never `marginBottom`, never spacer
+  and any text block right under a heading (a fence, a table or a Bottom
+  line under a heading keeps its blank: a tint or a second bold row glued
+  to the heading read as one crowded block, 2026-10-11). Never
+  `marginBottom`, never spacer
   boxes. The first block of a reply keeps `marginTop: 1`. No reply bullet:
   the assistant header carries it.
 - Tint only on the two cards, code fences and the Bottom line (`blockBg`,
@@ -184,11 +187,17 @@ demo/              (0.5.0) before/ and after/ text dumps for review
   `meta`; H3 and deeper bold `heading3`. No rules, no `#`. (A trailing rule
   was dropped with the full-width measure: a 188-cell rule is heavy.)
 - Lists: markers `•` (top), `◦` (nested), `☐`, `☑`; `☑` in `ok`, the rest in
-  `bullet`. Ordered numbers in `orderedNum`, padded to the widest marker.
-  Items are `M - depth*2` wide, indented `depth*2`. Zero rows between
-  items. A fence indented under an item is the item's own block: a card
-  under the item's text, in from the marker, as wide as the text at most.
-  A fence at the margin ends the list.
+  `bullet`. Ordered numbers in `orderedNum`, right-aligned to the widest
+  marker at their depth, so `9.` and `10.` end on one column. Nesting is
+  the rank of an item's indent among the indents seen so far (`1. a` then
+  `   - b` is one level down, as CommonMark reads it; `floor(spaces / 2)`
+  put a four-space child two levels down). A child's marker sits under its
+  parent's text column, so under `1. Install` the `◦` lands under the `I`
+  (0.5.2; `depth*2` hung it off the period). Items run to the measure.
+  Zero rows between items, except one row each side of a card under an
+  item: text touching a tint read as a glitch. A fence indented under an
+  item is the item's own block: a card under the item's text, in from the
+  marker, as wide as the text at most. A fence at the margin ends the list.
 - Fence: a `blockBg` card, `paddingX 1`, sized to its widest line (floor
   60, cap M). Tabs expand to four spaces (the terminal skips a tab's cells
   without the tint). A blank line is one space so its row draws. Header
@@ -211,8 +220,11 @@ demo/              (0.5.0) before/ and after/ text dumps for review
   tried next and dropped for the same reason.)
 - Table: no vertical borders. Bold `bold` header, one `rule` row of `─`
   segments joined by two spaces, body rows joined by two spaces, cells
-  padded by `cellWidth`. Numeric columns (a sign, a currency mark, a
-  percent or a short unit count; empty cells ignored) right-align with
+  padded by `cellWidth`. Numeric columns (a `~`, `<`, `>` or `≈`, a sign, a
+  currency mark, digits, then a percent, `x` or `×`, or a unit of up to
+  four letters with a per-unit tail, `4.5MB/s`; empty cells and the
+  placeholders `-`, `–`, `—`, `n/a`, `?`, `…` ignored, since one dash
+  flipped a whole column left) right-align with
   their header unless the separator names a side; a bare `---` names none.
   `&nbsp;` is a space. A table wider than its measure squeezes its widest
   column a cell at a time, down to 4, a squeezed cell cut in the middle;
@@ -284,7 +296,8 @@ and reply blocks interleaved as the model made them, then the
   is the one `dimColor` glass draws), lit by hover, with a `key`, in a
   `flexShrink 0` box at the row's right end. `label` only, no children, so
   the tree validates on engines before 2.1.295. Copy appears once the
-  turn is done.
+  turn is done. The dots line carries the tree's right inset, so the
+  buttons end where the durations end (0.5.2).
   `/fold`, `/unfold` stay as the keyboard route. If the retest fails they
   stay out and this bullet is history. (Both were drawn in 0.2 and 0.3,
   never received a press, and were removed 2026-10-03 and 2026-10-04.)
@@ -328,7 +341,9 @@ and reply blocks interleaved as the model made them, then the
   subject once squeezed the mark's cell, 2026-10-05).
 - Right column: the call's wall time from `tool.call` (clock around `await
   next(e)`, keyed by `tool_use_id`, main loop only), `0.8s`, `12s`, `1m
-  04s`, `2h 05m`, in `meta`; none under 100 ms; Bash adds `· N lines` in
+  04s`, `2h 05m`, in `faint` once done, the step the done subject sits on
+  (every finished row's right lane is one color: tree, server tool and
+  event rows alike); none under 100 ms; Bash adds `· N lines` in
   `faint`. `Box row justifyContent space-between`, the right Text
   `flexShrink 0`. While the call runs the right column is a `Raster` keyed
   `clock`, 7 cells, the elapsed time in `meta`: one ticker,
@@ -429,8 +444,9 @@ and reply blocks interleaved as the model made them, then the
   own under one hover, named once at its head, the built-in tools on a
   line of their own, first-seen order; a live group's `N running...` sits
   on the lines with a running call, and the row ends in `…`. A group with
-  any errored call opens on its own and adds `· N failed` in `err`.
-  `/expand` opens every group, `/collapse` folds them again. No per-group
+  any errored call opens on its own and adds `· N failed` in `err`; a
+  group with edits adds `· N edits` in `faint` (0.5.2; `[1 edit]` was the
+  one bracketed count in the chrome). `/expand` opens every group, `/collapse` folds them again. No per-group
   button (the density pass, 2026-10-03; the press retest of 0.5.0 does not
   bring it back). `ctrl+o to expand` is not written (it never opened a
   group live).
@@ -441,7 +457,10 @@ and reply blocks interleaved as the model made them, then the
   · <summary>           1m 12s`; `✓` in `ok` unless `task.status` reads as
   failed, then `✗` in `err`. Summary is `e.props.text`'s first line in
   `meta`; duration from `task.durationMs`, none under 100 ms. The hover
-  key is the message's `requestId`. `isExpanded` true passes to the engine.
+  key is the message's `requestId`. `isExpanded` true passes to the engine;
+  the notification's remaining lines then hang off the trunk as a Bash
+  body does, one row per line in `meta`, clipped (0.5.2; a body with no
+  trunk sat off the column).
 
 ### `TurnDuration`
 
@@ -465,7 +484,8 @@ and reply blocks interleaved as the model made them, then the
   `├─ ✓ advisor  ran by the API                                   4.2s`.
   Connector `faint`, mark `✓` in `meta` (the engine ran nothing, so it is
   not `ok`'s done), name in `tool`, the note in `faint`, the duration
-  `endedAt - startedAt` in `meta`, none when `endedAt` is absent. Each row
+  `endedAt - startedAt` in `faint` as on every finished row, none when
+  `endedAt` is absent. Each row
   keeps its air row above. Not counted in the dots line: the dots count
   calls glass can vouch for. A subagent's server tools are not drawn.
   The shape of `input` is not read.
@@ -505,8 +525,9 @@ and reply blocks interleaved as the model made them, then the
   and lowers its eyes while it runs a tool. Stage is the last tool the
   agent called (MCP names as tree rows draw them), or `thinking…`. Tokens
   are the sum of the agent's `turn.step` usages read off each stop chunk;
-  effort is the step's. The chevron (the one Button glass draws today, a
-  `key` of `band:toggle`) closes the frame to one strip. Per-agent cost
+  effort is the step's. The chevron (a `key` of `band:toggle`, `plain`,
+  `dimColor`, lit by hover, as the dots line's buttons are) closes the
+  frame to one strip. Per-agent cost
   stays out: no price table in the API. Agent identity: `agent.spawn`
   gives `description`, `subagentType`, `model`; `agentId` from awaiting
   `next(e)`; removed at that agent's `turn.complete`.

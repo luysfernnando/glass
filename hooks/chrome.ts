@@ -277,6 +277,9 @@ export function renderUserRow(t: Table, p: Palette, r: UserRow): RenderElement {
         key: `dots:${v.turnId}`,
         flexDirection: 'row',
         marginLeft: 2,
+        // the same right inset as the tree rows, so the buttons end where
+        // the durations end
+        marginRight: TREE_INSET,
         justifyContent: 'space-between',
         hover: { backgroundColor: p.rowHover },
         children: [
@@ -402,8 +405,8 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
 // engine row, so the turn's record draws these after the reply (0.5.0).
 // `|- v advisor  ran by the API                                   4.2s`
 // Connector faint, the mark in meta (the engine ran nothing, so not ok's
-// done), the name in `tool`, the note faint, the duration in meta; none
-// without an end time. Each row keeps its air row above.
+// done), the name in `tool`, the note faint, the duration faint as on every
+// finished row; none without an end time. Each row keeps its air row above.
 export function renderServerToolRows(t: Table, p: Palette, tools: ReadonlyArray<GlassServerTool>): RenderElement {
   const rows = tools.map(s => {
     const right = s.endedAt === undefined || s.endedAt - s.startedAt < 100 ? '' : fmtToolTime(s.endedAt - s.startedAt)
@@ -418,7 +421,7 @@ export function renderServerToolRows(t: Table, p: Palette, tools: ReadonlyArray<
           flexShrink: 1,
           children: [t.Text({ wrap: 'truncate-end', children: [...toolNodes(t, p, safeText(s.name, 60), false), '  ', t.Text({ color: p.faint, children: ['ran by the API'] })] })],
         }),
-        ...(right ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.meta, children: [right] })] })] : []),
+        ...(right ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.faint, children: [right] })] })] : []),
       ],
     }))
   })
@@ -753,7 +756,7 @@ function groupLine(t: Table, p: Palette, server: string, calls: GroupCall[], liv
   const parts: RenderNode[] = server ? [t.Text({ color: p.faint, children: [server + ' '] })] : []
   parts.push(t.Text({ color: p.tool, children: [tools] }))
   if (subjects.length) parts.push('  ' + subjects.join(sep))
-  if (edits > 0) parts.push(` [${plural(edits, 'edit')}]`)
+  if (edits > 0) parts.push(sep + plural(edits, 'edit'))
   if (failed > 0) parts.push(sep, t.Text({ color: p.err, children: [`${failed} failed`] }))
   const tail = live ? sep + `${calls.filter(c => c.isRunning).length} running` + G.ellipsis : ''
   return t.Box({
@@ -798,9 +801,12 @@ export function renderEventRow(t: Table, p: Palette, id: string, text: string, t
     ],
   }))
   if (rest === '') return row
+  // the rest of the notification hangs off the trunk as a Bash body does,
+  // one row per line, clipped (a body with no trunk sat off the column)
+  const body = rest.split('\n').map(l => t.Text({ wrap: 'truncate-end', color: p.meta, children: [l] }))
   return t.Box({
     flexDirection: 'column',
-    children: [row, t.Box({ marginLeft: 5, children: [t.Text({ wrap: 'wrap', color: p.meta, children: [rest] })] })],
+    children: [row, trunked(t, p, body.length, body)],
   })
 }
 
@@ -861,7 +867,7 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
   const elapsed = fmtDuration(Math.max(0, now - oldest))
   const titleText = `background${sep}${agents.length}`
   const chevron = o.onToggle
-    ? t.Button({ key: 'band:toggle', label: o.open ? G.down : G.right, plain: true, onPress: o.onToggle })
+    ? t.Button({ key: 'band:toggle', label: o.open ? G.down : G.right, plain: true, dimColor: true, hover: { backgroundColor: p.rowHover }, onPress: o.onToggle })
     : t.Text({ color: p.accent, children: [o.open ? G.down : G.right] })
   const title = t.Text({
     children: [

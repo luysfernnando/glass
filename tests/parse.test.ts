@@ -283,3 +283,18 @@ test('0.4.22: paths with router brackets, new extensions, any case, and the conv
   expect(pathLike('and/or')).toBeNull()
   expect(pathLike('e.g.')).toBeNull()
 })
+
+test('0.5.2: nesting is the rank of the indent, numbers right-align, a card under an item gets air', async () => {
+  // three spaces under `1.` is one level down, four spaces under `-` is still one
+  const l = parseMarkdown('1. a\n   - b\n   - c\n10. d\n    - e')[0]
+  if (l?.kind !== 'list') throw new Error('expected a list')
+  expect(l.items.map(it => it.depth)).toEqual([0, 1, 1, 0, 1])
+  const deep = parseMarkdown('- a\n    - b\n        - c\n  - d')[0]
+  if (deep?.kind !== 'list') throw new Error('expected a list')
+  expect(deep.items.map(it => it.depth)).toEqual([0, 1, 2, 1])
+  // a quote's row count follows the renderer: one row per item, one blank
+  // each side of a card under an item
+  const q = parseMarkdown('> 1. Install:\n>    ```\n>    npm i\n>    ```\n> 2. Run')[0]
+  if (q?.kind !== 'quote') throw new Error('expected a quote')
+  expect(quoteRows(q.blocks, 80)).toBe(5)
+})
