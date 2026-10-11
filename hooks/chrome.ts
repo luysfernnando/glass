@@ -6,7 +6,7 @@
 // saturated color on marks only.
 import type { Elements, RenderElement, RenderNode, UiPressArgument } from 'claude-code'
 
-import type { GlassAgent, GlassCall, GlassTurn } from '../types'
+import type { GlassAgent, GlassCall, GlassServerTool, GlassTurn } from '../types'
 import { G } from './glyphs'
 import { CODE_COLOR, highlightLine, langOf } from './highlight'
 import type { State } from './highlight'
@@ -14,6 +14,7 @@ import { paintLine } from './output'
 import type { Palette } from './palette'
 import { measure } from './render'
 import { shellSpans } from './shell'
+import { THEME } from './theme'
 import { cellWidth, clipPath } from './width'
 
 type Table = Elements['terminal']
@@ -132,6 +133,12 @@ export type UserRow = {
   startedAt: number | null
   turn: TurnView | null
   columns: number
+  /** 0.5.0, gated on the live press retest: the turn's tree is folded */
+  folded?: boolean
+  /** a press folds or unfolds this turn's tree; none, no chevron */
+  onFold?: Press | null
+  /** a press copies the turn's answer; none, no Copy */
+  onCopy?: Press | null
 }
 
 // the dots: one per call in call order, grouped by consecutive tool with a
@@ -257,15 +264,25 @@ export function renderUserRow(t: Table, p: Palette, r: UserRow): RenderElement {
       flexShrink: 1,
       children: [...dots(t, p, v.calls), t.Text({ children: ['  '] }), t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: v.done ? p.meta : p.bold, children: summary })] })],
     })
-    // no chevron and no Copy: a Button in a transcript row never received
-    // its press live (2026-10-03), so folding moved to /fold and /unfold
+    // 0.5.0: the chevron and Copy return as plain Buttons at the right end,
+    // gated on the live press retest (the 0.2 and 0.3 Buttons never
+    // received a press; 2.1.288 fixed button routing). /fold and /unfold
+    // stay the keyboard route. Label only: no children, so the tree
+    // validates on engines before 2.1.295.
+    const controls: RenderNode[] = []
+    if (r.onFold) controls.push(t.Button({ key: `fold:${v.turnId}`, label: r.folded ? G.right : G.down, plain: true, dimColor: true, hover: { backgroundColor: p.rowHover }, onPress: r.onFold }))
+    if (r.onCopy && v.done) controls.push(...(controls.length ? ['  '] : []), t.Button({ key: `copy:${v.turnId}`, label: G.copy + ' Copy', plain: true, dimColor: true, hover: { backgroundColor: p.rowHover }, onPress: r.onCopy }))
     rows.push(
       t.Box({
         key: `dots:${v.turnId}`,
         flexDirection: 'row',
         marginLeft: 2,
+        justifyContent: 'space-between',
         hover: { backgroundColor: p.rowHover },
-        children: [t.Box({ flexDirection: 'row', flexShrink: 1, children: [left] })],
+        children: [
+          t.Box({ flexDirection: 'row', flexShrink: 1, children: [left] }),
+          ...(controls.length ? [t.Box({ flexDirection: 'row', flexShrink: 0, marginLeft: 2, children: controls })] : []),
+        ],
       }),
     )
   }
@@ -379,6 +396,33 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
           : []),
     ],
   }), o.air ?? true)
+}
+
+// A tool the API ran inside the request (the advisor): no tool.call, no
+// engine row, so the turn's record draws these after the reply (0.5.0).
+// `|- v advisor  ran by the API                                   4.2s`
+// Connector faint, the mark in meta (the engine ran nothing, so not ok's
+// done), the name in `tool`, the note faint, the duration in meta; none
+// without an end time. Each row keeps its air row above.
+export function renderServerToolRows(t: Table, p: Palette, tools: ReadonlyArray<GlassServerTool>): RenderElement {
+  const rows = tools.map(s => {
+    const right = s.endedAt === undefined || s.endedAt - s.startedAt < 100 ? '' : fmtToolTime(s.endedAt - s.startedAt)
+    return spaced(t, p, t.Box({
+      key: `server:${s.id}`,
+      flexDirection: 'row',
+      hover: { backgroundColor: p.rowHover },
+      children: [
+        rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: p.meta, children: [G.tick + ' '] })),
+        t.Box({
+          flexGrow: 1,
+          flexShrink: 1,
+          children: [t.Text({ wrap: 'truncate-end', children: [...toolNodes(t, p, safeText(s.name, 60), false), '  ', t.Text({ color: p.faint, children: ['ran by the API'] })] })],
+        }),
+        ...(right ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.meta, children: [right] })] })] : []),
+      ],
+    }))
+  })
+  return t.Box({ flexDirection: 'column', children: rows })
 }
 
 // cells a body row leaves for the trunk column before its content
@@ -542,8 +586,8 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
           ? [
               ...(verb ? [t.Text({ color: p.meta, children: [verb] })] : []),
               t.Text({ color: p.path, children: [shown] }),
-              ...(add > 0 ? [' ', t.Text({ color: p.ok, children: [`+${add}`] })] : []),
-              ...(del > 0 ? [' ', t.Text({ color: p.err, children: [`-${del}`] })] : []),
+              ...(add > 0 ? [' ', t.Text({ color: THEME.diffAddedWord, children: [`+${add}`] })] : []),
+              ...(del > 0 ? [' ', t.Text({ color: THEME.diffRemovedWord, children: [`-${del}`] })] : []),
               ' ',
             ]
           : []),
@@ -552,9 +596,12 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
     }),
   )
   for (const l of lines) {
-    const bg = l.kind === 'add' ? p.addBg : l.kind === 'del' ? p.delBg : undefined
+    // 0.5.0: the tints and marks are the active theme's diff slots, so the
+    // card matches the engine's own diff panels; a glass theme sets those
+    // slots to the palette's addBg, delBg, ok and err
+    const bg = l.kind === 'add' ? THEME.diffAdded : l.kind === 'del' ? THEME.diffRemoved : undefined
     const mark = l.kind === 'add' ? '+' : l.kind === 'del' ? '-' : ' '
-    const markColor = l.kind === 'add' ? p.ok : l.kind === 'del' ? p.err : p.faint
+    const markColor = l.kind === 'add' ? THEME.diffAddedWord : l.kind === 'del' ? THEME.diffRemovedWord : p.faint
     chunk(l.pieces, room).forEach((part, n) => {
       const used = part.reduce((w, x) => w + cellWidth(x.text), 0)
       const head: RenderNode[] =
@@ -1060,10 +1107,11 @@ export function cleanHint(hint: string): { vim: string; rest: string } | null {
 const MODE_RE = /mode on|accept edits on|plan mode/i
 
 // the vim mode in `accentUser` (the person's own color: typing is theirs),
-// the permission mode colored by what it means: auto and bypass `warn`, plan
-// `accent`, accepting edits `ok`; anything else `meta`
+// the permission mode in the active theme's own slot for it (0.5.0: the
+// engine's panels and glass agree under any theme): plan `planMode`,
+// accepting edits `autoAccept`, auto and bypass `warning`; anything else `meta`
 export function renderHint(t: Table, p: Palette, h: { vim: string; rest: string }): RenderElement {
-  const modeColor = /auto|bypass/i.test(h.rest) ? p.warn : /plan/i.test(h.rest) ? p.accent : /accept/i.test(h.rest) ? p.ok : p.meta
+  const modeColor = /auto|bypass/i.test(h.rest) ? THEME.warning : /plan/i.test(h.rest) ? THEME.planMode : /accept/i.test(h.rest) ? THEME.autoAccept : p.meta
   return t.Text({
     wrap: 'truncate-end',
     children: [

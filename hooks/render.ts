@@ -29,6 +29,8 @@ export type RenderOptions = {
   columns: number
   /** gutter marks beside paragraphs that need the reader; off when the prompt asked for writing */
   marks: boolean
+  /** a compaction summary (0.5.0): one faint ` . summary` row closes the reply, as the engine's own mark reads */
+  summary?: boolean
 }
 
 const LABEL_WIDTH = 8
@@ -136,6 +138,8 @@ export function renderReply(t: Table, blocks: Block[], p: Palette, o: RenderOpti
     }
     prev = b.kind
   })
+  // a compaction summary ends on its own faint mark, as the engine's does
+  if (o.summary) rows.push(t.Box({ flexDirection: 'column', marginLeft: 2, children: [t.Text({ color: p.faint, children: [G.middot + ' summary'] })] }))
   return t.Box({ flexDirection: 'column', children: rows })
 }
 

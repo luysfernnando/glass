@@ -246,7 +246,7 @@ test('mounted: a user row, a tree row, a folded group and the band validate on t
   await message.unmount()
 })
 
-test('an Edit diff: one number column, a plus row in ok on addBg, a minus row in err on delBg, code painted', async () => {
+test('an Edit diff: one number column, a plus row and a minus row in the theme diff slots, code painted', async () => {
   const hunks = [
     { oldStart: 268, newStart: 274, lines: ['  const right = x', '-  return t.Box({', '+  return spaced(t, p, t.Box({', '   key: 1'] },
     { oldStart: 288, newStart: 294, lines: ['-  })', '+  }))'] },
@@ -285,11 +285,14 @@ test('an Edit diff: one number column, a plus row in ok on addBg, a minus row in
   for (const r of long) expect(cellWidth(r)).toBe(76)
   // the frame sits on the trunk column, so its left border is the trunk
   expect(card.props.marginLeft).toBe(2)
-  expect(colors).toContain(p.ok)
-  expect(colors).toContain(p.err)
+  // 0.5.0: the marks and tints name the active theme's diff slots, so the
+  // card follows the theme as the engine's own panels do
+  expect(colors).toContain('diffAddedWord')
+  expect(colors).toContain('diffRemovedWord')
   expect(colors).toContain(p.codeKw)
-  expect(bgs).toContain(p.addBg)
-  expect(bgs).toContain(p.delBg)
+  expect(bgs).toContain('diffAdded')
+  expect(bgs).toContain('diffRemoved')
+  expect(bgs).not.toContain(p.addBg)
 })
 
 test('the highlighter: keywords, calls, types, strings, numbers, comments, a block comment carried across lines', async () => {

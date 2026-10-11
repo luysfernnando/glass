@@ -61,6 +61,26 @@ stored or what the model reads.
   one strip of faces.
 - **Event rows.** A background task's notification draws as one tree row
   with its duration; a message from another agent draws as one muted row.
+- **Summary rows.** A compaction summary ends on a quiet `· summary` mark,
+  as the engine's own does.
+- **Server tool rows.** A tool the API ran inside the request (the advisor)
+  has no tool call of its own; glass draws it after the reply as a quiet
+  tree row with its duration.
+- **Themes.** The diff card and the mode word under the prompt take the
+  active theme's own slots, so they match the engine's panels under any
+  theme. `/glass-theme` writes a theme built from the current palette to
+  `~/.claude/themes/glass-<palette>.json`; pick it in `/theme` (the
+  engine lets a plugin select only its built-in themes). Then the prompt
+  box, mode words, permission prompts and diff panels take the palette
+  too. Switching the palette while a glass theme is active rewrites the
+  file. Your own theme files are never touched.
+- **Notifications.** A native notification when a background agent
+  finishes after its turn ended, or a turn ends with failed calls. The
+  engine already notifies when a turn finishes, so glass does not. Off
+  with the `notify` option under Glass in `/config`.
+- **Fold and Copy.** A chevron at the right of the dots line folds that
+  turn's tree; `⧉ Copy` takes the finished answer to the clipboard.
+  `/fold` and `/unfold` do the same from the keyboard.
 
 Every width is measured the way the engine measures cells, so emoji and
 CJK in tables stay aligned.
@@ -71,6 +91,10 @@ CJK in tables stay aligned.
 claude plugin marketplace add rashedInt32/glass
 claude plugin install glass@glass
 ```
+
+Claude Code 2.1.295 or newer. On an older engine glass still loads: the
+notification falls back to a toast, summary and server tool rows need
+props that older engines do not send, and the rest is unchanged.
 
 Restart Claude Code. Pick a palette with `/config` under Glass: `tidepool`
 (default), `water` (Empryo's own proxysoul-water tokens), `undertow` (sampled from
@@ -104,7 +128,8 @@ LC_ALL=C grep -rn '[^ -~]' hooks/   # must print nothing
 ```
 
 `scripts/check.sh` runs all four and checks that both manifests carry
-the same version. CI runs it on every push and pull request, without tsc:
+the same version. `scripts/demo-dump.sh before|after` writes the text
+dumps `DEMO.md` compares, from `tests/demo.test.ts`. CI runs it on every push and pull request, without tsc:
 the types only exist once the engine has loaded the plugin.
 
 Every non-ASCII glyph is built from a code point in `hooks/glyphs.ts`.

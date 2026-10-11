@@ -22,6 +22,22 @@ export type GlassTurn = {
   /** when the turn began and ended, ms since the epoch */
   startedAt: number
   finishedAt: number
+  /**
+   * tools the API ran inside a request of this turn (the advisor), as
+   * turn.step's result listed them (0.5.0); optional, since turns recorded
+   * before 0.5.0 are still in state after a reload
+   */
+  serverTools?: GlassServerTool[]
+}
+
+/** one tool call the API ran itself: no tool.call fired, the engine ran nothing */
+export type GlassServerTool = {
+  id: string
+  /** the server tool's name as the API spells it (`advisor`) */
+  name: string
+  /** $.clock.now() milliseconds when the API began it and when its result arrived */
+  startedAt: number
+  endedAt?: number
 }
 
 /** one main-loop tool call, as the dots line and the tree draw it */

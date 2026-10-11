@@ -323,7 +323,12 @@ export const PALETTES: Record<PaletteName, Palette> = {
   },
 }
 
+/** the palette's name from the option's value: one of the five, tidepool for anything else */
+export function paletteNameOf(name: unknown): PaletteName {
+  if (name === 'codex' || name === 'rose' || name === 'undertow' || name === 'water') return name
+  return 'tidepool'
+}
+
 export function paletteNamed(name: unknown): Palette {
-  if (name === 'codex' || name === 'rose' || name === 'undertow' || name === 'water') return PALETTES[name]
-  return PALETTES.tidepool
+  return PALETTES[paletteNameOf(name)]
 }

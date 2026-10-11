@@ -1,0 +1,11 @@
+╭─ ◌ background · 2 ▾ ──────────────────────────────────────────────────────────────── 1m 25s ─╮
+│ ◆ (●▾●) Hunt widths          sonnet-5-5 · medium    Grep           12k      hooks/width.ts   │
+│ ◆ (●‿●) Review the diff      opus-5-5 · high        thinking…      900                       │
+╰─ They outlive this turn ──────────────────────────────────────────────────────────── /tasks ─╯
+
+-- colors --
+#6cc0e5
+#7aa2b5
+#e9b873
+#c5d8e6
+#48708c
