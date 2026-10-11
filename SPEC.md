@@ -124,7 +124,8 @@ demo/              (0.5.0) before/ and after/ text dumps for review
 - Tint only on the two cards, code fences and the Bottom line (`blockBg`,
   >= 1.2:1 over the terminal bg). Cards hug their content: width = widest
   row plus padding, floor 60 cells, cap M. Inline code has no tint.
-- Four text steps, all palette keys: `text` (prose, the terminal fg),
+- Four text steps: `text` (prose, the terminal's own foreground; not a
+  `Palette` key, by design) and the palette keys
   `meta` (times, counts, durations, args of a done row), `faint`
   (connectors, folds, hints, the fence header), `bold`. No `dimColor` in a
   reply: it lands on a different step per terminal theme.
@@ -133,7 +134,9 @@ demo/              (0.5.0) before/ and after/ text dumps for review
   diagram rows, each named where it lives.
 - Hierarchy rule, as Empryo's: bright for the live thing, muted one step for
   the done thing, faint for scaffolding, saturated color only on status
-  marks.
+  marks. No key reminders in the transcript (`ctrl+o`, `shift+tab`): the
+  hint line, the group rows, the Message row and the diff fold note all
+  gave theirs up (0.5.3 for the last two).
 
 ## Inline
 
@@ -148,7 +151,8 @@ demo/              (0.5.0) before/ and after/ text dumps for review
   - Paths anywhere: rooted (`/`, `./`, `../`, `~/`), a known extension by
     any case, a dotfile, a conventional name (`Makefile`, `Dockerfile`),
     router segments in balanced brackets (`app/[id]/page.tsx`), in `path`
-    underlined; a `:line` or `:line:col` suffix in `num`. Paths under the
+    (color only, no underline: the underline is the link's mark); a `:line`
+    or `:line:col` suffix in `num`. Paths under the
     session's directory draw relative. URLs (`https`, `ssh://`, `git@`,
     `www.`) in `url` underlined. (`hooks/paths.ts`.)
   - A single quote opens a string only at a word's start, and an apostrophe
@@ -172,8 +176,8 @@ demo/              (0.5.0) before/ and after/ text dumps for review
   title stays out of the text.
 - Inline code is color only, as Claude Desktop and the Codex TUI draw it.
   Contents, in order: shell spans when `shellSpans()` recognizes a known
-  command head (each token in its kind color); else a path in `path`
-  underlined; else `code`. (Tinted pills with padding and Nerd Font caps
+  command head (each token in its kind color); else a path in `path`; else
+  `code`. (Tinted pills with padding and Nerd Font caps
   were tried and rejected as noise, 2026-10-02.)
 - A U+FE0F after a text-default symbol (U+26A0 and kin) is dropped: the
   terminal draws the emoji form 2 cells while the engine counts 1.
@@ -205,7 +209,12 @@ demo/              (0.5.0) before/ and after/ text dumps for review
   lines` right; a `faint` gutter from line 1 once over 8 lines. The body is
   glass's own highlighter (`hooks/highlight.ts`): keywords `codeKw`, calls
   `codeFn`, types `codeType`, strings `codeStr`, numbers and constants
-  `codeNum`, comments `comment`; shell fences through `shellSpans` in the
+  `codeNum`, comments `comment` (0.5.3: keywords by language family, since
+  one shared set painted Python's `range(10)` and TypeScript's `values(x)`
+  as keywords; a Rust lifetime `'a` keeps `codeStr` but ends at its word,
+  so it never swallows the line to the next quote; a YAML word
+  before a colon is a key in `codeFn`, while a JSON key is a string and
+  keeps `codeStr`, the owner's orange); shell fences through `shellSpans` in the
   prose keys, so a command reads the same in a fence and in prose, a
   comment-only line in `comment`; prose fences (`md`, `txt`, `rst`,
   `adoc`...) paint nothing. `fenceShape` decides diagram, gutter, header
@@ -232,7 +241,9 @@ demo/              (0.5.0) before/ and after/ text dumps for review
   with the raw lines. The separator must match the header's cell count; a
   bare `---` under a line with `|` is a rule. A table start interrupts a
   paragraph. Streaming reflows widths per committed row; jitter accepted.
-- Quote: a `quoteBar` `▎` on every row of the quote (the row count from the
+- Quote: the prose in the prose color (a `meta` step, as Claude Desktop and
+  GitHub mute a quote, was tried and turned down 2026-10-11: the owner
+  found it flat), a `quoteBar` `▎` on every row of the quote (the row count from the
   same wrapping the engine applies, fence headers counted only when drawn,
   wrapped code lines counted, a squeezed table counted as glass draws it,
   an over-wide table estimated as raw html is), one space, the inner
@@ -270,11 +281,13 @@ and reply blocks interleaved as the model made them, then the
 
 - The turn boundary is one titled rule: `◆ You · 3:20 PM ───` in `faint`
   to the measure, a blank row above, none below. `◆` and `You` in
-  `accentUser`, the time in `meta`: the `prompt.submit` clock for that
+  `accentUser` (a neutral bold name was tried and turned down, 2026-10-11:
+  the owner likes the colored names), the time in `meta`: the `prompt.submit` clock for that
   text (map text -> time, newest wins; no match, no time). The prompt
   wraps at M, indented 2.
-- The assistant header `◉ Claude · 01:14 PM` is the tail of this tree
+- The assistant header `◉ Claude · 1:14 PM` is the tail of this tree
   after one blank row: `◉` and the name in `accent`, the time in `meta`
+  (hours unpadded, as the `prompt.submit` clock draws them)
   from `turn.start`'s clock, read from state so the row redraws when the
   turn begins. Drawn only once a turn has started for this prompt.
 - The dots line, under the header, indented 2: one dot per main-loop call
@@ -322,8 +335,9 @@ and reply blocks interleaved as the model made them, then the
   `├─ ✓ Bash  git log --oneline -1 · 3 lines                      0.8s`
   (The last call drew `└─` at first; dropped: knowing the last call needs a
   subscription to the turn.)
-- Status mark: `✓` in `ok`, `✗` in `err` (errored or interrupted), `○` in
-  `meta` while running.
+- Status mark: `✓` in `ok` (a `meta` tick, so only the red `✗` would carry
+  color, was tried and turned down 2026-10-11: the owner likes the green),
+  `✗` in `err` (errored or interrupted), `○` in `meta` while running.
 - Tool name in `tool`, bold while running, plain once done. An MCP tool
   (`mcp__<server>__<tool>`) draws as its server in `faint`, a space, then
   the tool name in `tool`: the server drops `plugin_<plugin>_`,
@@ -344,7 +358,8 @@ and reply blocks interleaved as the model made them, then the
   04s`, `2h 05m`, in `faint` once done, the step the done subject sits on
   (every finished row's right lane is one color: tree, server tool and
   event rows alike); none under 100 ms; Bash adds `· N lines` in
-  `faint`. `Box row justifyContent space-between`, the right Text
+  `faint` only when the body folds past the three painted lines (0.5.3: a
+  body shown whole is its own count). `Box row justifyContent space-between`, the right Text
   `flexShrink 0`. While the call runs the right column is a `Raster` keyed
   `clock`, 7 cells, the elapsed time in `meta`: one ticker,
   `$.clock.every(1000)`, blits every running call's clock by its
@@ -416,8 +431,7 @@ and reply blocks interleaved as the model made them, then the
   highlighter with the language from the path; tabs expand to four
   spaces; one context line before a hunk's first change and one after its
   last, context between changes stays, numbers keep counting; an ellipsis
-  row between hunks. Past 200 rows the rest folds to `… +N lines (ctrl+o
-  to expand)`.
+  row between hunks. Past 200 rows the rest folds to `… +N lines`.
 - A Write that created its file (`type: 'create'`) draws its whole
   `content` as added lines. Rows of a group the engine unfolded raise no
   `ToolResult`, so the `ToolUse` hook draws the card under such a row.
@@ -426,10 +440,12 @@ and reply blocks interleaved as the model made them, then the
   per file one row of air and the card; a file with no hunks keeps a
   header `Updated <path> +a -b` (verb `meta`, path `path`, counts `ok`
   and `err`); `moreFiles` ends it as `… +N more files`.
-- **(0.5.0)** Colors: the card's tints and marks come from the active
-  theme's six diff slots (`diffAdded`, `diffRemoved`, their `Dimmed` and
-  `Word` forms) wherever the engine resolves a theme key, so the card
-  matches the engine's own diff panels under any theme. Under a glass
+- **(0.5.0)** Colors: the card's tints come from the active theme's
+  `diffAdded` and `diffRemoved`, its `+` and `-` marks and the header's
+  counts from the theme's `success` and `error` (0.5.3: the `diff*Word`
+  slots are the engine's word-level backgrounds, not text colors, so the
+  marks never read them), wherever the engine resolves a theme key, so the
+  card matches the engine's own diff panels under any theme. Under a glass
   theme (below) those slots are the palette's `addBg`, `delBg`, `ok`, `err`,
   so the owner's colorblind-safe pick holds. Under the stock dark theme the
   card goes green and red with the engine's panels: that is the trade of
@@ -453,10 +469,10 @@ and reply blocks interleaved as the model made them, then the
 
 ### Events after the turn (`UserMessage`, origin `task-notification`)
 
-- Tree rows after the turn, same geometry: `├─ ✓ Background agent finished
-  · <summary>           1m 12s`; `✓` in `ok` unless `task.status` reads as
-  failed, then `✗` in `err`. Summary is `e.props.text`'s first line in
-  `meta`; duration from `task.durationMs`, none under 100 ms. The hover
+- Tree rows after the turn, same geometry: `├─ ✓ Agent  <description>
+  1m 12s` when the text opens `Agent "<description>" finished` (the name in
+  `tool`, the description in `meta`), else the text's first line in `meta`;
+  `✓` in `ok` unless `task.status` reads as failed, then `✗` in `err`; duration from `task.durationMs`, none under 100 ms. The hover
   key is the message's `requestId`. `isExpanded` true passes to the engine;
   the notification's remaining lines then hang off the trunk as a Bash
   body does, one row per line in `meta`, clipped (0.5.2; a body with no
@@ -516,8 +532,10 @@ and reply blocks interleaved as the model made them, then the
   `hasSurvey`. The band is one site for every plugin, so glass always
   calls `next(e)`: with no agent running it returns what the plugins
   beneath drew, and with agents its frame draws above that.
-- A rounded frame the band wide, drawn with arc and rule glyphs since a
-  border cannot carry a title: top edge `╭─ ◌ background · N ▾ ─── 1m 25s
+- A rounded frame the band wide in `accent`, the model column in `accent`
+  too, the faces in `warn` (a faint frame with a `meta` model column was
+  tried and turned down, 2026-10-11: the owner likes the colored band),
+  drawn with arc and rule glyphs since a border cannot carry a title: top edge `╭─ ◌ background · N ▾ ─── 1m 25s
   ─╮`, one row per agent `│ ◆ (●‿●) name  model · effort  stage  tokens
   file │` in fixed columns (20, 22, 14, 8, the rest), `+N more`, bottom
   edge `╰─ They outlive this turn ─── /tasks ─╯` (the `/tasks` hint only
@@ -586,6 +604,17 @@ validate` holds the module to it.
   `accentUser`, `text`, `bold`, `blockBg`, `tool`, the callout keys, the
   code keys and the diff tints. A test keeps `mark` apart from `ok`,
   `quoteBar` and `calloutBar` in every palette.
+- **(0.5.3)** Palette fixes from the color audit (contrast against
+  `#0d1117`): undertow's `faint`, `rule`, `blockBg` and `rowHover` lifted
+  to their floors (faint 3.6:1, blockBg 1.3:1, hover a step above the card);
+  codex `faint` to 3.7:1 and `rule` a step under `meta` (it outranked
+  `faint`, so table rules beat tree connectors); tidepool `codeStr` is `str`
+  (it was `err`: a TypeScript string read as an error) and `codeFn` the
+  verb's iris; water `url` a sky blue apart from the brand cyan that
+  `tool`, `cmd`, `accent` and `codeKw` share; rose `path` rose (it was
+  `bold`), `flag` iris, `var` gold (it was `err`), `ok` a lifted pine (it
+  sat a step from `codeKw`). Water's other shared cyans (`sub`, `num`,
+  `code`, `heading3`, `codeFn`) are Empryo's own and stay.
 - Not ported from claude-hl, on purpose: the inline-code background
   (rejected as noise), the foreground remap, the extra themes
   (catppuccin, tokyonight, dracula, gruvbox, nord: add on request),
@@ -599,8 +628,9 @@ validate` holds the module to it.
 Two directions, settled 2026-10-11.
 
 - Forward: glass names a theme slot, not a hex, where it mirrors an engine
-  panel: the diff card's six diff slots and the hint line's mode word
-  (`planMode`, `autoAccept`, `warning`). Nowhere else: the palettes are
+  panel: the diff card's tints (`diffAdded`, `diffRemoved`) and marks
+  (`success`, `error`) and the hint line's mode word (`planMode`,
+  `autoAccept`, `warning`). Nowhere else: the palettes are
   tuned sets and a theme key beside them risks contrast clashes.
 - Reverse: every palette has a theme. `hooks/theme.ts` holds one fixed
   table from `Palette` roles to engine slots and writes a theme JSON
@@ -612,7 +642,7 @@ Two directions, settled 2026-10-11.
   | `claude` | `accent` |
   | `permission` | `tool` (the engine's codespans take it too) |
   | `planMode` | `cmd` |
-  | `autoAccept` | `warn` |
+  | `autoAccept` | `ok` (0.5.3: the engine's own is a green; `warn` made it one color with `warning`) |
   | `promptBorder`, `bashBorder`, `secondaryBorder` | `rule` |
   | `text` | left to the base: prose is the terminal's own foreground |
   | `secondaryText` | `meta` |
@@ -623,7 +653,7 @@ Two directions, settled 2026-10-11.
   | `thinking` | `private` |
   | `diffAdded`, `diffRemoved` | `addBg`, `delBg` |
   | `diffAddedDimmed`, `diffRemovedDimmed` | `addBg`, `delBg` |
-  | `diffAddedWord`, `diffRemovedWord` | `ok`, `err` |
+  | `diffAddedWord`, `diffRemovedWord` | `addBg`, `delBg` lifted 18% toward white (0.5.3: the engine paints these behind a changed word; `ok` and `err` there were bright blocks behind text) |
 
   Slots with no role (`remember`, `merged`, `ide`, `inverseText`, the
   rainbow and shimmer slots) inherit the base. The two slots the owner

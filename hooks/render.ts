@@ -21,6 +21,8 @@ type Ctx = {
   p: Palette
   /** the prose measure in cells */
   m: number
+  /** a color for plain prose, when the block mutes it (a quote's `meta`) */
+  tone?: string
 }
 
 export type RenderOptions = {
@@ -391,6 +393,9 @@ function itemMarker(it: ListItem, numWidth: number): number {
 // with a blank row between them. No tint.
 function renderQuote(c: Ctx, blocks: Block[]): RenderElement {
   const { t, p, m } = c
+  // quoted prose keeps the prose color: a `meta` step was tried and the
+  // owner wanted the color back (2026-10-11); `tone` stays for a block
+  // that may want it later
   const inner = { ...c, m: m - 2 }
   const height = quoteRows(blocks, m)
   return t.Box({
@@ -613,9 +618,10 @@ function renderInlines(c: Ctx, inlines: Inline[]): RenderNode[] {
   return inlines.flatMap((n): RenderNode[] => {
     switch (n.kind) {
       case 'text':
-        return renderProse(c, n.text)
+        return c.tone ? [t.Text({ color: c.tone, children: renderProse(c, n.text) })] : renderProse(c, n.text)
       case 'bold':
-        return [t.Text({ bold: true, color: p.bold, children: renderInlines(c, n.children) })]
+        // bold keeps its own color inside a muted block
+        return [t.Text({ bold: true, color: p.bold, children: renderInlines({ ...c, tone: undefined }, n.children) })]
       case 'italic':
         return [t.Text({ italic: true, children: renderInlines(c, n.children) })]
       case 'strike':

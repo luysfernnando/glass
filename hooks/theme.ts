@@ -13,6 +13,8 @@ import type { Palette, PaletteName } from './palette'
 
 /** the theme slots glass reads, by the names the engine resolves */
 export const THEME = {
+  success: 'success',
+  error: 'error',
   planMode: 'planMode',
   autoAccept: 'autoAccept',
   warning: 'warning',
@@ -37,7 +39,7 @@ const SLOTS: ReadonlyArray<[slot: string, role: keyof Palette]> = [
   ['claude', 'accent'],
   ['permission', 'tool'],
   ['planMode', 'cmd'],
-  ['autoAccept', 'warn'],
+  ['autoAccept', 'ok'], // the engine's own autoAccept is a green (0.5.3; `warn` made it one color with `warning`)
   ['promptBorder', 'rule'],
   ['bashBorder', 'rule'],
   ['secondaryBorder', 'rule'],
@@ -54,9 +56,20 @@ const SLOTS: ReadonlyArray<[slot: string, role: keyof Palette]> = [
   ['diffRemoved', 'delBg'],
   ['diffAddedDimmed', 'addBg'],
   ['diffRemovedDimmed', 'delBg'],
-  ['diffAddedWord', 'ok'],
-  ['diffRemovedWord', 'err'],
 ]
+
+// the engine paints diff*Word as the background behind a changed word, a
+// step brighter than the row tint; a text color there was a bright block
+// behind the text (0.5.3). Lifted from the row tint toward white.
+const LIFT = 0.18
+const WORD_SLOTS: ReadonlyArray<[slot: string, role: keyof Palette]> = [
+  ['diffAddedWord', 'addBg'],
+  ['diffRemovedWord', 'delBg'],
+]
+export function lift(hex: string, k = LIFT): string {
+  const ch = (i: number) => parseInt(hex.slice(1 + 2 * i, 3 + 2 * i), 16)
+  return '#' + [0, 1, 2].map(i => Math.round(ch(i) + (255 - ch(i)) * k).toString(16).padStart(2, '0')).join('')
+}
 
 const HEX = /^#[0-9a-f]{6}$/i
 
@@ -76,6 +89,10 @@ export function themeFor(p: Palette, name: PaletteName): ThemeFile {
   for (const [slot, role] of SLOTS) {
     const v = p[role]
     if (typeof v === 'string' && HEX.test(v)) overrides[slot] = v.toLowerCase()
+  }
+  for (const [slot, role] of WORD_SLOTS) {
+    const v = p[role]
+    if (typeof v === 'string' && HEX.test(v)) overrides[slot] = lift(v).toLowerCase()
   }
   return { name: `glass-${name}`, base: 'dark', overrides }
 }

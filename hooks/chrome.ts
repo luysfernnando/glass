@@ -221,6 +221,8 @@ export function renderUserRow(t: Table, p: Palette, r: UserRow): RenderElement {
         t.Text({
           wrap: 'truncate-end',
           children: [
+            // name and glyph in one color: a neutral bold name was tried
+            // and the owner wanted the color back (2026-10-11)
             t.Text({ color: p.accentUser, bold: true, children: [G.diamond + ' You'] }),
             ...(r.submittedAt === null ? [] : [t.Text({ color: p.meta, children: [sep + clockTime(r.submittedAt)] })]),
             t.Text({ color: p.faint, children: [' ' + G.rule.repeat(Math.max(1, m - cellWidth(G.diamond + ' You' + (r.submittedAt === null ? '' : sep + clockTime(r.submittedAt))) - 1))] }),
@@ -367,12 +369,15 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
   const live = row.isRunning
   const failed = row.isErrored || row.isInterrupted
   const mark = live ? G.hollow : failed ? G.cross : G.tick
+  // the tick in `ok`: a meta tick was tried and the owner wanted the green
+  // back (2026-10-11)
   const markColor = live ? p.meta : failed ? p.err : p.ok
   const subject = subjectNodes(t, p, row.tool, row.input, live)
   const tail: RenderNode[] = []
   if (!live && row.tool === 'Bash') {
+    // the count only once the body folds: a three-line body is its own count
     const n = outputLines(row.output)
-    if (n !== null && n > 0) tail.push(t.Text({ color: p.faint, children: [sep + plural(n, 'line')] }))
+    if (n !== null && n > MAX_PAINTED_LINES) tail.push(t.Text({ color: p.faint, children: [sep + plural(n, 'line')] }))
   }
   // under a tenth of a second the time says nothing (`0.0s`): none
   const right = o.durationMs === null || o.durationMs < 100 ? '' : fmtToolTime(o.durationMs)
@@ -430,6 +435,8 @@ export function renderServerToolRows(t: Table, p: Palette, tools: ReadonlyArray<
 
 // cells a body row leaves for the trunk column before its content
 const TRUNK = 3
+// painted output lines under a Bash row before the rest folds to a count
+export const MAX_PAINTED_LINES = 3
 
 // A body row under a tree row: the trunk down its left, `h` rows tall,
 // the content indented under the row's mark.
@@ -559,7 +566,7 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
       lines.push({ kind, num, pieces })
     }
   })
-  if (hidden > 0) lines.push({ kind: 'note', num: null, pieces: [{ text: G.ellipsis + ` +${plural(hidden, 'line')} (ctrl+o to expand)`, color: p.faint }] })
+  if (hidden > 0) lines.push({ kind: 'note', num: null, pieces: [{ text: G.ellipsis + ` +${plural(hidden, 'line')}`, color: p.faint }] })
 
   const name = safeText(rel(o.path), 400)
   const counts = (add > 0 ? ` +${add}` : '') + (del > 0 ? ` -${del}` : '')
@@ -589,8 +596,8 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
           ? [
               ...(verb ? [t.Text({ color: p.meta, children: [verb] })] : []),
               t.Text({ color: p.path, children: [shown] }),
-              ...(add > 0 ? [' ', t.Text({ color: THEME.diffAddedWord, children: [`+${add}`] })] : []),
-              ...(del > 0 ? [' ', t.Text({ color: THEME.diffRemovedWord, children: [`-${del}`] })] : []),
+              ...(add > 0 ? [' ', t.Text({ color: THEME.success, children: [`+${add}`] })] : []),
+              ...(del > 0 ? [' ', t.Text({ color: THEME.error, children: [`-${del}`] })] : []),
               ' ',
             ]
           : []),
@@ -599,12 +606,14 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
     }),
   )
   for (const l of lines) {
-    // 0.5.0: the tints and marks are the active theme's diff slots, so the
-    // card matches the engine's own diff panels; a glass theme sets those
-    // slots to the palette's addBg, delBg, ok and err
+    // 0.5.0: the tints are the active theme's diff slots, so the card
+    // matches the engine's own diff panels; 0.5.3: the marks take the
+    // theme's success and error (the diff*Word slots are the engine's
+    // word-level backgrounds, not text colors). A glass theme sets these to
+    // the palette's addBg, delBg, ok and err.
     const bg = l.kind === 'add' ? THEME.diffAdded : l.kind === 'del' ? THEME.diffRemoved : undefined
     const mark = l.kind === 'add' ? '+' : l.kind === 'del' ? '-' : ' '
-    const markColor = l.kind === 'add' ? THEME.diffAddedWord : l.kind === 'del' ? THEME.diffRemovedWord : p.faint
+    const markColor = l.kind === 'add' ? THEME.success : l.kind === 'del' ? THEME.error : p.faint
     chunk(l.pieces, room).forEach((part, n) => {
       const used = part.reduce((w, x) => w + cellWidth(x.text), 0)
       const head: RenderNode[] =
@@ -811,7 +820,8 @@ export function renderEventRow(t: Table, p: Palette, id: string, text: string, t
 }
 
 // a message another agent sent, folded: `|- . Message from @Explore` in
-// `private`, with the engine's own hint at the right; ctrl+o shows the body
+// `private`; no key hint at the right (0.5.3: the hint line and the group
+// rows gave theirs up, this was the last)
 export function renderMessageRow(t: Table, p: Palette, name: string): RenderElement {
   return spaced(t, p, t.Box({
     key: `message:${name}`,
@@ -820,7 +830,6 @@ export function renderMessageRow(t: Table, p: Palette, name: string): RenderElem
     children: [
       rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: p.faint, children: [G.ring + ' '] })),
       t.Box({ flexGrow: 1, flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.private, children: [`Message from @${safeText(name, 80)}`] })] }),
-      t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.faint, children: ['ctrl+o'] })] }),
     ],
   }))
 }
@@ -929,6 +938,8 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
       t.Text({ color: p.accent, children: [G.rule + G.arcTR] }),
     ],
   })
+  // the frame and the model column stay accent: a faint frame was tried
+  // and the owner wanted the color back (2026-10-11)
   const edge = (s: string) => t.Text({ color: p.accent, children: [s] })
   const inner = w - 4
   const shown = agents.slice(-BAND_ROWS)

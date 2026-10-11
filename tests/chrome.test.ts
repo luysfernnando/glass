@@ -89,10 +89,13 @@ test('a tree row: hollow mark while live, tick and line count once done, the tee
   expect(live.startsWith(G.pipe + G.tee + G.rule + ' ' + G.hollow + ' Bash')).toBe(true)
   expect(live).toContain('git status')
   expect(live).not.toContain('lines')
-  const done = flat(renderTreeRow(t, p, { ...base, isRunning: false, output: { stdout: 'a\nb\nc\n', stderr: '' } }, { durationMs: 800 }))
+  const done = flat(renderTreeRow(t, p, { ...base, isRunning: false, output: { stdout: 'a\nb\nc\nd\n', stderr: '' } }, { durationMs: 800 }))
   expect(done.startsWith(G.pipe + G.tee + G.rule + ' ' + G.tick + ' Bash')).toBe(true)
-  expect(done).toContain('3 lines')
+  expect(done).toContain('4 lines')
   expect(done.endsWith('0.8s')).toBe(true)
+  // a body the row shows whole is its own count (0.5.3)
+  const short = flat(renderTreeRow(t, p, { ...base, isRunning: false, output: { stdout: 'a\nb\nc\n', stderr: '' } }, { durationMs: 800 }))
+  expect(short).not.toContain('lines')
   // a done Bash row keeps its command's token colors
   const doneTree = JSON.stringify(renderTreeRow(t, p, { ...base, isRunning: false }, { durationMs: 800 }))
   expect(doneTree).toContain(JSON.stringify({ type: 'Text', props: { color: p.cmd, children: ['git'] } }))
@@ -163,7 +166,9 @@ test('an event row: a tick and the first line, a cross on a failed task, the dur
   expect(full).toContain(G.pipe + '\n' + G.pipe + 'the report' + 'second line')
   const msg = flat(renderMessageRow(t, p, 'Explore'))
   expect(msg.startsWith(G.pipe + G.tee + G.rule + ' ' + G.ring + ' Message from @Explore')).toBe(true)
-  expect(msg.endsWith('ctrl+o')).toBe(true)
+  // no key hint at the right (0.5.3)
+  expect(msg.endsWith('@Explore')).toBe(true)
+  expect(msg).not.toContain('ctrl+o')
 })
 
 test('painted Bash output: the connector, then each line with its words in their colors', async () => {
@@ -205,10 +210,11 @@ test('mounted: a user row, a tree row, a folded group and the band validate on t
     plugin: 'glass',
     surface: 'terminal',
     component: 'ToolUse',
-    props: { tool_use_id: 'toolu_1', tool: 'Bash', input: { command: 'ls -la' }, isRunning: false, isErrored: false, isInterrupted: false, output: { stdout: 'a\n', stderr: '' } },
+    props: { tool_use_id: 'toolu_1', tool: 'Bash', input: { command: 'ls -la' }, isRunning: false, isErrored: false, isInterrupted: false, output: { stdout: 'a\nb\nc\nd\ne\n', stderr: '' } },
   })
   expect(await row.find({ type: 'Text', text: /^Bash$/ })).toBeDefined()
-  expect(await row.find({ type: 'Text', text: /1 line/ })).toBeDefined()
+  // the count draws once the body folds past the painted lines (0.5.3)
+  expect(await row.find({ type: 'Text', text: /5 lines/ })).toBeDefined()
   await row.unmount()
 
   const group = await $.ui.mount({
@@ -290,8 +296,10 @@ test('an Edit diff: one number column, a plus row and a minus row in the theme d
   expect(card.props.marginLeft).toBe(2)
   // 0.5.0: the marks and tints name the active theme's diff slots, so the
   // card follows the theme as the engine's own panels do
-  expect(colors).toContain('diffAddedWord')
-  expect(colors).toContain('diffRemovedWord')
+  // 0.5.3: the marks take success and error; the Word slots are the engine's word backgrounds
+  expect(colors).toContain('success')
+  expect(colors).toContain('error')
+  expect(colors).not.toContain('diffAddedWord')
   expect(colors).toContain(p.codeKw)
   expect(bgs).toContain('diffAdded')
   expect(bgs).toContain('diffRemoved')
@@ -799,4 +807,59 @@ test('0.5.2: the dots line carries the tree inset on its right; a server row tim
   const button = elements(band).find(n => n.type === 'Button')
   expect(button?.props.dimColor).toBe(true)
   expect(button?.props.hover).toEqual({ backgroundColor: p.rowHover })
+})
+
+test('the tick stays ok on tree and event rows, a failure err; headers keep their color (muting was turned down 2026-10-11)', async () => {
+  const base = { tool_use_id: 't1', tool: 'Read', input: { file_path: 'a.ts' }, isRunning: false, isErrored: false, isInterrupted: false }
+  const tick = elements(renderTreeRow(t, p, base, { durationMs: 300 })).find(n => n.type === 'Text' && flat(n as unknown as RenderNode) === G.tick + ' ')
+  expect(tick?.props.color).toBe(p.ok)
+  const cross = elements(renderTreeRow(t, p, { ...base, isErrored: true }, { durationMs: 300 })).find(n => n.type === 'Text' && flat(n as unknown as RenderNode) === G.cross + ' ')
+  expect(cross?.props.color).toBe(p.err)
+  const ev = elements(renderEventRow(t, p, 'm1', 'Agent "x" finished', { status: 'completed', durationMs: 5000 })).find(n => n.type === 'Text' && flat(n as unknown as RenderNode) === G.tick + ' ')
+  expect(ev?.props.color).toBe(p.ok)
+  // the header names keep their color (a neutral bold name was turned down)
+  const header = renderUserRow(t, p, { text: 'x', submittedAt: 1_000_000, startedAt: 1_000_500, columns: 80, folded: false, turn: null })
+  expect(elements(header).find(n => n.type === 'Text' && flat(n as unknown as RenderNode) === G.diamond + ' You')?.props.color).toBe(p.accentUser)
+  expect(elements(header).find(n => n.type === 'Text' && flat(n as unknown as RenderNode) === G.fisheye + ' Claude')?.props.color).toBe(p.accent)
+})
+
+test('the band frame, title and model stay accent, the faces warn (a faint frame was turned down 2026-10-11)', async () => {
+  const agents = [{ agentId: 'a', description: 'Hunt widths', kind: 'Explore', model: 'claude-sonnet-5-5', effort: 'medium', stage: 'Grep', file: '', tokens: 100, startedAt: 0 }]
+  const open = renderBand(t, p, { agents, now: 1000, columns: 100, open: true, onToggle: null, tasksCommand: 'tasks' })
+  const colorsOf = (n: RenderElement) => elements(n).filter(e => typeof e.props.color === 'string').map(e => [flat(e as unknown as RenderNode), e.props.color as string] as const)
+  const all = colorsOf(open)
+  expect(all.find(([s]) => s.startsWith(G.arcTL))?.[1]).toBe(p.accent)
+  expect(all.find(([s]) => s.startsWith(G.arcBL))?.[1]).toBe(p.accent)
+  expect(all.find(([s]) => s === 'background')?.[1]).toBe(p.accent)
+  expect(all.find(([s]) => s.includes('sonnet-5-5'))?.[1]).toBe(p.accent)
+  expect(all.find(([s]) => s.includes(G.diamond))?.[1]).toBe(p.warn)
+  const strip = renderBand(t, p, { agents, now: 1000, columns: 100, open: false, onToggle: null, tasksCommand: null })
+  expect(colorsOf(strip).find(([s]) => s === G.rule + ' ')?.[1]).toBe(p.accent)
+})
+
+test('quoted prose keeps the prose color (a meta step was turned down 2026-10-11); bold and code keep theirs', async () => {
+  const tree = renderReply(t, parseMarkdown('> quoted **bold** and `glass`'), p, { first: false, columns: 80, marks: false })
+  const texts = elements(tree).filter(n => n.type === 'Text' && typeof n.props.color === 'string')
+  const colorsOf = (s: string) => texts.filter(n => flat(n as unknown as RenderNode) === s).map(n => n.props.color)
+  expect(colorsOf('quoted ')).toEqual([])
+  expect(colorsOf('bold')).toEqual([p.bold])
+  expect(colorsOf('glass')).toEqual([p.code])
+})
+
+test('0.5.3: the highlighter: keywords by language, Rust lifetimes, YAML keys', async () => {
+  const kinds = (spans: CodeSpan[]) => spans.filter(s => s.kind !== 'plain').map(s => `${s.kind}:${s.text}`)
+  // `range` is a Go keyword, a call in Python; `values` is SQL's, a call in TS
+  expect(kinds(highlightLine('for i in range(10):', 'py'))).toEqual(['kw:for', 'kw:in', 'fn:range', 'num:10'])
+  expect(kinds(highlightLine('for i := range xs {', 'go'))).toEqual(['kw:for', 'kw:range'])
+  expect(kinds(highlightLine('const v = values(x)', 'ts'))).toEqual(['kw:const', 'fn:values'])
+  expect(kinds(highlightLine('SELECT a FROM t', 'sql'))).toEqual([])
+  expect(kinds(highlightLine('select a from t', 'sql'))).toEqual(['kw:select', 'kw:from'])
+  // a lifetime is not a string; a char literal still is
+  // a lifetime keeps the string color but ends at its word
+  expect(kinds(highlightLine("fn f<'a>(x: &'a String) -> &'a str {", 'rs'))).toEqual(['kw:fn', "str:'a", "str:'a", 'type:String', "str:'a"])
+  expect(kinds(highlightLine("let c = 'a';", 'rs'))).toEqual(['kw:let', "str:'a'"])
+  // a JSON key is a string and keeps the string color; a YAML key paints as a call
+  expect(kinds(highlightLine('  "name": "glass",', 'json'))).toEqual(['str:"name"', 'str:"glass"'])
+  expect(kinds(highlightLine('  - file_path: hooks/a.ts', 'yaml'))).toEqual(['fn:file_path'])
+  expect(kinds(highlightLine('version: 2 # note', 'yml'))).toEqual(['fn:version', 'num:2', 'comment:# note'])
 })

@@ -112,9 +112,9 @@ const tidepool: Palette = {
   rowHover: '#0e2a3a', // the block tint
   accentUser: '#7bc0ae', // lifted pine
   codeKw: '#7aa2f7', // mint blue: the owner's pick from the engine's reply fence
-  codeFn: '#9cce8b', // olive
+  codeFn: '#d2bdff', // iris, the verb's color (0.5.3; olive was both `ok` and the new codeStr)
   codeType: '#7bc0ae', // pine
-  codeStr: '#e67680', // love
+  codeStr: '#9cce8b', // olive, as a string in prose or a shell fence (0.5.3; love was `err`, so a TS string read as an error)
   codeNum: '#7bc0ae', // pine
   addBg: '#0e2a3a', // the band tint, not a green: the marker and its color say added (colorblind-safe, owner's pick 2026-10-03)
   delBg: '#241c2a', // a dim plum, apart from the band on the blue-violet axis
@@ -141,24 +141,24 @@ const undertow: Palette = {
   accent: '#5ec8d8', // the brand cyan: the assistant mark, the band
   bullet: '#8a8d94',
   orderedNum: '#8a8d94',
-  rule: '#3c4043',
+  rule: '#4e5258', // 2.4:1 (0.5.3; #3c4043 was 1.8:1)
   quoteBar: '#9ab3a8',
   ok: '#4fd1a0',
   err: '#e85c6b', // dusty rose
   warn: '#e8a04c',
   bold: '#ffffff',
-  blockBg: '#1c1e23',
+  blockBg: '#262a31', // 1.3:1, the floor the spec asks (0.5.3; #1c1e23 was 1.13:1)
   tool: '#5ec8d8',
   calloutBar: '#5ec8d8',
   verified: '#4fd1a0',
   issue: '#e85c6b',
   fix: '#c9a7e0',
   calloutText: '#e7e6e9',
-  private: '#52535c',
+  private: '#6a6c76',
   mark: '#e8a04c', // warn
   meta: '#8a8d94',
-  faint: '#52535c',
-  rowHover: '#1e2024',
+  faint: '#6a6c76', // 3.6:1 (0.5.3; #52535c was 2.5:1, under the 3:1 a faint step needs)
+  rowHover: '#2a2f38', // a step above blockBg (0.5.3; #1e2024 was invisible beside it)
   accentUser: '#4fd1a0',
   codeKw: '#5ec8d8', // the brand cyan
   codeFn: '#8fd3e8',
@@ -186,7 +186,7 @@ const water: Palette = {
   op: '#8e8ca1', // textSecondary
   num: '#3bb8d8', // info
   var: '#009a8b',
-  url: '#00a2ce',
+  url: '#6fb0ff', // sky, underlined: a link apart from the brand cyan that tool, cmd and accent share (0.5.3; five roles on one hex)
   comment: '#8e8ca1',
   code: '#3bb8d8',
   heading: '#e7e7ee', // textPrimary
@@ -247,7 +247,7 @@ export const PALETTES: Record<PaletteName, Palette> = {
     accent: '#c678dd',
     bullet: '#7a9a9a',
     orderedNum: '#7a9a9a',
-    rule: '#7a9a9a',
+    rule: '#5f7a7a', // a step under meta (0.5.3; the comment grey outranked faint, so table rules beat tree connectors)
     quoteBar: '#7fc8b8', // the sub teal, apart from the purple headings
     ok: '#98c379',
     err: '#e06c75',
@@ -263,7 +263,7 @@ export const PALETTES: Record<PaletteName, Palette> = {
     private: '#4b6a6a', // a teal step under the comment grey
     mark: '#e5c07b', // warn
     meta: '#8a97a8', // the theme's line-number grey, lifted
-    faint: '#4f5b6b', // its gutter grey
+    faint: '#62707f', // its gutter grey lifted to 3.7:1 (0.5.3; #4f5b6b was 2.7:1)
     rowHover: '#0e2a3a',
     accentUser: '#98c379',
     codeKw: '#c678dd',
@@ -280,12 +280,12 @@ export const PALETTES: Record<PaletteName, Palette> = {
   rose: {
     cmd: '#9ccfd8',
     sub: '#c4a7e7',
-    flag: '#ebbcba',
+    flag: '#c4a7e7', // iris (0.5.3; rose went to paths)
     str: '#f6c177',
-    path: '#e0def4',
+    path: '#ebbcba', // rose: warm, apart from `bold` (0.5.3; text #e0def4 made a path read as plain bold)
     op: '#9ccfd8',
     num: '#ea9a97',
-    var: '#eb6f92',
+    var: '#f6c177', // gold with the strings (0.5.3; love was `err`, so $VAR read as an error)
     url: '#9ccfd8',
     comment: '#6e6a86',
     code: '#c4a7e7',
@@ -296,7 +296,7 @@ export const PALETTES: Record<PaletteName, Palette> = {
     orderedNum: '#908caa', // subtle
     rule: '#6e6a86',
     quoteBar: '#9ccfd8', // foam
-    ok: '#3e8fb0', // pine
+    ok: '#5aa5c4', // pine lifted (0.5.3; #3e8fb0 sat a step from codeKw's pine, so done read as a keyword)
     err: '#eb6f92', // love
     warn: '#f6c177',
     bold: '#e0def4', // text

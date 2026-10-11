@@ -41,23 +41,38 @@ const PROSE_LANGS = new Set(['md', 'markdown', 'mdx', 'txt', 'text', 'rst', 'ado
 const HASH_LANGS = new Set(['py', 'python', 'rb', 'ruby', 'yaml', 'yml', 'toml', 'ini', 'conf', 'perl', 'pl', 'r', 'make', 'makefile', 'dockerfile', 'nix', 'elixir', 'ex', 'exs', 'cmake'])
 const DASH_LANGS = new Set(['sql', 'lua', 'hs', 'haskell', 'ada'])
 
-const KEYWORDS = new Set(
+// keywords by language family (0.5.3): one shared set painted `range(10)`
+// in Python and `values(x)` in TypeScript as keywords, since Go and SQL
+// own those words. The C-like set is the fallback for any unknown language.
+const words = (s: string) => new Set(s.split(/\s+/).filter(Boolean))
+const KW_CLIKE = words(
   `abstract as async await break case catch class const continue debugger default delete do else enum export extends
    finally for from function if implements import in instanceof interface let new of package private protected public
    return static super switch this throw try typeof var void while with yield readonly declare namespace module type
    keyof infer satisfies override get set
-   def elif except lambda pass raise global nonlocal and or not is assert del with yield
-   fn impl struct trait mut pub use mod match loop where unsafe crate self Self dyn ref move
-   func go chan defer select range map fallthrough goto package
-   int float double char long short unsigned signed bool boolean byte string void auto struct union typedef sizeof
+   int float double char long short unsigned signed bool boolean byte string auto struct union typedef sizeof
    static_assert constexpr template typename virtual inline explicit friend operator
-   final native synchronized transient volatile throws instanceof extends implements
-   begin end then elsif unless until rescue ensure module require include attr_accessor
-   select insert update delete into values create table drop alter where join on group by order having limit
-   local nil repeat`
-    .split(/\s+/)
-    .filter(Boolean),
+   final native synchronized transient volatile throws`,
 )
+const KW_PY = words(`and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield match case`)
+const KW_RB = words(`alias and begin break case class def defined? do else elsif end ensure false for if in module next nil not or redo rescue retry return self super then true undef unless until when while yield require include attr_accessor attr_reader attr_writer private public protected`)
+const KW_GO = words(`break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var`)
+const KW_RUST = words(`as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while`)
+const KW_SQL = words(`select insert update delete into values create table drop alter where join on group by order having limit from as and or not null is in exists between like inner left right outer full union all distinct set index view primary key foreign references default constraint if begin end case when then else`)
+const KW_LUA = words(`and break do else elseif end false for function goto if in local nil not or repeat return then true until while`)
+const KW_BY_LANG: Record<string, Set<string>> = {
+  py: KW_PY, python: KW_PY,
+  rb: KW_RB, ruby: KW_RB,
+  go: KW_GO,
+  rs: KW_RUST, rust: KW_RUST,
+  sql: KW_SQL,
+  lua: KW_LUA,
+}
+const RUST_LANGS = new Set(['rs', 'rust'])
+// a YAML word before a colon is a key, painted as a call (a JSON key is a
+// string and keeps the string color: the owner likes the orange, 2026-10-11)
+const YAML_LANGS = new Set(['yaml', 'yml'])
+const YAML_KEY = /^(\s*(?:-\s+)?)([\w.\/-]+)(\s*)(?=:(?:\s|$))/
 const CONSTANTS = new Set(['true', 'false', 'null', 'undefined', 'None', 'True', 'False', 'nil', 'NaN', 'Infinity'])
 
 export type State = { inBlock: boolean }
@@ -88,6 +103,8 @@ export function highlightLine(line: string, lang: string, state: State = { inBlo
   }
   const hash = HASH_LANGS.has(lang)
   const dash = DASH_LANGS.has(lang)
+  const keywords = KW_BY_LANG[lang] ?? KW_CLIKE
+  const rust = RUST_LANGS.has(lang)
   const out: CodeSpan[] = []
   const push = (text: string, kind: CodeKind) => {
     if (text === '') return
@@ -97,6 +114,16 @@ export function highlightLine(line: string, lang: string, state: State = { inBlo
   }
   let i = 0
   const n = line.length
+  // a YAML key: the word before the colon, at the line's start or after `- `
+  if (YAML_LANGS.has(lang) && !state.inBlock) {
+    const key = YAML_KEY.exec(line)
+    if (key) {
+      push(key[1]!, 'plain')
+      push(key[2]!, 'fn')
+      push(key[3]!, 'plain')
+      i = key[0].length
+    }
+  }
   if (state.inBlock) {
     const end = line.indexOf('*/')
     if (end < 0) {
@@ -125,6 +152,18 @@ export function highlightLine(line: string, lang: string, state: State = { inBlo
       push(line.slice(i, end + 2), 'comment')
       i = end + 2
       continue
+    }
+    // a Rust lifetime (`'a`, `'static`) is a quote with no closing quote
+    // after its word: it keeps the string color (the owner likes the
+    // orange on it) but ends at its word, so it never swallows the line
+    if (rust && ch === "'" && /[A-Za-z_]/.test(line[i + 1] ?? '')) {
+      IDENT.lastIndex = i + 1
+      const m = IDENT.exec(line)
+      if (m && line[i + 1 + m[0].length] !== "'") {
+        push("'" + m[0], 'str')
+        i += 1 + m[0].length
+        continue
+      }
     }
     // strings: one line, escapes honored
     if (ch === '"' || ch === "'" || ch === '`') {
@@ -158,7 +197,7 @@ export function highlightLine(line: string, lang: string, state: State = { inBlo
       while (b >= 0 && /\s/.test(line[b]!)) b--
       const before = b >= 0 ? line[b]! : ''
       let kind: CodeKind = 'plain'
-      if (KEYWORDS.has(word) && before !== '.') kind = 'kw'
+      if (keywords.has(word) && before !== '.') kind = 'kw'
       else if (CONSTANTS.has(word)) kind = 'num'
       else if (after === '(') kind = 'fn'
       else if (/^[A-Z]/.test(word) && /[a-z]/.test(word)) kind = 'type'

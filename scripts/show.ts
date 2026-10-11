@@ -56,6 +56,7 @@ const want = argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--the
 // ---- theme slots -----------------------------------------------------------
 
 const DARK: Record<string, string> = {
+  success: '#4eba65', error: '#ff6b80',
   planMode: '#5fb3d9', autoAccept: '#8fc98f', warning: '#e5a84b', permission: '#b1b9f9',
   diffAdded: '#225c2a', diffRemoved: '#7a2f2f', diffAddedWord: '#9cce8b', diffRemovedWord: '#e67680',
 }
@@ -220,6 +221,33 @@ const LISTS = [
   '| width.ts | ' + String.fromCodePoint(0x2014) + ' | 340ms | 4.5MB/s |',
 ].join('\n')
 
+// 0.5.3: quoted prose in meta; fences by language (Rust lifetimes, JSON and
+// YAML keys, Python's range as a call)
+const QUOTE_AND_FENCES = [
+  'A quote, then fences:',
+  '',
+  '> The tree validates on the terminal, **every** row, and `cellWidth` agrees.',
+  '> Second line of the quote.',
+  '',
+  '```rs',
+  "fn first<'a>(xs: &'a [u8]) -> Option<&'a u8> { xs.first() }",
+  '```',
+  '',
+  '```py',
+  'for i in range(10): print(values[i])',
+  '```',
+  '',
+  '```json',
+  '{ "name": "glass", "version": "0.5.3", "ok": true }',
+  '```',
+  '',
+  '```yaml',
+  'palette: water',
+  'files:',
+  '  - path: hooks/chrome.ts',
+  '```',
+].join('\n')
+
 const turn = {
   turnId: 'demo', durationMs: 146_000, tools: 4, edits: 1, failed: 1, inTokens: 1_800_000, cacheTokens: 1_620_000, outTokens: 5300,
   costUsd: 0.58, lastToolId: 't4', answer: 'done', startedAt: 0, finishedAt: 146_000,
@@ -234,6 +262,25 @@ function fixtures(m: Mods): Record<string, () => Node | null> {
   return {
     reply: () => m.render.renderReply(...([t, m.markdown.parseMarkdown(REPLY), p, { first: true, columns, marks: true }] as never[])),
     lists: () => m.render.renderReply(...([t, m.markdown.parseMarkdown(LISTS), p, { first: true, columns, marks: false }] as never[])),
+    'quote-fences': () => m.render.renderReply(...([t, m.markdown.parseMarkdown(QUOTE_AND_FENCES), p, { first: true, columns, marks: false }] as never[])),
+    // a Bash body shown whole against one that folds (the count only on the second)
+    'bash-bodies': () =>
+      t.Box({
+        flexDirection: 'column',
+        children: [
+          c.renderTreeRow!(t, p, { ...row('Bash', { command: 'git status --short' }, false, 'b1'), output: { stdout: ' M a.ts\n M b.ts\n?? c.ts\n', stderr: '' } }, { durationMs: 400 }),
+          c.renderTreeRow!(t, p, { ...row('Bash', { command: 'ls tests' }, false, 'b2'), output: { stdout: Array.from({ length: 12 }, (_, i) => `file-${i}.ts`).join('\n') + '\n', stderr: '' } }, { durationMs: 300 }),
+          c.renderMessageRow!(t, p, 'Explore'),
+        ],
+      }),
+    // every palette role in its own color, for the eye (colors only)
+    palette: () =>
+      t.Box({
+        flexDirection: 'column',
+        children: Object.entries(p).filter(([, v]) => typeof v === 'string' && /^#/.test(v)).map(([k, v]) =>
+          t.Box({ flexDirection: 'row', children: [t.Text({ color: p.faint, children: [k.padEnd(12)] }), t.Text({ color: v, children: [`${v}  sample text 0.8s hooks/a.ts`] })] }),
+        ),
+      }),
     'event-rows': () =>
       t.Box({
         flexDirection: 'column',
