@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassServerTool, GlassTurn } from '../types'
-import { MAX_PAINTED_LINES, cleanHint, renderHint, clockCells, fmtToolTime, isEditTool, toolText, setCwd, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderServerToolRows, renderSkillLoad, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { MAX_PAINTED_LINES, cleanHint, renderHint, clockCells, fmtToolTime, isEditTool, toolText, setCwd, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderServerToolRows, renderShot, renderSkillLoad, shotCells, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -12,6 +12,8 @@ import type { Palette, PaletteName } from './palette'
 import { themeFileName, themeFor, themeJson, themeSetting } from './theme'
 import { writeIntent } from './prose'
 import { renderReply } from './render'
+import { shotOf } from './shot'
+import type { Shot } from './shot'
 
 // The turns this session, newest last. A user row finds its own turn in
 // here: a `read` while a render hook runs subscribes that row, so every
@@ -151,6 +153,19 @@ function bashBody(t: Elements['terminal'], p: Palette, output: unknown, isErrore
   return renderToolOutput(t, p, lines, { columns: cols, maxLines: MAX_PAINTED_LINES })
 }
 
+// Screenshots draw outside tmux only (0.6.0). Inside it the engine draws no
+// Image (2.1.296: `kittyGraphics=no (env: inside tmux or screen)`); forced on
+// with CLAUDE_CODE_FORCE_TERMINAL_IMAGES the picture still never reached
+// Ghostty, and the engine refuses kitty's placeholder cell (U+10EEEE) in a
+// Text and any non-BMP glyph in a Raster, so a mod cannot draw one there
+// itself (2026-10-12). Inside tmux the engine's text body stays.
+let inTmux = false
+
+// A screenshot's body, or null where the engine's stays.
+function drawShot(t: Elements['terminal'], p: Palette, shot: Shot, columns: number, rows: number): RenderElement | null {
+  return inTmux ? null : renderShot(t, p, shot, shotCells(shot, columns, rows))
+}
+
 // one main-loop call recorded under its turn, replacing an earlier record
 // of the same id
 async function setCall($: EngineInterface, turnId: string, call: GlassCall) {
@@ -265,6 +280,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     // 0.4.2 to 0.4.5 pinned a status line; clear one a reload left behind
     $.ui.status(undefined)
+    inTmux = Boolean(await $.env.get('TMUX').catch(() => undefined))
     try {
       setCwd(await $.session.cwd())
     } catch {
@@ -396,6 +412,12 @@ export const register: Register = (on, options) => {
       const card = editCard(t, palette, e.props.output, e.props.input, e.viewport?.columns ?? 80)
       if (card) return t.Box({ flexDirection: 'column', children: [row, card] })
     }
+    // a grouped MCP call's screenshot draws under its row, as the Edit card does
+    if (grouped.has(id) && e.props.tool.startsWith('mcp__') && !e.props.isRunning && !e.props.isErrored) {
+      const shot = shotOf(e.props.output)
+      const body = shot ? drawShot(t, palette, shot, e.viewport?.columns ?? 80, e.viewport?.rows ?? 40) : null
+      if (body) return t.Box({ flexDirection: 'column', children: [row, body] })
+    }
     if (e.props.tool !== 'Bash' || e.props.isRunning || e.props.output === undefined) return row
     const body = bashBody(t, palette, e.props.output, e.props.isErrored, e.viewport?.columns ?? 80)
     return body ? t.Box({ flexDirection: 'column', children: [row, body] }) : row
@@ -416,7 +438,9 @@ export const register: Register = (on, options) => {
     // open after /expand, or on its own when a call in it failed: a red
     // mark must never hide behind a count
     const failed = e.props.calls.some((c: { isErrored?: boolean; isInterrupted?: boolean }) => c.isErrored || c.isInterrupted)
-    if (expandAllNow || failed) {
+    // and when a call returned a screenshot: the picture never hides behind a count (0.6.0)
+    const shot = !inTmux && e.props.calls.some((c: { tool: string; isRunning: boolean; output?: unknown }) => c.tool.startsWith('mcp__') && !c.isRunning && shotOf(c.output) !== null)
+    if (expandAllNow || failed || shot) {
       remember(grouped, e.props.calls)
       return next({ ...e, props: { ...e.props, isExpanded: true } })
     }
@@ -453,6 +477,12 @@ export const register: Register = (on, options) => {
     // a loaded skill: one trunked line in place of the engine's body, whose
     // corner bracket sat off the trunk (2026-10-09)
     if (e.props.tool === 'Skill' && !e.props.isErrored) return renderSkillLoad($.ui.resolve(e), palette, e.props.output)
+    // an MCP screenshot: the picture Claude read, in place of its text body (0.6.0)
+    if (e.props.tool.startsWith('mcp__') && !e.props.isErrored) {
+      const shot = shotOf(e.props.output)
+      const body = shot ? drawShot($.ui.resolve(e), palette, shot, e.viewport?.columns ?? 80, e.viewport?.rows ?? 40) : null
+      if (body) return body
+    }
     if (e.props.tool !== 'Bash') return next(e)
     // a backgrounded command: the same trunked line, not the engine's corner
     // bracket, which sat off the trunk (2026-10-05)

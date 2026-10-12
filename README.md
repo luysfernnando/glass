@@ -37,6 +37,10 @@ stored or what the model reads.
   card with the file in its top border, `╭─ SPEC.md +1 -1 ───╮`: one
   number column, `+` and `-` rows on a quiet tint, one context line each
   side, the code painted the same way, the frame on the tree trunk.
+- **Screenshots inline.** A PNG an MCP tool returns (chrome-devtools
+  `take_screenshot`, a Figma screenshot) draws on the trunk under its row,
+  so you see what Claude saw. Ghostty or kitty, outside tmux: Claude Code
+  draws no pictures inside tmux, so there the row keeps its text.
 - **Headings, lists, quotes, tables.** Bold colored headings with no rules,
   `•` `◦` `☐` `☑` markers, a quote bar, borderless tables with aligned
   columns and right-aligned numbers. A table a little too wide squeezes

@@ -399,6 +399,25 @@ and reply blocks interleaved as the model made them, then the
   the trunk, the rest a `faint` `… +N lines`, in place of the engine's
   `Error editing file` and its corner bracket. The `[Image #N]` row under
   an image prompt is still the engine's.
+- **(0.6.0)** An MCP result carrying a PNG (chrome-devtools
+  `take_screenshot`, a Figma screenshot) draws the picture on the trunk in
+  place of the engine's text body, so the person sees what Claude read:
+  an `Image` of the base64 bytes (at most 2 MiB), else the stored copy the
+  engine names in its `[Image: source: <path>, ...]` block. Bytes first: a
+  file source drew its alt in Ghostty under tmux (live, 2026-10-12), and
+  the engine draws a file source only once the terminal says it reads this
+  machine's files. Aspect kept, at most 100 columns and 24 rows (or 60% of the
+  screen's rows), alt `screenshot WxH`. A JPEG or WebP keeps the engine's
+  body: `Image` takes PNG or raw pixels only. A grouped row draws it under
+  its `ToolUse` row, as the diff card does. Needs Ghostty or kitty,
+  outside tmux: inside it the engine draws no Image (2.1.296,
+  `kittyGraphics=no (env: inside tmux or screen)`; forced on with
+  `CLAUDE_CODE_FORCE_TERMINAL_IMAGES` the picture still never reached
+  Ghostty), and a mod cannot draw one itself (the engine refuses kitty's
+  placeholder cell U+10EEEE in a Text, and a Raster takes BMP glyphs
+  only), so inside tmux the engine's text body stays and the group stays
+  folded (2026-10-12). Shape proved live with a probe mod
+  2026-10-12.
 - A backgrounded Agent's or Bash command's result is one trunked `faint`
   line, `running in the background · ↓ to manage`.
 - A loaded skill's result is one trunked `faint` line, `skill loaded`,
@@ -460,7 +479,9 @@ and reply blocks interleaved as the model made them, then the
   own under one hover, named once at its head, the built-in tools on a
   line of their own, first-seen order; a live group's `N running...` sits
   on the lines with a running call, and the row ends in `…`. A group with
-  any errored call opens on its own and adds `· N failed` in `err`; a
+  any errored call opens on its own and adds `· N failed` in `err`;
+  **(0.6.0)** a group with a finished MCP call that returned a PNG opens
+  on its own too, so the picture never hides behind a count; a
   group with edits adds `· N edits` in `faint` (0.5.2; `[1 edit]` was the
   one bracketed count in the chrome). `/expand` opens every group, `/collapse` folds them again. No per-group
   button (the density pass, 2026-10-03; the press retest of 0.5.0 does not
