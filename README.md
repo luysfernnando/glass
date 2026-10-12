@@ -39,8 +39,11 @@ stored or what the model reads.
   side, the code painted the same way, the frame on the tree trunk.
 - **Screenshots inline.** A PNG an MCP tool returns (chrome-devtools
   `take_screenshot`, a Figma screenshot) draws on the trunk under its row,
-  so you see what Claude saw. Ghostty or kitty, outside tmux: Claude Code
-  draws no pictures inside tmux, so there the row keeps its text.
+  so you see what Claude saw. Ghostty or kitty. Inside tmux Claude Code
+  draws no pictures, so the row keeps its text; run Claude through
+  [claude-hl](https://github.com/rashedInt32/claude-hl) with
+  `CLAUDE_HL_PAINT=0 CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1` and
+  `allow-passthrough all` in tmux to get them there too.
 - **Headings, lists, quotes, tables.** Bold colored headings with no rules,
   `•` `◦` `☐` `☑` markers, a quote bar, borderless tables with aligned
   columns and right-aligned numbers. A table a little too wide squeezes

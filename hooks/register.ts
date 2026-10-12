@@ -158,7 +158,10 @@ function bashBody(t: Elements['terminal'], p: Palette, output: unknown, isErrore
 // with CLAUDE_CODE_FORCE_TERMINAL_IMAGES the picture still never reached
 // Ghostty, and the engine refuses kitty's placeholder cell (U+10EEEE) in a
 // Text and any non-BMP glyph in a Raster, so a mod cannot draw one there
-// itself (2026-10-12). Inside tmux the engine's text body stays.
+// itself (2026-10-12). Inside tmux the engine's text body stays, unless
+// CLAUDE_CODE_FORCE_TERMINAL_IMAGES is set (0.6.1): then the engine draws
+// placeholder cells and claude-hl (CLAUDE_HL_PAINT=0) wraps its kitty codes
+// for tmux's passthrough, so the picture reaches Ghostty.
 let inTmux = false
 
 // A screenshot's body, or null where the engine's stays.
@@ -280,7 +283,9 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     // 0.4.2 to 0.4.5 pinned a status line; clear one a reload left behind
     $.ui.status(undefined)
-    inTmux = Boolean(await $.env.get('TMUX').catch(() => undefined))
+    // forced on, the person vouches that pictures reach the terminal
+    const forced = Boolean(await $.env.get('CLAUDE_CODE_FORCE_TERMINAL_IMAGES').catch(() => undefined))
+    inTmux = !forced && Boolean(await $.env.get('TMUX').catch(() => undefined))
     try {
       setCwd(await $.session.cwd())
     } catch {

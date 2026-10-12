@@ -416,7 +416,10 @@ and reply blocks interleaved as the model made them, then the
   Ghostty), and a mod cannot draw one itself (the engine refuses kitty's
   placeholder cell U+10EEEE in a Text, and a Raster takes BMP glyphs
   only), so inside tmux the engine's text body stays and the group stays
-  folded (2026-10-12). Shape proved live with a probe mod
+  folded (2026-10-12). **(0.6.1)** Unless `CLAUDE_CODE_FORCE_TERMINAL_IMAGES`
+  is set: the person vouches that pictures get through, as they do when
+  claude-hl 0.9.0 runs Claude with `CLAUDE_HL_PAINT=0` and wraps the
+  engine's kitty codes for tmux's passthrough (`allow-passthrough all`). Shape proved live with a probe mod
   2026-10-12.
 - A backgrounded Agent's or Bash command's result is one trunked `faint`
   line, `running in the background · ↓ to manage`.
