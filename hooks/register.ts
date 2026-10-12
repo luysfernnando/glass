@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassServerTool, GlassTurn } from '../types'
-import { MAX_PAINTED_LINES, cleanHint, renderHint, clockCells, fmtToolTime, isEditTool, toolText, setCwd, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderServerToolRows, renderShot, renderSkillLoad, shotCells, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { MAX_PAINTED_LINES, cleanHint, renderHint, clockCells, fmtToolTime, isEditTool, toolText, setCwd, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderServerToolRows, renderSkillLoad, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -12,8 +12,6 @@ import type { Palette, PaletteName } from './palette'
 import { themeFileName, themeFor, themeJson, themeSetting } from './theme'
 import { writeIntent } from './prose'
 import { renderReply } from './render'
-import { CONVERTIBLE, hashOf, lastPictureRead, namedIn, pictureOf, readPath, shotFromPng } from './shot'
-import type { Picture, Shot } from './shot'
 
 // The turns this session, newest last. A user row finds its own turn in
 // here: a `read` while a render hook runs subscribes that row, so every
@@ -153,91 +151,6 @@ function bashBody(t: Elements['terminal'], p: Palette, output: unknown, isErrore
   return renderToolOutput(t, p, lines, { columns: cols, maxLines: MAX_PAINTED_LINES })
 }
 
-// Screenshots draw outside tmux only (0.6.0). Inside it the engine draws no
-// Image (2.1.296: `kittyGraphics=no (env: inside tmux or screen)`); forced on
-// with CLAUDE_CODE_FORCE_TERMINAL_IMAGES the picture still never reached
-// Ghostty, and the engine refuses kitty's placeholder cell (U+10EEEE) in a
-// Text and any non-BMP glyph in a Raster, so a mod cannot draw one there
-// itself (2026-10-12). Inside tmux the engine's text body stays, unless
-// CLAUDE_CODE_FORCE_TERMINAL_IMAGES is set (0.6.1): then the engine draws
-// placeholder cells and claude-hl (CLAUDE_HL_PAINT=0) wraps its kitty codes
-// for tmux's passthrough, so the picture reaches Ghostty.
-let inTmux = false
-// the `screenshots` option (0.7.0): off, every screenshot row keeps the
-// engine's text body, in tmux and out; follows /config live
-let shotsOn = true
-
-// Pictures Claude looked at (0.8.0): MCP screenshots in any format, and
-// image files it read. `home` and the person's recent prompts tell which
-// files they fed Claude themselves; those are never drawn back.
-let home = ''
-const recentPrompts: string[] = []
-const named = (path: string) => namedIn(recentPrompts, path, home)
-
-// A picture's body, or null where the engine's stays.
-async function pictureBody($: EngineInterface, t: Elements['terminal'], p: Palette, pic: Picture, columns: number, rows: number): Promise<RenderElement | null> {
-  if (!shotsOn || inTmux) return null
-  const shot = await shotFor($, pic)
-  return shot ? renderShot(t, p, shot, shotCells(shot, columns, rows)) : null
-}
-
-// A PNG draws as it is; any other picture, or one over 2 MiB, is converted
-// once to a PNG with macOS `sips` and kept for the session's redraws. Where
-// that fails (no sips: Linux) the engine's text row stays.
-const converted = new Map<string, Promise<Shot | null>>()
-const CONVERTED_MAX = 64
-async function shotFor($: EngineInterface, pic: Picture): Promise<Shot | null> {
-  if (pic.mime === 'image/png') {
-    const shot = shotFromPng(pic.data)
-    if (shot) return shot
-  }
-  if (!CONVERTIBLE.test(pic.mime)) return null
-  const key = pic.file ?? `${pic.data.length}:${pic.data.slice(0, 200)}`
-  let job = converted.get(key)
-  if (!job) {
-    job = convertPicture($, pic, hashOf(key)).catch(() => null)
-    converted.set(key, job)
-    if (converted.size > CONVERTED_MAX) converted.delete(converted.keys().next().value!)
-  }
-  return job
-}
-
-// A private folder for converted pictures, made once per load: per user,
-// mode 700, owned by this user and not a link; files a day old go.
-let shotDirJob: Promise<string | null> | null = null
-function shotDir($: EngineInterface): Promise<string | null> {
-  shotDirJob ??= $.process.run(['sh', '-c', [
-    'base="${TMPDIR:-/tmp}"; base="${base%/}"; d="$base/glass-pictures-$(id -u)"',
-    'mkdir -m 700 -p "$d" 2>/dev/null',
-    '[ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ] || exit 1',
-    'find "$d" -type f -mtime +1 -delete 2>/dev/null; printf "%s" "$d"',
-  ].join('\n')]).then(r => (r.exitCode === 0 && r.stdout.startsWith('/') ? r.stdout.trim() : null), () => null)
-  return shotDirJob
-}
-
-async function convertPicture($: EngineInterface, pic: Picture, name: string): Promise<Shot | null> {
-  const dir = await shotDir($)
-  if (!dir) return null
-  // from the copy on disk when there is one, else the bytes written beside
-  let input = pic.file
-  if (!input || !(await $.fs.stat(input).then(s => s.kind === 'file', () => false))) {
-    input = `${dir}/${name}.src`
-    const w = await $.process.run(['sh', '-c', 'printf "%s" "$1" | base64 -D > "$0"', input, pic.data])
-    if (w.exitCode !== 0) return null
-  }
-  const out = `${dir}/${name}.png`
-  // as it is first; smaller only when the PNG is over 2 MiB (-Z alone would
-  // also blow a small picture up)
-  for (const side of [0, 1600, 1000]) {
-    const r = await $.process.run(['sips', '-s', 'format', 'png', ...(side ? ['-Z', String(side)] : []), input, '--out', out])
-    if (r.exitCode !== 0) return null
-    const { base64 } = (await $.fs.read(out, { as: 'bytes' })) as { base64: string }
-    const shot = shotFromPng(base64)
-    if (shot) return shot
-  }
-  return null
-}
-
 // one main-loop call recorded under its turn, replacing an earlier record
 // of the same id
 async function setCall($: EngineInterface, turnId: string, call: GlassCall) {
@@ -251,7 +164,7 @@ async function setCall($: EngineInterface, turnId: string, call: GlassCall) {
 }
 
 export const register: Register = (on, options) => {
-  const opts = (options ?? {}) as { palette?: unknown; notify?: unknown; screenshots?: unknown }
+  const opts = (options ?? {}) as { palette?: unknown; notify?: unknown }
   // the palette follows /config live: every hook reads this binding at
   // draw time, and the config.set hook below swaps it (rows already drawn
   // keep their colors until something redraws them)
@@ -259,7 +172,6 @@ export const register: Register = (on, options) => {
   let paletteName = paletteNameOf(opts.palette)
   // notifications (0.5.0): on unless the option says otherwise; follows /config live
   let notifyOn = opts.notify !== false
-  shotsOn = opts.screenshots !== false
   // gutter marks are off for a turn whose prompt asked for writing: the
   // reply is then the thing itself and asks nothing of the reader
   let marks = true
@@ -276,8 +188,6 @@ export const register: Register = (on, options) => {
   // rows of a group the engine unfolded: no ToolResult of their own, so the
   // ToolUse hook draws an Edit's or a Write's card under the row
   const grouped = new Set<string>()
-  // each group's one Read whose picture draws (0.8.0)
-  const pictureReads = new Set<string>()
   // each turn's main-loop calls in order, and whether Claude wrote text
   // since the call before: the air rule below reads both
   const turnOrder = new Map<string, { id: string; tool: string; afterText: boolean }[]>()
@@ -297,7 +207,6 @@ export const register: Register = (on, options) => {
         callTurn.delete(c.id)
         callMs.delete(c.id)
         grouped.delete(c.id)
-        pictureReads.delete(c.id)
       }
     }
   }
@@ -347,13 +256,6 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'glass-theme' }, async $ => ({ text: await installTheme($, paletteName) }))
 
-  on('config.set', { key: 'glass.screenshots' }, async ($, e, next) => {
-    const result = await next(e)
-    shotsOn = e.value !== false
-    $.ui.invalidate('ui.render')
-    return result
-  })
-
   on('config.set', { key: 'glass.notify' }, async ($, e, next) => {
     const result = await next(e)
     notifyOn = e.value !== false
@@ -363,10 +265,6 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     // 0.4.2 to 0.4.5 pinned a status line; clear one a reload left behind
     $.ui.status(undefined)
-    // forced on, the person vouches that pictures reach the terminal
-    const forced = Boolean(await $.env.get('CLAUDE_CODE_FORCE_TERMINAL_IMAGES').catch(() => undefined))
-    inTmux = !forced && Boolean(await $.env.get('TMUX').catch(() => undefined))
-    home = (await $.env.get('HOME').catch(() => undefined)) ?? ''
     try {
       setCwd(await $.session.cwd())
     } catch {
@@ -498,16 +396,6 @@ export const register: Register = (on, options) => {
       const card = editCard(t, palette, e.props.output, e.props.input, e.viewport?.columns ?? 80)
       if (card) return t.Box({ flexDirection: 'column', children: [row, card] })
     }
-    // a grouped MCP call's screenshot draws under its row, as the Edit card
-    // does; a grouped Read's picture too when it is the group's chosen one,
-    // or every one after /expand (0.8.0)
-    const pictured = e.props.tool.startsWith('mcp__') ||
-      (e.props.tool === 'Read' && (expandAllNow || pictureReads.has(id)) && !named(readPath(e.props.input)))
-    if (grouped.has(id) && pictured && !e.props.isRunning && !e.props.isErrored) {
-      const pic = pictureOf(e.props.output, e.props.tool === 'Read' ? readPath(e.props.input) : undefined)
-      const body = pic ? await pictureBody($, t, palette, pic, e.viewport?.columns ?? 80, e.viewport?.rows ?? 40) : null
-      if (body) return t.Box({ flexDirection: 'column', children: [row, body] })
-    }
     if (e.props.tool !== 'Bash' || e.props.isRunning || e.props.output === undefined) return row
     const body = bashBody(t, palette, e.props.output, e.props.isErrored, e.viewport?.columns ?? 80)
     return body ? t.Box({ flexDirection: 'column', children: [row, body] }) : row
@@ -517,10 +405,6 @@ export const register: Register = (on, options) => {
   // opens every group where it is
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
-    // the group's one Read picture (0.8.0): drawn under the folded row, or
-    // under its own row once the group is open
-    const chosen = shotsOn && !inTmux ? lastPictureRead(e.props.calls, named) : null
-    if (chosen) pictureReads.add(chosen)
     if (e.props.isExpanded) {
       remember(grouped, e.props.calls)
       return next(e)
@@ -532,21 +416,15 @@ export const register: Register = (on, options) => {
     // open after /expand, or on its own when a call in it failed: a red
     // mark must never hide behind a count
     const failed = e.props.calls.some((c: { isErrored?: boolean; isInterrupted?: boolean }) => c.isErrored || c.isInterrupted)
-    // and when a call returned a screenshot: the picture never hides behind a count (0.6.0)
-    const shot = shotsOn && !inTmux && e.props.calls.some((c: { tool: string; isRunning: boolean; output?: unknown }) => c.tool.startsWith('mcp__') && !c.isRunning && pictureOf(c.output) !== null)
-    if (expandAllNow || failed || shot) {
+    if (expandAllNow || failed) {
       remember(grouped, e.props.calls)
       return next({ ...e, props: { ...e.props, isExpanded: true } })
     }
     const t = $.ui.resolve(e)
-    const groupRow = renderGroupRow(t, palette, e.props.calls, {
+    return renderGroupRow(t, palette, e.props.calls, {
       isActive: e.props.isActive,
       key: `expand:${id}`,
     })
-    const read = chosen ? e.props.calls.find((c: { tool_use_id?: string }) => c.tool_use_id === chosen) : undefined
-    const pic = read ? pictureOf(read.output, readPath(read.input)) : null
-    const body = pic ? await pictureBody($, t, palette, pic, e.viewport?.columns ?? 80, e.viewport?.rows ?? 40) : null
-    return body ? t.Box({ flexDirection: 'column', children: [groupRow, body] }) : groupRow
   })
 
   // Bash output body, painted the way claude-hl painted it. The engine
@@ -575,14 +453,6 @@ export const register: Register = (on, options) => {
     // a loaded skill: one trunked line in place of the engine's body, whose
     // corner bracket sat off the trunk (2026-10-09)
     if (e.props.tool === 'Skill' && !e.props.isErrored) return renderSkillLoad($.ui.resolve(e), palette, e.props.output)
-    // an MCP screenshot or a Read image: the picture Claude read, in place of
-    // its text body (0.6.0; a Read and any format, 0.8.0)
-    const path = e.props.tool === 'Read' ? readPath((e.props as { input?: unknown }).input) : ''
-    if ((e.props.tool.startsWith('mcp__') || (e.props.tool === 'Read' && !named(path))) && !e.props.isErrored) {
-      const pic = pictureOf(e.props.output, path || undefined)
-      const body = pic ? await pictureBody($, $.ui.resolve(e), palette, pic, e.viewport?.columns ?? 80, e.viewport?.rows ?? 40) : null
-      if (body) return body
-    }
     if (e.props.tool !== 'Bash') return next(e)
     // a backgrounded command: the same trunked line, not the engine's corner
     // bracket, which sat off the trunk (2026-10-05)
@@ -595,8 +465,6 @@ export const register: Register = (on, options) => {
   // ---- the turn's bookkeeping --------------------------------------------
   on('prompt.submit', async ($, e, next) => {
     marks = !writeIntent(e.text)
-    recentPrompts.push(e.text)
-    if (recentPrompts.length > HISTORY) recentPrompts.shift()
     const now = await $.clock.now()
     await update($, prompts, ps => [...(ps ?? []), { text: e.text, submittedAt: now, startedAt: null, turnId: null }].slice(-HISTORY))
     return next(e)
