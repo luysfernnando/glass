@@ -136,15 +136,6 @@ Every non-ASCII glyph is built from a code point in `hooks/glyphs.ts`.
 Literals outside ASCII are forbidden in `hooks/`: the tool path that
 writes files has dropped private-use glyphs before.
 
-## Credits
-
-The shell tokenizer, the prose rules, the gutter-mark phrase tables and
-the output painter are ported from
-[claude-hl](https://github.com/rashedInt32/claude-hl), a PTY wrapper that
-did the same job by reading rendered ANSI. glass reads the markdown
-instead, which is why it can know a fence's language and never guesses
-where a code span ends.
-
 ## License
 
 MIT

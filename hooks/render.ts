@@ -634,7 +634,7 @@ function renderInlines(c: Ctx, inlines: Inline[]): RenderNode[] {
   })
 }
 
-// Prose outside backticks, painted the way claude-hl painted it: command
+// Prose outside backticks, painted: command
 // spans once there is evidence (`git push --follow-tags`, never `make
 // sure`), then paths and URLs anywhere (`README.md`, `~/.zshrc`,
 // `src/main.rs:42` with its line number in the number color).

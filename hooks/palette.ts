@@ -105,7 +105,7 @@ const tidepool: Palette = {
   issue: '#e67680', // love
   fix: '#d2bdff', // iris
   calloutText: '#c5d8e6',
-  private: '#486e6e', // the teal the owner set as CLAUDE_HL_PRIVATE
+  private: '#486e6e', // the teal the owner picked for private notes
   mark: '#e9b873', // warn (gold): a gutter mark reads "read this", apart from ok and the bars
   meta: '#7aa2b5', // punctuation
   faint: '#48708c', // muted
@@ -227,7 +227,7 @@ export const PALETTES: Record<PaletteName, Palette> = {
   tidepool,
   undertow,
   water,
-  // One Dark, as claude-hl's THEME_CODEX carried it, filled out by role:
+  // One Dark, filled out by role:
   // cyan for the marks and bars, the gutter greys from the theme's own
   // comment and line-number steps.
   codex: {
@@ -274,7 +274,7 @@ export const PALETTES: Record<PaletteName, Palette> = {
     addBg: '#0e2a3a',
     delBg: '#241c2a',
   },
-  // Rose Pine, as claude-hl's THEME_ROSE carried it, filled out from the
+  // Rose Pine, filled out from the
   // theme's own set: foam for the marks and bars, iris for the fix, gold
   // for H3, subtle and muted for the two grey steps.
   rose: {

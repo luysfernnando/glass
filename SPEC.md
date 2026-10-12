@@ -18,8 +18,7 @@ terminal transcript the way a desktop client draws a chat: colored shell
 commands in prose, a Bottom line card, content-fit code cards, borderless
 tables, gutter marks beside paragraphs that need the reader, a tool tree
 with a concrete trunk under each turn, painted tool bodies, a background
-band for live subagents. It replaces the `claude-hl` PTY highlighter for
-Claude Code. The owner is its first user; anyone on a dark terminal is its
+band for live subagents. The owner is its first user; anyone on a dark terminal is its
 audience. Engine floor: Claude Code 2.1.295 (0.5.0 reads APIs that arrived
 in 2.1.288 to 2.1.295; see Engine floor under 0.5.0).
 
@@ -140,7 +139,7 @@ demo/              (0.5.0) before/ and after/ text dumps for review
 
 ## Inline
 
-- Plain text default color, with claude-hl's prose passes ported:
+- Plain text default color, with these prose passes:
   - Command spans in prose paint only with evidence: a known command word
     followed by a flag, path, string, number or operator, or preceded by a
     runner prefix (`Ran`, `$`). `git push --follow-tags` paints; `git
@@ -382,7 +381,7 @@ and reply blocks interleaved as the model made them, then the
 - Every Bash result is glass's, drawn under its `ToolUse` row from the
   row's own `output` (calls run in parallel drew no `ToolResult`); the
   `ToolResult` row then draws nothing. Stdout and stderr painted for the
-  first 3 lines as claude-hl painted tool output (commands with evidence,
+  first 3 lines (commands with evidence,
   paths and URLs, error, warning and success words, numbers and durations,
   check and cross marks, git status codes; unpainted text in `meta`), each
   line clipped to one row (`truncate-end`; ctrl+o has them whole), the
@@ -599,7 +598,7 @@ validate` holds the module to it.
 - `tidepool` (default) maps the owner's nvim theme by role: strings olive,
   numbers and inline code pine, commands iris, builtins foam, paths gold,
   links mint; its code keys are the engine's reply-fence colors the owner
-  liked. `codex` carries One Dark as claude-hl's THEME_CODEX did; `rose`
+  liked. `codex` carries One Dark; `rose`
   rose-pine; `water` Empryo's proxysoul-water tokens (`rule #5a5870`,
   `delBg #33222e` after the live check); `undertow` is read off Empryo's
   desktop frames, so approximate. Every palette supplies the full
@@ -618,10 +617,10 @@ validate` holds the module to it.
   `bold`), `flag` iris, `var` gold (it was `err`), `ok` a lifted pine (it
   sat a step from `codeKw`). Water's other shared cyans (`sub`, `num`,
   `code`, `heading3`, `codeFn`) are Empryo's own and stay.
-- Not ported from claude-hl, on purpose: the inline-code background
-  (rejected as noise), the foreground remap, the extra themes
-  (catppuccin, tokyonight, dracula, gruvbox, nord: add on request),
-  `CLAUDE_HL_COMMANDS` growth (edit `COMMANDS` in `hooks/shell.ts`).
+- Left out on purpose: an inline-code background (rejected as noise),
+  a foreground remap, more themes (catppuccin, tokyonight, dracula,
+  gruvbox, nord: add on request), and a user-set command list (edit
+  `COMMANDS` in `hooks/shell.ts`).
 - The palette option follows `/config` live: a `config.set` hook on
   `glass.palette` swaps the module's palette after the engine stores the
   value; rows already on screen keep theirs.

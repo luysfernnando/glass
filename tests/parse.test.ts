@@ -77,7 +77,7 @@ test('the shell tokenizer keeps command color across a newline after &&', async 
   expect(cmds).toEqual(['git', 'git'])
 })
 
-test('prose commands paint only with evidence, as claude-hl did', async () => {
+test('prose commands paint only with evidence', async () => {
   const paint = (s: string) => proseSpans(s).map(x => `${x.kind}:${s.slice(x.start, x.end)}`)
   expect(paint('then run git push --follow-tags to publish')).toEqual(['cmd:git', 'sub:push', 'flag:--follow-tags'])
   expect(paint('make sure the build passes')).toEqual([])
@@ -111,7 +111,7 @@ test('paths anywhere: rooted, known extension or dotfile, with a line suffix', a
   expect(pathLike('e.g.')).toBe(null)
 })
 
-test('tool output lines paint like claude-hl: git codes, commands, paths, numbers, status words', async () => {
+test('tool output lines paint git codes, commands, paths, numbers, status words', async () => {
   const colored = (line: string) => paintLine(line).filter(s => s.color).map(s => `${s.color}:${s.text}`)
   expect(colored('M hooks/render.ts')).toEqual(['warn:M', 'path:hooks/render.ts'])
   expect(colored('?? docs/demo.png')).toEqual(['comment:?', 'comment:?', 'path:docs/demo.png'])

@@ -427,7 +427,7 @@ export const register: Register = (on, options) => {
     })
   })
 
-  // Bash output body, painted the way claude-hl painted it. The engine
+  // Bash output body, painted. The engine
   // strips escape codes from a rewritten result, so the body is drawn as
   // Text, and only when it is short enough that the engine would show it
   // whole: longer output keeps the engine's collapsed body and ctrl+o.

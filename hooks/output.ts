@@ -1,5 +1,4 @@
-// Paints a tool's text output the way claude-hl painted Claude Code's gray
-// output: commands with evidence, paths and URLs, error, warning and success
+// Paints a tool's text output over Claude Code's gray: commands with evidence, paths and URLs, error, warning and success
 // words, numbers and durations, check and cross marks, and git status codes
 // at the start of a line. Returns colored segments; render.ts draws them as
 // Text, since the engine strips escape codes from a rewritten result.
