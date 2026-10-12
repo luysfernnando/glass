@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
+import type { GlassAgent } from '../types'
 
 import { CLOCK_CELLS, callScope, clip, clockCells, renderAgentLaunch, fmtCost, fmtDuration, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderServerToolRows, renderSkillLoad, renderToolOutput, renderTreeRow, renderUserRow, safeText, setCwd, toolLabel } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
@@ -253,6 +254,24 @@ test('mounted: a user row, a tree row, a folded group and the band validate on t
   })
   expect(await message.find({ type: 'Text', text: /Message from @Explore/ })).toBeDefined()
   await message.unmount()
+})
+
+test('mounted: the band with a running agent validates on the terminal (its chevron hover needs a keyed Box; 0.5.2 to 0.5.3 drew nothing)', async ($, on) => {
+  // the world beneath glass: one agent in its state (the kit keeps none), and
+  // an empty band beneath, as the engine's own answers when no plugin draws there
+  mock.clock(on, { now: 60_000 })
+  const agent: GlassAgent = { agentId: 'a1', description: 'Hunt widths', kind: 'Explore', model: 'claude-haiku-5-5', effort: '', stage: 'Read', file: '', tokens: 0, startedAt: 0 }
+  on('state.get', { plugin: 'glass', key: 'agents' } as never, async () => ({ value: { value: [agent], version: 1 } }) as never)
+  on('ui.render', { component: 'AbovePrompt' }, (engine, e) => engine.ui.resolve(e).Box({ children: [] }) as never)
+  const band = await $.ui.mount({
+    plugin: 'glass',
+    surface: 'terminal',
+    component: 'AbovePrompt',
+    props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} },
+  })
+  expect(await band.find({ type: 'Text', text: /background/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /Hunt widths/ })).toBeDefined()
+  await band.unmount()
 })
 
 test('an Edit diff: one number column, a plus row and a minus row in the theme diff slots, code painted', async () => {

@@ -545,7 +545,10 @@ and reply blocks interleaved as the model made them, then the
   are the sum of the agent's `turn.step` usages read off each stop chunk;
   effort is the step's. The chevron (a `key` of `band:toggle`, `plain`,
   `dimColor`, lit by hover, as the dots line's buttons are) closes the
-  frame to one strip. Per-agent cost
+  frame to one strip. It sits in a keyed Box (`band:chevron`): a hover
+  with no keyed Box around it makes the engine refuse the whole tree and
+  draw nothing, which is why the band was invisible from 0.5.2 to 0.5.3
+  (found in the debug log, 2026-10-12). Per-agent cost
   stays out: no price table in the API. Agent identity: `agent.spawn`
   gives `description`, `subagentType`, `model`; `agentId` from awaiting
   `next(e)`; removed at that agent's `turn.complete`.

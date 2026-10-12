@@ -875,8 +875,11 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
   const oldest = agents.reduce((n, a) => Math.min(n, a.startedAt), now)
   const elapsed = fmtDuration(Math.max(0, now - oldest))
   const titleText = `background${sep}${agents.length}`
+  // the chevron's hover tint needs a keyed Box around it: without one the
+  // engine refuses the whole tree and draws nothing, so the band was
+  // invisible from 0.5.2 to 0.5.3 (found in the debug log, 2026-10-12)
   const chevron = o.onToggle
-    ? t.Button({ key: 'band:toggle', label: o.open ? G.down : G.right, plain: true, dimColor: true, hover: { backgroundColor: p.rowHover }, onPress: o.onToggle })
+    ? t.Box({ key: 'band:chevron', children: [t.Button({ key: 'band:toggle', label: o.open ? G.down : G.right, plain: true, dimColor: true, hover: { backgroundColor: p.rowHover }, onPress: o.onToggle })] })
     : t.Text({ color: p.accent, children: [o.open ? G.down : G.right] })
   const title = t.Text({
     children: [
