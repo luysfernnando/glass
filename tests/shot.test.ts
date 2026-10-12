@@ -1,7 +1,7 @@
 // 0.6.0: an MCP screenshot draws under its row, the picture Claude read.
 import { expect, test } from 'claude-code/testing'
 
-import { pngSize, shotBox, shotOf } from '../hooks/shot'
+import { CONVERTIBLE, lastPictureRead, namedIn, pictureOf, pngSize, shotBox, shotFromPng, shotOf } from '../hooks/shot'
 
 // a PNG header for a picture `w` by `h`: the signature, then IHDR
 function pngHeader(w: number, h: number): string {
@@ -135,3 +135,67 @@ test('mounted: a group with a screenshot opens, and the row draws the picture', 
   await row.unmount()
 })
 
+
+// ---- 0.8.0: any picture Claude looked at ------------------------------------
+const readCall = (id: string, path: string, data = ONE_PX, mime = 'image/png') => ({
+  tool_use_id: id, tool: 'Read', input: { file_path: path }, isRunning: false, isErrored: false, isInterrupted: false,
+  output: { type: 'image', file: { base64: data, type: mime, originalSize: 70 } },
+})
+
+test('a picture from a Read, or an MCP block in any format, with its copy on disk', () => {
+  expect(pictureOf({ type: 'image', file: { base64: ONE_PX, type: 'image/png' } }, '/p/a.png')).toEqual({ mime: 'image/png', data: ONE_PX, file: '/p/a.png' })
+  const jpeg = [
+    { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: '/9j/4AAQ' } },
+    { type: 'text', text: '[Image: source: /t/shot.jpg, original 2400x1658, displayed at 2000x1382.]' },
+  ]
+  expect(pictureOf(jpeg)).toEqual({ mime: 'image/jpeg', data: '/9j/4AAQ', file: '/t/shot.jpg' })
+  expect(pictureOf({ type: 'text', file: { content: 'x' } })).toBe(null)
+  expect(pictureOf([{ type: 'text', text: 'Navigated.' }])).toBe(null)
+  expect(CONVERTIBLE.test('image/jpeg') && CONVERTIBLE.test('image/webp') && !CONVERTIBLE.test('image/svg+xml')).toBe(true)
+})
+
+test('a PNG draws as bytes; not a PNG, or over 2 MiB, does not', () => {
+  expect(shotFromPng(ONE_PX)).toEqual({ source: { png: ONE_PX }, width: 1, height: 1 })
+  expect(shotFromPng('/9j/4AAQSkZJRgABAQAAAQABAAD')).toBe(null)
+  expect(shotFromPng(pngHeader(10, 10) + 'A'.repeat(3_000_000))).toBe(null)
+})
+
+test('a file the person named in a prompt, as written or under ~, is theirs', () => {
+  const prompts = ['look at /Users/me/Desktop/Screenshot 1.png please', 'and ~/shots/b.png']
+  expect(namedIn(prompts, '/Users/me/Desktop/Screenshot 1.png', '/Users/me')).toBe(true)
+  expect(namedIn(prompts, '/Users/me/shots/b.png', '/Users/me')).toBe(true)
+  expect(namedIn(prompts, '/tmp/qa/after.png', '/Users/me')).toBe(false)
+  expect(namedIn(prompts, '', '/Users/me')).toBe(false)
+})
+
+test('a group draws one Read picture: the last the person did not name', () => {
+  const calls = [readCall('r1', '/tmp/a.png'), readCall('r2', '/tmp/b.png'), { tool_use_id: 'g1', tool: 'Grep', input: {}, isRunning: false, isErrored: false, output: {} }]
+  expect(lastPictureRead(calls, () => false)).toBe('r2')
+  expect(lastPictureRead(calls, p => p === '/tmp/b.png')).toBe('r1')
+  expect(lastPictureRead([{ ...readCall('r3', '/tmp/c.png'), isRunning: true }], () => false)).toBe(null)
+  expect(lastPictureRead([{ tool_use_id: 'r4', tool: 'Read', input: { file_path: '/a.ts' }, output: { type: 'text', file: {} } }], () => false)).toBe(null)
+})
+
+test('mounted: two image reads in a folded group draw exactly one Image', async ($, on) => {
+  on('ui.render', { component: 'ToolGroup' }, (engine, e) => engine.ui.resolve(e).Text({ children: [e.props.isExpanded ? 'opened' : 'folded'] }) as never)
+  const group = await $.ui.mount({
+    plugin: 'glass',
+    surface: 'terminal',
+    component: 'ToolGroup',
+    props: { calls: [readCall('m1', '/tmp/a.png'), readCall('m2', '/tmp/b.png')], isActive: false, isExpanded: false },
+  })
+  expect(await group.findAll({ type: 'Image' })).toHaveLength(1)
+  expect(await group.find({ type: 'Text', text: /opened/ })).toBeUndefined()
+  await group.unmount()
+})
+
+test('mounted: screenshots off, a folded run of image reads draws none', { options: { screenshots: false } }, async $ => {
+  const group = await $.ui.mount({
+    plugin: 'glass',
+    surface: 'terminal',
+    component: 'ToolGroup',
+    props: { calls: [readCall('n1', '/tmp/a.png')], isActive: false, isExpanded: false },
+  })
+  expect(await group.findAll({ type: 'Image' })).toHaveLength(0)
+  await group.unmount()
+})

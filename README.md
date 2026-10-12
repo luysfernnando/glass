@@ -37,9 +37,12 @@ stored or what the model reads.
   card with the file in its top border, `╭─ SPEC.md +1 -1 ───╮`: one
   number column, `+` and `-` rows on a quiet tint, one context line each
   side, the code painted the same way, the frame on the tree trunk.
-- **Screenshots inline.** A PNG an MCP tool returns (chrome-devtools
+- **Pictures inline.** A screenshot an MCP tool returns (chrome-devtools
   `take_screenshot`, a Figma screenshot) draws on the trunk under its row,
-  so you see what Claude saw. Ghostty or kitty. Inside tmux Claude Code
+  so you see what Claude saw; so does an image file Claude reads, one per
+  run of reads (the last; `/expand` shows them all), never one you named in
+  your own prompt. JPEG, WebP and GIF are converted to PNG with macOS
+  `sips`. Ghostty or kitty. Inside tmux Claude Code
   draws no pictures, so the row keeps its text; run Claude through
   [claude-hl](https://github.com/rashedInt32/claude-hl) with
   `CLAUDE_HL_PAINT=0 CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1` and

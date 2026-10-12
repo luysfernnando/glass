@@ -435,6 +435,25 @@ and reply blocks interleaved as the model made them, then the
   (`pluginConfigs["glass@glass"].options.screenshots` in settings.json) to
   skip claude-hl in tmux, so one switch covers both. Shape proved live with a probe mod
   2026-10-12.
+  **(0.8.0)** Every picture Claude looked at, owner's pick 2026-10-12 after
+  30 days of transcripts showed 119 of 411 screenshots were JPEG (drawn as
+  text until now) and 329 image Reads (180 temp files Claude made, 143
+  project files, 6 the owner's own):
+  - Any format the model reads: PNG within 2 MiB draws as bytes; JPEG,
+    WebP, GIF or a bigger PNG is converted once with macOS `sips` to a PNG
+    (as it is, then at most 1600, then 1000 px a side, until it fits),
+    from the copy on disk (the engine's stored copy, or the file read)
+    else the bytes, into a private `$TMPDIR/glass-pictures-<uid>` (mode
+    700, files a day old go), kept per session. No `sips` (Linux): the
+    engine's text row stays.
+  - A Read of an image file draws too, but only one per group: the last
+    image read the person did not name in one of their own prompts (as
+    written or under `~`; a picture they fed Claude is never drawn back).
+    A folded group draws it under the group row and stays folded; an open
+    group under that Read's row; `/expand` draws every image read.
+  - Claude Code draws a finished turn's rows again at commit, and each
+    fresh draw sends its picture again (seen live: one Read sent twice).
+    Bytes only; the screen shows one picture.
 - A backgrounded Agent's or Bash command's result is one trunked `faint`
   line, `running in the background · ↓ to manage`.
 - A loaded skill's result is one trunked `faint` line, `skill loaded`,

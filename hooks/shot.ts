@@ -64,11 +64,81 @@ export function shotOf(output: unknown): Shot | null {
 
 // The stored copy the engine names in a text block, when it is a PNG.
 function storedPng(blocks: Block[]): string | null {
+  const file = storedCopy(blocks)
+  return file && /\.png$/i.test(file) ? file : null
+}
+
+// The stored copy the engine names in a text block, any format:
+// `[Image: source: <path>, original 2400x1658, displayed at ...]`.
+function storedCopy(blocks: Block[]): string | null {
   for (const b of blocks) {
     if (b.type !== 'text' || typeof b.text !== 'string') continue
-    // `[Image: source: <path>.png, original 2400x1658, displayed at ...]`
-    const m = /\[Image: source: (\/[^\]\n]+?\.png)(?=[,\]])/.exec(b.text)
+    const m = /\[Image: source: (\/[^\]\n]+?\.(?:png|jpe?g|webp|gif))(?=[,\]])/i.exec(b.text)
     if (m) return m[1]!
+  }
+  return null
+}
+
+// ---- any picture Claude looked at (0.8.0) -------------------------------
+// An MCP result's image block or a Read of an image file, in any format the
+// model reads: PNG draws as it is, the rest is converted to PNG first
+// (register.ts, macOS `sips`), from `file` when a copy is on disk.
+export type Picture = { mime: string; data: string; file: string | null }
+export const CONVERTIBLE = /^image\/(png|jpeg|webp|gif)$/
+
+export function pictureOf(output: unknown, path?: string): Picture | null {
+  // Read: `{ type: 'image', file: { base64, type } }`
+  const read = output as { type?: unknown; file?: { base64?: unknown; type?: unknown } } | null | undefined
+  if (read && typeof read === 'object' && !Array.isArray(read) && read.type === 'image') {
+    const data = read.file?.base64, mime = read.file?.type
+    return typeof data === 'string' && data !== '' && typeof mime === 'string' ? { mime, data, file: path ?? null } : null
+  }
+  const blocks = blocksOf(output)
+  for (const b of blocks) {
+    if (b.type !== 'image') continue
+    const data = typeof b.source?.data === 'string' ? b.source.data : typeof b.data === 'string' ? b.data : ''
+    const mime = typeof b.source?.media_type === 'string' ? b.source.media_type : typeof b.mimeType === 'string' ? b.mimeType : ''
+    if (data !== '' && mime.startsWith('image/')) return { mime, data, file: storedCopy(blocks) }
+  }
+  return null
+}
+
+// A PNG's bytes as the Image takes them, or null: not a PNG, or over 2 MiB.
+export function shotFromPng(data: string): Shot | null {
+  const size = pngSize(data)
+  return size && data.length <= PNG_BASE64_MAX ? { source: { png: data }, ...size } : null
+}
+
+// A short stable name for a picture's converted copy.
+export function hashOf(text: string): string {
+  let h = 2166136261
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619) >>> 0
+  return h.toString(16).padStart(8, '0') + text.length.toString(16)
+}
+
+// Whether the person named this file in one of their own prompts: a picture
+// they fed Claude is never drawn back (owner's rule, 2026-10-12). The path
+// as Claude read it, or the same under `~`.
+export function namedIn(prompts: readonly string[], path: string, home: string): boolean {
+  if (path === '') return false
+  const tilde = home !== '' && path.startsWith(home + '/') ? '~' + path.slice(home.length) : null
+  return prompts.some(t => t.includes(path) || (tilde !== null && t.includes(tilde)))
+}
+
+type Call = { tool_use_id?: string; tool: string; input?: unknown; output?: unknown; isRunning?: boolean; isErrored?: boolean }
+export const readPath = (input: unknown) => {
+  const p = (input as { file_path?: unknown } | null | undefined)?.file_path
+  return typeof p === 'string' ? p : ''
+}
+
+// The one Read in a group whose picture draws: the last that returned an
+// image the person did not name. A run of reads draws one picture, not one
+// each; /expand draws them all.
+export function lastPictureRead(calls: readonly Call[], named: (path: string) => boolean): string | null {
+  for (let i = calls.length - 1; i >= 0; i--) {
+    const c = calls[i]!
+    if (c.tool !== 'Read' || c.isRunning || c.isErrored || typeof c.tool_use_id !== 'string') continue
+    if (pictureOf(c.output) !== null && !named(readPath(c.input))) return c.tool_use_id
   }
   return null
 }
