@@ -43,7 +43,8 @@ stored or what the model reads.
   draws no pictures, so the row keeps its text; run Claude through
   [claude-hl](https://github.com/rashedInt32/claude-hl) with
   `CLAUDE_HL_PAINT=0 CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1` and
-  `allow-passthrough all` in tmux to get them there too.
+  `allow-passthrough all` in tmux to get them there too. Off with the
+  `screenshots` option under Glass in `/config`.
 - **Headings, lists, quotes, tables.** Bold colored headings with no rules,
   `•` `◦` `☐` `☑` markers, a quote bar, borderless tables with aligned
   columns and right-aligned numbers. A table a little too wide squeezes
@@ -103,6 +104,13 @@ Claude Code 2.1.295 or newer. On an older engine glass still loads: the
 notification falls back to a toast, summary and server tool rows need
 props that older engines do not send, and the rest is unchanged.
 
+Inside tmux, set `CLAUDE_CODE_NO_FLICKER=1` (in `env` of
+`~/.claude/settings.json`). Claude Code draws on tmux's main screen by
+default, and there a reply taller than the screen is printed twice: the
+engine draws the streamed text, glass redraws the finished reply, and the
+engine cannot reach rows already in scrollback. The fullscreen layout has
+no scrollback to strand them in.
+
 Restart Claude Code. Pick a palette with `/config` under Glass: `tidepool`
 (default), `water` (Empryo's own proxysoul-water tokens), `undertow` (sampled from
 Empryo's desktop video), `codex` or `rose`.
@@ -138,6 +146,9 @@ LC_ALL=C grep -rn '[^ -~]' hooks/   # must print nothing
 the same version. `scripts/demo-dump.sh before|after` writes the text
 dumps `DEMO.md` compares, from `tests/demo.test.ts`. CI runs it on every push and pull request, without tsc:
 the types only exist once the engine has loaded the plugin.
+`scripts/plain-ghostty.sh` opens a Ghostty window outside tmux running
+Claude with this checkout (the installed glass off), to see screenshots as
+plain Ghostty draws them; `GLASS_DEBUG=<file>` adds a debug log.
 
 Every non-ASCII glyph is built from a code point in `hooks/glyphs.ts`.
 Literals outside ASCII are forbidden in `hooks/`: the tool path that

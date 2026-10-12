@@ -163,10 +163,13 @@ function bashBody(t: Elements['terminal'], p: Palette, output: unknown, isErrore
 // placeholder cells and claude-hl (CLAUDE_HL_PAINT=0) wraps its kitty codes
 // for tmux's passthrough, so the picture reaches Ghostty.
 let inTmux = false
+// the `screenshots` option (0.7.0): off, every screenshot row keeps the
+// engine's text body, in tmux and out; follows /config live
+let shotsOn = true
 
 // A screenshot's body, or null where the engine's stays.
 function drawShot(t: Elements['terminal'], p: Palette, shot: Shot, columns: number, rows: number): RenderElement | null {
-  return inTmux ? null : renderShot(t, p, shot, shotCells(shot, columns, rows))
+  return !shotsOn || inTmux ? null : renderShot(t, p, shot, shotCells(shot, columns, rows))
 }
 
 // one main-loop call recorded under its turn, replacing an earlier record
@@ -182,7 +185,7 @@ async function setCall($: EngineInterface, turnId: string, call: GlassCall) {
 }
 
 export const register: Register = (on, options) => {
-  const opts = (options ?? {}) as { palette?: unknown; notify?: unknown }
+  const opts = (options ?? {}) as { palette?: unknown; notify?: unknown; screenshots?: unknown }
   // the palette follows /config live: every hook reads this binding at
   // draw time, and the config.set hook below swaps it (rows already drawn
   // keep their colors until something redraws them)
@@ -190,6 +193,7 @@ export const register: Register = (on, options) => {
   let paletteName = paletteNameOf(opts.palette)
   // notifications (0.5.0): on unless the option says otherwise; follows /config live
   let notifyOn = opts.notify !== false
+  shotsOn = opts.screenshots !== false
   // gutter marks are off for a turn whose prompt asked for writing: the
   // reply is then the thing itself and asks nothing of the reader
   let marks = true
@@ -273,6 +277,13 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'glass-theme' }, async $ => ({ text: await installTheme($, paletteName) }))
+
+  on('config.set', { key: 'glass.screenshots' }, async ($, e, next) => {
+    const result = await next(e)
+    shotsOn = e.value !== false
+    $.ui.invalidate('ui.render')
+    return result
+  })
 
   on('config.set', { key: 'glass.notify' }, async ($, e, next) => {
     const result = await next(e)
@@ -444,7 +455,7 @@ export const register: Register = (on, options) => {
     // mark must never hide behind a count
     const failed = e.props.calls.some((c: { isErrored?: boolean; isInterrupted?: boolean }) => c.isErrored || c.isInterrupted)
     // and when a call returned a screenshot: the picture never hides behind a count (0.6.0)
-    const shot = !inTmux && e.props.calls.some((c: { tool: string; isRunning: boolean; output?: unknown }) => c.tool.startsWith('mcp__') && !c.isRunning && shotOf(c.output) !== null)
+    const shot = shotsOn && !inTmux && e.props.calls.some((c: { tool: string; isRunning: boolean; output?: unknown }) => c.tool.startsWith('mcp__') && !c.isRunning && shotOf(c.output) !== null)
     if (expandAllNow || failed || shot) {
       remember(grouped, e.props.calls)
       return next({ ...e, props: { ...e.props, isExpanded: true } })

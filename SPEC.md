@@ -101,6 +101,14 @@ demo/              (0.5.0) before/ and after/ text dumps for review
   `/unfold`, `/expand`, `/collapse` call `$.ui.invalidate('ui.render')`. A
   hot reload empties the records until the next turn. The user row's dots
   line and the `TurnDuration` row subscribe (one row each per turn).
+- A reply streams with no `ui.render` dispatch: the engine draws the
+  streamed text, and glass's `AssistantMessage` hook runs once, as the
+  reply ends. On the main screen (tmux by default, `isFullscreen: false`)
+  a reply taller than the screen then prints twice, the engine's streamed
+  copy left in scrollback above glass's (2026-10-12, 2.1.296, `--debug`
+  run). `CLAUDE_CODE_NO_FLICKER=1` puts tmux on the fullscreen layout and
+  the duplicate goes (live, 2026-10-12). Handing tall replies back to the
+  engine on the main screen was not taken: it drops the styling.
 - A finished reply's parse is kept (the newest 64 by text), so `/fold`,
   resizes and palette changes do not parse every reply again. Links, URLs
   and code words are matched in place.
@@ -419,7 +427,13 @@ and reply blocks interleaved as the model made them, then the
   folded (2026-10-12). **(0.6.1)** Unless `CLAUDE_CODE_FORCE_TERMINAL_IMAGES`
   is set: the person vouches that pictures get through, as they do when
   claude-hl 0.9.0 runs Claude with `CLAUDE_HL_PAINT=0` and wraps the
-  engine's kitty codes for tmux's passthrough (`allow-passthrough all`). Shape proved live with a probe mod
+  engine's kitty codes for tmux's passthrough (`allow-passthrough all`).
+  **(0.7.0)** `userConfig.screenshots` (boolean, default true; owner's
+  request 2026-10-12) turns all of it off: every screenshot row keeps the
+  engine's text body, in tmux and out, and a group no longer opens for
+  one. It follows `/config` live. The owner's shell reads the same option
+  (`pluginConfigs["glass@glass"].options.screenshots` in settings.json) to
+  skip claude-hl in tmux, so one switch covers both. Shape proved live with a probe mod
   2026-10-12.
 - A backgrounded Agent's or Bash command's result is one trunked `faint`
   line, `running in the background · ↓ to manage`.
@@ -803,6 +817,5 @@ the trunk (0.4.25); the band four cells short of the `[-]` mark; the
 narrow-band column order; a blank fence line's row; the hint string
 carrying `-- INSERT --`. For 0.5.0: the Button press; `config.set` of a
 `custom:` theme; codespans under a glass theme; the notify channel's
-`isSent`; the tall-reply duplicate rows (engine fixes in 2.1.289 and
-2.1.290 may have closed it: reproduce before filing); a tabbed fence after
+`isSent`; a tabbed fence after
 the engine's own tab-stop change in 2.1.295.

@@ -83,6 +83,34 @@ test('mounted: a screenshot result draws an Image on the trunk', async ($, on) =
   await plain.unmount()
 })
 
+test('screenshots off: the result keeps the engine body, the group stays folded', { options: { screenshots: false } }, async ($, on) => {
+  on('ui.render', { component: 'ToolResult' }, (engine, e) => engine.ui.resolve(e).Text({ children: ['engine body'] }) as never)
+  on('ui.render', { component: 'ToolGroup' }, (engine, e) => engine.ui.resolve(e).Text({ children: [e.props.isExpanded ? 'opened' : 'folded'] }) as never)
+  const output = engineResult(ONE_PX, 'image/png', null)
+  const row = await $.ui.mount({
+    plugin: 'glass',
+    surface: 'terminal',
+    component: 'ToolResult',
+    props: { tool_use_id: 'toolu_o1', tool: 'mcp__plugin_jev-reach_chrome-devtools__take_screenshot', isErrored: false, output },
+  })
+  expect(await row.find({ type: 'Image' })).toBeUndefined()
+  expect(await row.find({ type: 'Text', text: /engine body/ })).toBeDefined()
+  await row.unmount()
+  const group = await $.ui.mount({
+    plugin: 'glass',
+    surface: 'terminal',
+    component: 'ToolGroup',
+    props: {
+      calls: [{ tool_use_id: 'toolu_o2', tool: 'mcp__plugin_jev-reach_chrome-devtools__take_screenshot', input: {}, isRunning: false, isErrored: false, isInterrupted: false, output }],
+      isActive: false,
+      isExpanded: false,
+    },
+  })
+  // glass draws its own folded row: the engine's beneath is never asked to open
+  expect(await group.find({ type: 'Text', text: /opened/ })).toBeUndefined()
+  await group.unmount()
+})
+
 test('mounted: a group with a screenshot opens, and the row draws the picture', async ($, on) => {
   // the engine's group, beneath glass: it says whether glass opened it
   on('ui.render', { component: 'ToolGroup' }, (engine, e) => engine.ui.resolve(e).Text({ children: [e.props.isExpanded ? 'opened' : 'folded'] }) as never)
