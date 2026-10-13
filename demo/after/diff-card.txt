@@ -1,0 +1,18 @@
+╭─ hooks/chrome.ts +1 -1 ──────────────────────────────────╮
+│ 274    const right = x                                   │
+│ 269 -   return t.Box({                                   │
+│ 275 +   return spaced(t, p, t.Box({                      │
+│ 276     key: 1                                           │
+╰──────────────────────────────────────────────────────────╯
+
+-- colors --
+#48708c
+#d6b477
+diffAddedWord
+diffRemovedWord
+#7aa2f7
+diffRemoved
+#7aa2b5
+#9cce8b
+diffAdded
+#7bc0ae

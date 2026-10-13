@@ -1,4 +1,4 @@
-// Shell tokenizer for inline code, ported from claude-hl's `spans`.
+// Shell tokenizer for inline code.
 // Inline code is a known code context, so every token gets a color; the
 // prose guards (stop words, bare-word budget) are not needed here.
 
@@ -8,7 +8,7 @@ rustc make cmake brew apt apt-get dnf pacman docker docker-compose kubectl helm
 terraform aws gcloud az ssh scp rsync curl wget tar zip unzip cd ls cat head
 tail less grep rg fd find xargs sed awk sort uniq wc tr cut tee echo printf
 export source chmod chown mkdir rmdir rm cp mv ln touch pwd which env nvim vim
-tmux ghostty claude claude-hl codex gemini open kill pkill ps lsof jq yq tsc tsx vitest
+tmux ghostty claude codex gemini open kill pkill ps lsof jq yq tsc tsx vitest
 jest eslint prettier next vite
 sudo doas nohup just pytest ruff mypy poetry pipx uvx conda mvn gradle dotnet
 swift ruby gem bundle rake rspec php composer psql mysql sqlite3 redis-cli
@@ -335,7 +335,7 @@ function findCmd(t: string, from: number): [number, number] | null {
 }
 
 /**
- * Command spans inside prose, claude-hl's hard case. `make sure`, `go ahead`
+ * Command spans inside prose, the hard case. `make sure`, `go ahead`
  * and `next step` are valid command shapes, so a command in a sentence only
  * paints once a flag, path, string, number or operator turns up, or when a
  * runner prefix (`Ran`, `$`) precedes it. `git push --follow-tags` paints,

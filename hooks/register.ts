@@ -1,14 +1,15 @@
 import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
-import type { GlassAgent, GlassCall, GlassPrompt, GlassTurn } from '../types'
-import { FLAT_TOOLS, toolText, callRun, editRunKeys, renderRunRow, spinCells, cleanHint, renderHint, clockCells, fmtDuration, isEditTool, setCwd, setHome, lineCounts, rel, shortPath, spaced, trunked, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import type { GlassAgent, GlassCall, GlassPrompt, GlassServerTool, GlassTurn } from '../types'
+import { FLAT_TOOLS, MAX_PAINTED_LINES, toolText, callRun, editRunKeys, renderRunRow, spinCells, cleanHint, renderHint, clockCells, fmtDuration, fmtToolTime, isEditTool, setCwd, setHome, lineCounts, rel, shortPath, spaced, trunked, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderServerToolRows, renderSkillLoad, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk, RunCall, TreeOptions, TreeRow } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
 import type { Block } from './markdown'
-import { paletteNamed } from './palette'
-import type { Palette } from './palette'
+import { PALETTES, paletteNameOf, paletteNamed } from './palette'
+import type { Palette, PaletteName } from './palette'
+import { themeFileName, themeFor, themeJson, themeSetting } from './theme'
 import { writeIntent } from './prose'
 import { renderReply } from './render'
 
@@ -27,6 +28,11 @@ const expanded = atom({ plugin: 'glass', key: 'expanded' } as const, [] as strin
 // subagents still running, for the band above the prompt
 const agents = atom({ plugin: 'glass', key: 'agents' } as const, [] as GlassAgent[])
 const band = atom({ plugin: 'glass', key: 'band' } as const, 'open' as 'open' | 'closed')
+// the main-loop turn now running, or null between turns. State, not module
+// memory: a hot reload mid-turn rebuilds the module but the host keeps this,
+// so an agent finishing inside that turn is not mistaken for one that
+// finished after it (review finding, 0.5.1)
+const liveTurn = atom({ plugin: 'glass', key: 'liveTurn' } as const, null as string | null)
 
 const HISTORY = 48
 // chars of a streaming call's input read for its subject: the path and the
@@ -39,7 +45,6 @@ const ANSWER_MAX = 20000
 
 const ESC = String.fromCodePoint(0x1b)
 // the engine shows this many output lines before folding the rest behind ctrl+o
-const MAX_PAINTED_LINES = 3
 // pipes the reply's trunk holds before its box cuts them to the reply's
 // height: a reply taller than this loses the trunk below it
 const TRUNK_ROWS = 2000
@@ -71,6 +76,68 @@ async function tick($: EngineInterface, p: Palette): Promise<void> {
     ticker?.cancel()
     ticker = null
   }
+}
+
+// A native notification for what the engine stays silent on (0.5.0): the
+// engine's own idle notification covers a finished turn, so glass never
+// notifies at turn end. On an engine without `$.ui.notify`, or a channel
+// that did not send, the text is a toast instead. Never called from a
+// render hook, a timer, or on hearing a notification.
+// `$.ui.notify` is typed from 2.1.295 on; the call is spelled at the call
+// site (the validator asks for `$.noun.event(...)`), typed through a cast of
+// `$`, and an engine without it throws into the toast fallback.
+type Notifier = { ui: { notify: (text: string, options?: { title?: string }) => Promise<{ isSent: boolean }> } }
+async function notifyPerson($: EngineInterface, text: string): Promise<void> {
+  try {
+    const r = await ($ as unknown as Notifier).ui.notify(text, { title: 'glass' })
+    if (r.isSent) return
+  } catch {
+    // no notify on this engine, or the channel failed: the toast below
+  }
+  try {
+    $.ui.toast(text)
+  } catch {
+    // a notification is never worth a failed hook
+  }
+}
+
+// Writes a palette's theme to ~/.claude/themes/glass-<palette>.json and
+// selects it (0.5.0). The one file glass writes outside its own folder:
+// the directory comes from HOME, the name from the closed palette list, the
+// content is serialised from hex-checked values. An existing entry under
+// that name that is not a regular file (a link, a directory) is left alone.
+// The owner's own theme files are never touched. Returns the line to show.
+// The engine prefixes a command's answer with the plugin's name, so the
+// lines carry none. The engine's `theme` row takes only its built-in names
+// from a plugin (seen 2.1.296: `takes one of: auto, dark, light, ...`), so
+// the select step is tried and, when refused, the answer names the one
+// settings.json line that selects a custom theme.
+async function installTheme($: EngineInterface, name: PaletteName): Promise<string> {
+  const home = await $.env.get('HOME')
+  if (!home || !home.startsWith('/')) return 'HOME is not set, so no theme was written'
+  const dir = `${home}/.claude/themes`
+  const file = themeFileName(name)
+  const shown = `~/.claude/themes/${file}`
+  try {
+    const hit = (await $.fs.list(dir)).find(x => x.name === file)
+    if (hit && (hit.isLink || hit.kind !== 'file')) return `${shown} is not a regular file; nothing written`
+  } catch {
+    // no themes directory yet: the write creates it
+  }
+  try {
+    await $.fs.write(`${dir}/${file}`, themeJson(themeFor(PALETTES[name], name)))
+  } catch {
+    return `could not write ${shown}`
+  }
+  const setting = themeSetting(name)
+  const byHand = `wrote ${shown}. A plugin cannot select a custom theme, so pick glass-${name} in /theme.`
+  try {
+    const r = await $.config.set({ key: 'theme', value: setting })
+    if (r.deny) return byHand
+  } catch {
+    return byHand
+  }
+  return `theme glass-${name} on (${shown})`
 }
 
 // A Bash call's body as glass draws it, or null where the engine's stays.
@@ -117,11 +184,14 @@ async function setCall($: EngineInterface, turnId: string, call: GlassCall) {
 }
 
 export const register: Register = (on, options) => {
-  const opts = (options ?? {}) as { palette?: unknown }
+  const opts = (options ?? {}) as { palette?: unknown; notify?: unknown }
   // the palette follows /config live: every hook reads this binding at
   // draw time, and the config.set hook below swaps it (rows already drawn
   // keep their colors until something redraws them)
   let palette = paletteNamed(opts.palette)
+  let paletteName = paletteNameOf(opts.palette)
+  // notifications (0.5.0): on unless the option says otherwise; follows /config live
+  let notifyOn = opts.notify !== false
   // gutter marks are off for a turn whose prompt asked for writing: the
   // reply is then the thing itself and asks nothing of the reader
   let marks = true
@@ -241,11 +311,41 @@ export const register: Register = (on, options) => {
 
   // the live main-loop turn; a hot reload resets it, which only affects the
   // totals of the turn that reloaded
-  const live = { turnId: '', startedAt: 0, tools: 0, edits: 0, failed: 0, lastToolId: null as string | null, costStart: null as number | null }
+  const live = {
+    turnId: '',
+    // true from turn.start to the main loop's turn.complete: an agent that
+    // finishes outside that window finished after its turn (0.5.0)
+    active: false,
+    startedAt: 0,
+    tools: 0,
+    edits: 0,
+    failed: 0,
+    lastToolId: null as string | null,
+    lastFailedTool: null as string | null,
+    costStart: null as number | null,
+    // tools the API ran inside this turn's requests (0.5.0)
+    serverTools: [] as GlassServerTool[],
+  }
 
   on('config.set', { key: 'glass.palette' }, async ($, e, next) => {
     const result = await next(e)
     palette = paletteNamed(e.value)
+    paletteName = paletteNameOf(e.value)
+    // a glass theme follows the palette (0.5.0); any other theme is left alone
+    try {
+      const row = (await $.config.list()).find(r => r.key === 'theme')
+      if (typeof row?.value === 'string' && row.value.startsWith('custom:glass-')) $.ui.toast('glass: ' + (await installTheme($, paletteName)))
+    } catch {
+      // the theme stays as it was
+    }
+    return result
+  })
+
+  on('command.run', { command: 'glass-theme' }, async $ => ({ text: await installTheme($, paletteName) }))
+
+  on('config.set', { key: 'glass.notify' }, async ($, e, next) => {
+    const result = await next(e)
+    notifyOn = e.value !== false
     return result
   })
 
@@ -268,6 +368,7 @@ export const register: Register = (on, options) => {
     await $.command.register({ name: 'unfold', description: 'glass: open the tool trees of every turn' })
     await $.command.register({ name: 'expand', description: 'glass: open every folded run of reads and searches' })
     await $.command.register({ name: 'collapse', description: 'glass: fold the runs of reads and searches again' })
+    await $.command.register({ name: 'glass-theme', description: 'glass: write a theme for the current palette to ~/.claude/themes and select it' })
     return next(e)
   })
   on('command.run', { command: 'expand' }, async $ => {
@@ -314,6 +415,9 @@ export const register: Register = (on, options) => {
       first: false,
       columns: columns - 5,
       marks: false,
+      // a compaction summary (read-only flag, passed on untouched; typed from
+      // 2.1.295 on, so read loosely for older type layouts)
+      summary: (e.props as { isSummary?: unknown }).isSummary === true,
     })
     // The turn's last reply closes the tree: its node's corner when the
     // reply is one block, else a row of its own under the text
@@ -378,12 +482,27 @@ export const register: Register = (on, options) => {
     // no dots line under the header: the turn's dots and counts live in
     // agent-hud's box above the prompt (owner's request, 2026-10-05), and
     // the row no longer reads `calls`, so a call's end redraws it no more
+    const turnId = known?.turnId ?? null
+    const answer = turnId ? (((await read($, turns)) ?? []).find(h => h.turnId === turnId)?.answer ?? '') : ''
     return renderUserRow(t, palette, {
       text,
       submittedAt: known?.submittedAt ?? null,
       startedAt: known?.startedAt ?? null,
       turn: null,
       columns: e.viewport?.columns ?? 80,
+      // 0.5.0 (gated on the live press retest): the chevron folds this one
+      // turn, Copy takes the finished answer
+      ...(turnId
+        ? {
+            folded: foldedTurns.has(turnId),
+            onFold: () => {
+              if (foldedTurns.has(turnId)) foldedTurns.delete(turnId)
+              else foldedTurns.add(turnId)
+              $.ui.invalidate('ui.render')
+            },
+            onCopy: answer ? (press: { surface: 'terminal' | 'desktop' | 'vscode' | 'mobile' }) => void $.ui.copy({ text: answer, surface: press.surface }).catch(() => undefined) : null,
+          }
+        : {}),
     })
   })
 
@@ -478,7 +597,7 @@ export const register: Register = (on, options) => {
     return wrap(rows.length === 1 ? rows[0]! : t.Box({ flexDirection: 'column', children: rows }))
   })
 
-  // Bash output body, painted the way claude-hl painted it. The engine
+  // Bash output body, painted. The engine
   // strips escape codes from a rewritten result, so the body is drawn as
   // Text, and only when it is short enough that the engine would show it
   // whole: longer output keeps the engine's collapsed body and ctrl+o.
@@ -513,6 +632,9 @@ export const register: Register = (on, options) => {
       if (status === 'async_launched' || status === 'remote_launched') return renderAgentLaunch($.ui.resolve(e), palette, status === 'remote_launched')
       return next(e)
     }
+    // a loaded skill: one trunked line in place of the engine's body, whose
+    // corner bracket sat off the trunk (2026-10-09)
+    if (e.props.tool === 'Skill' && !e.props.isErrored) return renderSkillLoad($.ui.resolve(e), palette, e.props.output)
     if (e.props.tool !== 'Bash') return next(e)
     // a backgrounded command: the same trunked line, not the engine's corner
     // bracket, which sat off the trunk (2026-10-05)
@@ -553,11 +675,15 @@ export const register: Register = (on, options) => {
       }
     }
     live.turnId = e.turnId
+    live.active = true
+    await update($, liveTurn, () => e.turnId)
     live.startedAt = await $.clock.now()
     live.tools = 0
     live.edits = 0
     live.failed = 0
     live.lastToolId = null
+    live.lastFailedTool = null
+    live.serverTools = []
     live.costStart = null
     try {
       live.costStart = (await $.session.usage()).cost?.usd ?? null
@@ -619,7 +745,10 @@ export const register: Register = (on, options) => {
     }
     if (main) {
       const ms = (await $.clock.now()) - t0
-      if (r.isError) live.failed += 1
+      if (r.isError) {
+        live.failed += 1
+        live.lastFailedTool = e.tool
+      }
       if (r.isError && id) failedCalls.add(id)
       const out = r.isError ? undefined : (r.result as { backgroundTaskId?: unknown; status?: unknown; agentId?: unknown; taskId?: unknown } | undefined)
       const task = typeof out?.backgroundTaskId === 'string' ? out.backgroundTaskId
@@ -703,6 +832,16 @@ export const register: Register = (on, options) => {
       yield chunk
       step = await stream.next()
     }
+    // tools the API ran inside this request (the advisor): the step's result
+    // lists them; the main loop's are drawn after the reply (0.5.0)
+    if (!e.agentId) {
+      const result = step.value as unknown as { serverToolUses?: ReadonlyArray<{ id: string; name: string; startedAt: number; endedAt?: number }> } | undefined
+      for (const s of result?.serverToolUses ?? []) {
+        if (typeof s.id !== 'string' || typeof s.name !== 'string' || typeof s.startedAt !== 'number') continue
+        if (live.serverTools.some(x => x.id === s.id)) continue
+        live.serverTools.push({ id: s.id, name: s.name, startedAt: s.startedAt, ...(typeof s.endedAt === 'number' ? { endedAt: s.endedAt } : {}) })
+      }
+    }
     if (e.agentId) {
       const agentId = e.agentId
       const effort = e.effort === undefined ? '' : String(e.effort)
@@ -739,7 +878,17 @@ export const register: Register = (on, options) => {
       const agentId = e.agentId
       const toolId = taskCalls.get(agentId)
       if (toolId && finishBackground(toolId, false)) $.ui.invalidate('ui.render')
+      const done = ((await read($, agents)) ?? []).find(a => a.agentId === agentId)
       await update($, agents, as => (as ?? []).filter(a => a.agentId !== agentId))
+      // an agent that finished after its turn ended: the engine says nothing,
+      // so glass does (0.5.0); one that finished inside a turn is on screen.
+      // The live turn is read from state, which survives a reload (0.5.1).
+      const mainLive = ((await read($, liveTurn)) ?? null) !== null
+      if (done && !mainLive && notifyOn) {
+        const ms = (await $.clock.now()) - done.startedAt
+        const label = done.description.length > 60 ? done.description.slice(0, 59) + G.ellipsis : done.description
+        await notifyPerson($, ms >= 100 ? `${label} ${G.middot} ${fmtToolTime(ms)}` : label)
+      }
       return next(e)
     }
     if (header) {
@@ -771,6 +920,7 @@ export const register: Register = (on, options) => {
       answer: e.answer.slice(0, ANSWER_MAX),
       startedAt: live.startedAt || finishedAt - e.durationMs,
       finishedAt,
+      ...(live.serverTools.length ? { serverTools: [...live.serverTools] } : {}),
     }
     await update($, turns, h => [...(h ?? []), turn].slice(-HISTORY))
     const answer = e.answer.trim()
@@ -783,6 +933,13 @@ export const register: Register = (on, options) => {
     }
     for (const set of [closedAnswers, closedTools]) if (set.size > HISTORY) set.delete(set.values().next().value!)
     $.ui.invalidate('ui.render')
+    live.active = false
+    await update($, liveTurn, () => null)
+    // a turn that ended with failed calls: the engine's idle notification
+    // does not say so (0.5.0)
+    if (live.failed > 0 && notifyOn) {
+      await notifyPerson($, `${live.failed} ${live.failed === 1 ? 'call' : 'calls'} failed${live.lastFailedTool ? ` ${G.middot} ${toolText(live.lastFailedTool)}` : ''}`)
+    }
     // a finished turn stays open: the tree is the evidence of what the
     // prompt did (owner's call, 2026-10-03; /fold tucks old turns away)
     return next(e)
@@ -792,9 +949,23 @@ export const register: Register = (on, options) => {
   // The engine's `Baked for 12s` line is dropped by request: the dots line
   // under the user row carries the counts, and the turn's cost and
   // tokens stay in state for anything that wants them later.
-  on('ui.render', { component: 'TurnDuration' }, ($, e, next) => {
+  on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
-    return $.ui.resolve(e).Box({ display: 'none', children: [] })
+    const t = $.ui.resolve(e)
+    // the one per-turn row after the reply: it carries the tools the API ran
+    // itself, when the turn had any (0.5.0). It finds its turn by duration,
+    // as the footer did; this read subscribes one row per turn.
+    const list = (await read($, turns)) ?? []
+    let mine: GlassTurn | null = null
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (list[i]!.durationMs === e.props.durationMs) {
+        mine = list[i]!
+        break
+      }
+    }
+    const tools = mine?.serverTools ?? []
+    if (tools.length === 0) return t.Box({ display: 'none', children: [] })
+    return renderServerToolRows(t, palette, tools)
   })
 
   // ---- the hint line under the prompt: key reminders dropped ---------------

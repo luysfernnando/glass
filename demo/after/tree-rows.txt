@@ -1,0 +1,19 @@
+│
+├─ ✓ Read  hooks/register.ts0.3s
+│
+├─ ✓ Bash  git log --oneline -10.8s
+│
+├─ ✗ Edit  hooks/chrome.ts0.1s
+│
+├─ ▸ Read · Grep  a.ts · x
+
+-- colors --
+#48708c
+#9cce8b
+#d083e8
+#d2bdff
+#6cc0e5
+#96bdff
+#7bc0ae
+#e67680
+#7aa2b5

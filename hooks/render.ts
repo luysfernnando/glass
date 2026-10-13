@@ -21,6 +21,8 @@ type Ctx = {
   p: Palette
   /** the prose measure in cells */
   m: number
+  /** a color for plain prose, when the block mutes it (a quote's `meta`) */
+  tone?: string
 }
 
 export type RenderOptions = {
@@ -29,6 +31,8 @@ export type RenderOptions = {
   columns: number
   /** gutter marks beside paragraphs that need the reader; off when the prompt asked for writing */
   marks: boolean
+  /** a compaction summary (0.5.0): one faint ` . summary` row closes the reply, as the engine's own mark reads */
+  summary?: boolean
 }
 
 const LABEL_WIDTH = 8
@@ -62,9 +66,15 @@ const CARD_MIN = 60
 const H2_STEP = 0.4
 // a table column squeezed to fit never gets narrower than this
 const COL_MIN = 4
-// a table cell that reads as a number: an optional sign or currency mark, digits
-// with separators, then a percent or a short unit (`1.5k`, `12ms`, `3GB`)
-const NUMERIC_RE = new RegExp('^[-+]?[$' + String.fromCodePoint(0xa3, 0x20ac) + ']?\\d[\\d.,]*(?:%|[A-Za-z]{1,2})?$')
+// a table cell that reads as a number: an optional approximation mark, sign
+// or currency mark, digits with separators, then a percent, a multiplier or
+// a short unit, with a per-unit tail (`1.5k`, `12ms`, `3GB`, `4.5MB/s`, `~2x`)
+const NUMERIC_RE = new RegExp(
+  '^[~<>' + String.fromCodePoint(0x2248) + ']?[-+]?[$' + String.fromCodePoint(0xa3, 0x20ac) + ']?\\d[\\d.,]*(?:%|' + String.fromCodePoint(0xd7) + '|[A-Za-z' + String.fromCodePoint(0xb5) + ']{1,4}(?:/[A-Za-z]{1,3})?)?$',
+)
+// a cell that stands for no value: it decides nothing, as an empty cell does
+// not (one dash in a column of numbers flipped the whole column left)
+const PLACEHOLDER_RE = new RegExp('^(?:-|' + String.fromCodePoint(0x2013) + '|' + String.fromCodePoint(0x2014) + '|n/a|N/A|\\?|' + String.fromCodePoint(0x2026) + ')$')
 
 // a color `k` of the way from `a` to `b`; a non-hex color stays `a`
 function blend(a: string, b: string, k: number): string {
@@ -116,10 +126,13 @@ export function renderReply(t: Table, blocks: Block[], p: Palette, o: RenderOpti
   blocks.forEach((b, i) => {
     const el = renderBlock(c, b)
     // one rhythm rule: a blank above every block except the first and any
-    // block right under a heading; the reply's first block keeps a blank,
-    // so it never sits glued to the tool rows above. No bullet: the
-    // assistant header under the user row carries it.
-    const marginTop = i === 0 ? (o.first ? 1 : 0) : prev === 'heading' ? 0 : 1
+    // text block right under a heading; the reply's first block keeps a
+    // blank, so it never sits glued to the tool rows above. No bullet: the
+    // assistant header under the user row carries it. A card, a table or a
+    // Bottom line keeps its blank under a heading: a tint or a second bold
+    // row glued to the heading read as one crowded block.
+    const tight = prev === 'heading' && b.kind !== 'code' && b.kind !== 'table' && b.kind !== 'callout'
+    const marginTop = i === 0 ? (o.first ? 1 : 0) : tight ? 0 : 1
     // a paragraph that asks something of the reader gets a gutter mark in
     // the two cells every other block leaves blank
     const marked = o.marks && b.kind === 'paragraph' && !isPrivateNote(inlineText(b.inlines)) && needsAttention(proseText(b.inlines))
@@ -136,6 +149,8 @@ export function renderReply(t: Table, blocks: Block[], p: Palette, o: RenderOpti
     }
     prev = b.kind
   })
+  // a compaction summary ends on its own faint mark, as the engine's does
+  if (o.summary) rows.push(t.Box({ flexDirection: 'column', marginLeft: 2, children: [t.Text({ color: p.faint, children: [G.middot + ' summary'] })] }))
   return t.Box({ flexDirection: 'column', children: rows })
 }
 
@@ -299,23 +314,46 @@ function renderFence(c: Ctx, lang: string, source: string): RenderElement {
 }
 
 
+// where each item sits: a child hangs off its parent's text column, so
+// under `1. Install` the ring lands under the `I`, as CommonMark renderers
+// and Claude Desktop draw it (`depth * 2` put it under the period); ordered
+// markers pad to the widest at their own depth
+type ListLayout = { indent: number[]; numWidth: number[] }
+function listLayout(items: ListItem[]): ListLayout {
+  const numWidth: number[] = []
+  for (const it of items) {
+    if (/^\d/.test(it.marker) && !it.task) numWidth[it.depth] = Math.max(numWidth[it.depth] ?? 0, cellWidth(it.marker))
+  }
+  const cols: number[] = []
+  const marks: number[] = []
+  const indent = items.map(it => {
+    const d = it.depth
+    const col = d === 0 ? 0 : (cols[d - 1] ?? 0) + (marks[d - 1] ?? 2)
+    cols[d] = col
+    marks[d] = itemMarker(it, numWidth[d] ?? 0)
+    return col
+  })
+  return { indent, numWidth: Array.from(numWidth, n => n ?? 0) }
+}
+
 function renderList(c: Ctx, items: ListItem[]): RenderElement {
   const { t, p, m } = c
-  const ordered = items.filter(it => /^\d/.test(it.marker))
-  const numWidth = Math.max(0, ...ordered.map(it => cellWidth(it.marker)))
+  const { indent, numWidth } = listLayout(items)
   const marker = (it: ListItem): RenderElement => {
     // a done task is the one list mark that gets a color, as in tidepool
     if (it.task === 'done') return t.Text({ color: p.ok, children: [G.check + ' '] })
     if (it.task === 'todo') return t.Text({ color: p.bullet, children: [G.box + ' '] })
-    if (/^\d/.test(it.marker)) return t.Text({ color: p.orderedNum, children: [it.marker.padEnd(numWidth) + ' '] })
+    // numbers right-aligned, so `9.` and `10.` end on one column
+    if (/^\d/.test(it.marker)) return t.Text({ color: p.orderedNum, children: [it.marker.padStart(numWidth[it.depth] ?? 0) + ' '] })
     return t.Text({ color: p.bullet, children: [(it.depth > 0 ? G.ring : G.dot) + ' '] })
   }
-  const row = (it: ListItem) =>
+  const row = (it: ListItem, i: number, air: boolean) =>
     t.Box({
       flexDirection: 'row',
       // nested items end at the measure like everything else
-      width: Math.max(10, m - it.depth * 2),
-      marginLeft: it.depth * 2,
+      width: Math.max(10, m - indent[i]!),
+      marginLeft: indent[i],
+      ...(air ? { marginTop: 1 } : {}),
       children: [
         marker(it),
         t.Box({
@@ -327,15 +365,18 @@ function renderList(c: Ctx, items: ListItem[]): RenderElement {
     })
   return t.Box({
     flexDirection: 'column',
-    children: items.map(it => {
-      if (!it.blocks?.length) return row(it)
+    children: items.map((it, i) => {
+      // zero rows between items, except one each side of a card under an
+      // item: text touching a tint read as a glitch
+      const air = i > 0 && (items[i - 1]!.blocks?.length ?? 0) > 0
+      if (!it.blocks?.length) return row(it, i, air)
       // a fence typed under the item sits under its text, at the text's
       // left edge, as wide as the item's text at most (0.4.22)
-      const indent = it.depth * 2 + itemMarker(it, numWidth)
-      const inner = { ...c, m: Math.max(10, m - indent) }
+      const under = indent[i]! + itemMarker(it, numWidth[it.depth] ?? 0)
+      const inner = { ...c, m: Math.max(10, m - under) }
       return t.Box({
         flexDirection: 'column',
-        children: [row(it), ...it.blocks.map(b => t.Box({ marginLeft: indent, children: [renderBlock(inner, b)] }))],
+        children: [row(it, i, air), ...it.blocks.map(b => t.Box({ marginLeft: under, marginTop: 1, children: [renderBlock(inner, b)] }))],
       })
     }),
   })
@@ -352,6 +393,9 @@ function itemMarker(it: ListItem, numWidth: number): number {
 // with a blank row between them. No tint.
 function renderQuote(c: Ctx, blocks: Block[]): RenderElement {
   const { t, p, m } = c
+  // quoted prose keeps the prose color: a `meta` step was tried and the
+  // owner wanted the color back (2026-10-11); `tone` stays for a block
+  // that may want it later
   const inner = { ...c, m: m - 2 }
   const height = quoteRows(blocks, m)
   return t.Box({
@@ -386,13 +430,13 @@ function blockRows(b: Block, m: number): number {
     case 'code':
       return fenceRows(fenceShape(b.lang, b.source, m))
     case 'list': {
-      const ordered = b.items.filter(it => /^\d/.test(it.marker))
-      const numWidth = Math.max(0, ...ordered.map(it => cellWidth(it.marker)))
-      return b.items.reduce((n, it) => {
-        const marker = itemMarker(it, numWidth)
-        const width = Math.max(10, m - it.depth * 2) - marker
-        const under = (it.blocks ?? []).reduce((k, inner) => k + blockRows(inner, Math.max(10, m - it.depth * 2 - marker)), 0)
-        return n + wrappedLines(it.inlines, width) + under
+      const { indent, numWidth } = listLayout(b.items)
+      return b.items.reduce((n, it, i) => {
+        const marker = itemMarker(it, numWidth[it.depth] ?? 0)
+        const width = Math.max(10, m - indent[i]!) - marker
+        const air = i > 0 && (b.items[i - 1]!.blocks?.length ?? 0) > 0 ? 1 : 0
+        const under = (it.blocks ?? []).reduce((k, inner) => k + 1 + blockRows(inner, Math.max(10, m - indent[i]! - marker)), 0)
+        return n + air + wrappedLines(it.inlines, width) + under
       }, 0)
     }
     case 'rule':
@@ -455,9 +499,9 @@ function renderTable(c: Ctx, header: Inline[][], align: (Align | null)[], rows: 
   if (!widths) return t.Markdown({ text: raw.slice(0, MAX_TEXT) })
   header = header.map((h, i) => squeeze(h, widths[i] ?? COL_MIN))
   rows = rows.map(r => r.map((cell, i) => squeeze(cell, widths[i] ?? COL_MIN)))
-  // `42`, `-3`, `1.5k`, `$12`, `80%`, `12ms`; an empty cell does not decide
+  // `42`, `-3`, `1.5k`, `$12`, `80%`, `12ms`; an empty or placeholder cell does not decide
   const numeric = (col: number) => {
-    const cells = rows.map(r => inlineText(r[col] ?? []).trim()).filter(x => x !== '')
+    const cells = rows.map(r => inlineText(r[col] ?? []).trim()).filter(x => x !== '' && !PLACEHOLDER_RE.test(x))
     return cells.length > 0 && cells.every(x => NUMERIC_RE.test(x))
   }
   const cell = (inlines: Inline[], col: number, isHeader: boolean): RenderElement => {
@@ -574,9 +618,10 @@ function renderInlines(c: Ctx, inlines: Inline[]): RenderNode[] {
   return inlines.flatMap((n): RenderNode[] => {
     switch (n.kind) {
       case 'text':
-        return renderProse(c, n.text)
+        return c.tone ? [t.Text({ color: c.tone, children: renderProse(c, n.text) })] : renderProse(c, n.text)
       case 'bold':
-        return [t.Text({ bold: true, color: p.bold, children: renderInlines(c, n.children) })]
+        // bold keeps its own color inside a muted block
+        return [t.Text({ bold: true, color: p.bold, children: renderInlines({ ...c, tone: undefined }, n.children) })]
       case 'italic':
         return [t.Text({ italic: true, children: renderInlines(c, n.children) })]
       case 'strike':
@@ -589,7 +634,7 @@ function renderInlines(c: Ctx, inlines: Inline[]): RenderNode[] {
   })
 }
 
-// Prose outside backticks, painted the way claude-hl painted it: command
+// Prose outside backticks, painted: command
 // spans once there is evidence (`git push --follow-tags`, never `make
 // sure`), then paths and URLs anywhere (`README.md`, `~/.zshrc`,
 // `src/main.rs:42` with its line number in the number color).

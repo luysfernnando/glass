@@ -48,6 +48,8 @@ export const G = {
   disc: cp(0x25cf),
   /** the agent face's smile: UNDERTIE U+203F */
   smile: cp(0x203f),
+  /** TWO JOINED SQUARES U+29C9: the dots line's Copy button (0.5.0) */
+  copy: cp(0x29c9),
   /** DOWNWARDS ARROW U+2193: the engine's `down to manage` key */
   arrowDown: cp(0x2193),
   /** LEFTWARDS ARROW U+2190: the engine's `left for agents` key */

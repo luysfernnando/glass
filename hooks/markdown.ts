@@ -125,6 +125,10 @@ export function parseMarkdown(input: string): Block[] {
     }
     if (LIST_RE.test(line)) {
       const items: { depth: number; marker: string; text: string; blocks: Block[] }[] = []
+      // nesting is the rank of an item's indent among the indents seen so
+      // far, not floor(spaces / 2): `1. a` then `   - b` (three spaces, the
+      // width of `1. `) is one level down, as CommonMark reads it
+      const indents: number[] = []
       while (i < lines.length) {
         const l = lines[i]!
         if (l.trim() === '') {
@@ -139,7 +143,10 @@ export function parseMarkdown(input: string): Block[] {
         const m = LIST_RE.exec(l)
         const fence = items.length > 0 ? ITEM_FENCE_RE.exec(l) : null
         if (m) {
-          items.push({ depth: Math.floor(m[1]!.length / 2), marker: m[2]!, text: m[3]!, blocks: [] })
+          const indent = m[1]!.replace(/\t/g, '    ').length
+          while (indents.length > 0 && indent < indents[indents.length - 1]!) indents.pop()
+          if (indents.length === 0 || indent > indents[indents.length - 1]!) indents.push(indent)
+          items.push({ depth: indents.length - 1, marker: m[2]!, text: m[3]!, blocks: [] })
         } else if (fence) {
           // a fence typed under the item (`1. Run:` then an indented block):
           // its lines lose the item's indent and draw as a card under the

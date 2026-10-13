@@ -77,7 +77,7 @@ test('the shell tokenizer keeps command color across a newline after &&', async 
   expect(cmds).toEqual(['git', 'git'])
 })
 
-test('prose commands paint only with evidence, as claude-hl did', async () => {
+test('prose commands paint only with evidence', async () => {
   const paint = (s: string) => proseSpans(s).map(x => `${x.kind}:${s.slice(x.start, x.end)}`)
   expect(paint('then run git push --follow-tags to publish')).toEqual(['cmd:git', 'sub:push', 'flag:--follow-tags'])
   expect(paint('make sure the build passes')).toEqual([])
@@ -111,7 +111,7 @@ test('paths anywhere: rooted, known extension or dotfile, with a line suffix', a
   expect(pathLike('e.g.')).toBe(null)
 })
 
-test('tool output lines paint like claude-hl: git codes, commands, paths, numbers, status words', async () => {
+test('tool output lines paint git codes, commands, paths, numbers, status words', async () => {
   const colored = (line: string) => paintLine(line).filter(s => s.color).map(s => `${s.color}:${s.text}`)
   expect(colored('M hooks/render.ts')).toEqual(['warn:M', 'path:hooks/render.ts'])
   expect(colored('?? docs/demo.png')).toEqual(['comment:?', 'comment:?', 'path:docs/demo.png'])
@@ -282,4 +282,19 @@ test('0.4.22: paths with router brackets, new extensions, any case, and the conv
   expect(pathLike('makefile')).toBeNull()
   expect(pathLike('and/or')).toBeNull()
   expect(pathLike('e.g.')).toBeNull()
+})
+
+test('0.5.2: nesting is the rank of the indent, numbers right-align, a card under an item gets air', async () => {
+  // three spaces under `1.` is one level down, four spaces under `-` is still one
+  const l = parseMarkdown('1. a\n   - b\n   - c\n10. d\n    - e')[0]
+  if (l?.kind !== 'list') throw new Error('expected a list')
+  expect(l.items.map(it => it.depth)).toEqual([0, 1, 1, 0, 1])
+  const deep = parseMarkdown('- a\n    - b\n        - c\n  - d')[0]
+  if (deep?.kind !== 'list') throw new Error('expected a list')
+  expect(deep.items.map(it => it.depth)).toEqual([0, 1, 2, 1])
+  // a quote's row count follows the renderer: one row per item, one blank
+  // each side of a card under an item
+  const q = parseMarkdown('> 1. Install:\n>    ```\n>    npm i\n>    ```\n> 2. Run')[0]
+  if (q?.kind !== 'quote') throw new Error('expected a quote')
+  expect(quoteRows(q.blocks, 80)).toBe(5)
 })

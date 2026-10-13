@@ -1,5 +1,4 @@
-// Paths and URLs as claude-hl recognized them, used in prose and in tool
-// output. Absolute, relative and home paths always count; otherwise a known
+// Paths and URLs, recognized in prose and in tool output. Absolute, relative and home paths always count; otherwise a known
 // extension or a dotfile is needed, so "and/or" and "e.g." stay plain.
 
 export const EXTENSIONS = new Set(

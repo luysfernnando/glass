@@ -1,5 +1,4 @@
-// What a paragraph of Claude's prose asks of the reader, ported from
-// claude-hl: a question, an opening instruction, or an attention phrase
+// What a paragraph of Claude's prose asks of the reader: a question, an opening instruction, or an attention phrase
 // earns a gutter mark. Matters of wording, decided by small tables.
 
 const ATTENTION = [

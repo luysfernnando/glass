@@ -6,7 +6,7 @@
 // saturated color on marks only.
 import type { Elements, RenderElement, RenderNode, UiPressArgument } from 'claude-code'
 
-import type { GlassAgent, GlassCall, GlassTurn } from '../types'
+import type { GlassAgent, GlassCall, GlassServerTool, GlassTurn } from '../types'
 import { G } from './glyphs'
 import { CODE_COLOR, highlightLine, langOf } from './highlight'
 import type { State } from './highlight'
@@ -14,6 +14,7 @@ import { paintLine } from './output'
 import type { Palette } from './palette'
 import { measure } from './render'
 import { shellSpans } from './shell'
+import { THEME } from './theme'
 import { cellWidth, clipPath } from './width'
 
 type Table = Elements['terminal']
@@ -136,7 +137,7 @@ export function rel(path: string): string {
 }
 // chars a tree row's path keeps before it shortens to its last two parts
 const SHORT_PATH = 40
-// A tree row's path: rel, cut to `…/hooks/register.tsx` past SHORT_PATH,
+// A tree row's path: rel, cut to `.../hooks/register.tsx` past SHORT_PATH,
 // so the row's other parts keep their room (owner's request, 2026-10-07).
 export function shortPath(path: string): string {
   const r = rel(path)
@@ -164,6 +165,12 @@ export type UserRow = {
   startedAt: number | null
   turn: TurnView | null
   columns: number
+  /** 0.5.0, gated on the live press retest: the turn's tree is folded */
+  folded?: boolean
+  /** a press folds or unfolds this turn's tree; none, no chevron */
+  onFold?: Press | null
+  /** a press copies the turn's answer; none, no Copy */
+  onCopy?: Press | null
 }
 
 // the dots: one per call in call order, grouped by consecutive tool with a
@@ -248,6 +255,8 @@ export function renderUserRow(t: Table, p: Palette, r: UserRow): RenderElement {
         t.Text({
           wrap: 'truncate-end',
           children: [
+            // name and glyph in one color: a neutral bold name was tried
+            // and the owner wanted the color back (2026-10-11)
             t.Text({ color: p.accentUser, bold: true, children: [G.diamond + ' You'] }),
             ...(r.submittedAt === null ? [] : [t.Text({ color: p.meta, children: [sep + clockTime(r.submittedAt)] })]),
             t.Text({ color: p.faint, children: [' ' + G.rule.repeat(Math.max(1, m - cellWidth(G.diamond + ' You' + (r.submittedAt === null ? '' : sep + clockTime(r.submittedAt))) - 1))] }),
@@ -291,15 +300,28 @@ export function renderUserRow(t: Table, p: Palette, r: UserRow): RenderElement {
       flexShrink: 1,
       children: [...dots(t, p, v.calls), t.Text({ children: ['  '] }), t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: v.done ? p.meta : p.bold, children: summary })] })],
     })
-    // no chevron and no Copy: a Button in a transcript row never received
-    // its press live (2026-10-03), so folding moved to /fold and /unfold
+    // 0.5.0: the chevron and Copy return as plain Buttons at the right end,
+    // gated on the live press retest (the 0.2 and 0.3 Buttons never
+    // received a press; 2.1.288 fixed button routing). /fold and /unfold
+    // stay the keyboard route. Label only: no children, so the tree
+    // validates on engines before 2.1.295.
+    const controls: RenderNode[] = []
+    if (r.onFold) controls.push(t.Button({ key: `fold:${v.turnId}`, label: r.folded ? G.right : G.down, plain: true, dimColor: true, hover: { backgroundColor: p.rowHover }, onPress: r.onFold }))
+    if (r.onCopy && v.done) controls.push(...(controls.length ? ['  '] : []), t.Button({ key: `copy:${v.turnId}`, label: G.copy + ' Copy', plain: true, dimColor: true, hover: { backgroundColor: p.rowHover }, onPress: r.onCopy }))
     rows.push(
       t.Box({
         key: `dots:${v.turnId}`,
         flexDirection: 'row',
         marginLeft: 2,
+        // the same right inset as the tree rows, so the buttons end where
+        // the durations end
+        marginRight: TREE_INSET,
+        justifyContent: 'space-between',
         hover: { backgroundColor: p.rowHover },
-        children: [t.Box({ flexDirection: 'row', flexShrink: 1, children: [left] })],
+        children: [
+          t.Box({ flexDirection: 'row', flexShrink: 1, children: [left] }),
+          ...(controls.length ? [t.Box({ flexDirection: 'row', flexShrink: 0, marginLeft: 2, children: controls })] : []),
+        ],
       }),
     )
   }
@@ -381,12 +403,15 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
   const live = row.isRunning
   const failed = row.isErrored || row.isInterrupted
   const mark = live ? G.hollow : failed ? G.cross : G.tick
+  // the tick in `ok`: a meta tick was tried and the owner wanted the green
+  // back (2026-10-11)
   const markColor = live ? p.meta : failed ? p.err : p.ok
   const subject = subjectNodes(t, p, row.tool, row.input, live)
   const tail: RenderNode[] = []
   if (!live && row.tool === 'Bash') {
+    // the count only once the body folds: a three-line body is its own count
     const n = outputLines(row.output)
-    if (n !== null && n > 0) tail.push(t.Text({ color: p.faint, children: [sep + plural(n, 'line')] }))
+    if (n !== null && n > MAX_PAINTED_LINES) tail.push(t.Text({ color: p.faint, children: [sep + plural(n, 'line')] }))
   }
   // under a tenth of a second the time says nothing (`0.0s`): none
   const right = o.durationMs === null || o.durationMs < 100 ? '' : fmtToolTime(o.durationMs)
@@ -418,8 +443,37 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
   }), o.air ?? false)
 }
 
+// A tool the API ran inside the request (the advisor): no tool.call, no
+// engine row, so the turn's record draws these after the reply (0.5.0).
+// `|- v advisor  ran by the API                                   4.2s`
+// Connector faint, the mark in meta (the engine ran nothing, so not ok's
+// done), the name in `tool`, the note faint, the duration faint as on every
+// finished row; none without an end time. Each row keeps its air row above.
+export function renderServerToolRows(t: Table, p: Palette, tools: ReadonlyArray<GlassServerTool>): RenderElement {
+  const rows = tools.map(s => {
+    const right = s.endedAt === undefined || s.endedAt - s.startedAt < 100 ? '' : fmtToolTime(s.endedAt - s.startedAt)
+    return spaced(t, p, t.Box({
+      key: `server:${s.id}`,
+      flexDirection: 'row',
+      hover: { backgroundColor: p.rowHover },
+      children: [
+        rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: p.meta, children: [G.tick + ' '] })),
+        t.Box({
+          flexGrow: 1,
+          flexShrink: 1,
+          children: [t.Text({ wrap: 'truncate-end', children: [...toolNodes(t, p, safeText(s.name, 60), false), '  ', t.Text({ color: p.faint, children: ['ran by the API'] })] })],
+        }),
+        ...(right ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.faint, children: [right] })] })] : []),
+      ],
+    }))
+  })
+  return t.Box({ flexDirection: 'column', children: rows })
+}
+
 // cells a body row leaves for the trunk column before its content
 const TRUNK = 3
+// painted output lines under a Bash row before the rest folds to a count
+export const MAX_PAINTED_LINES = 3
 
 // A body row under a tree row: the trunk down its left, `h` rows tall,
 // the content indented under the row's mark. Under the turn's last row
@@ -555,7 +609,7 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
       lines.push({ kind, num, pieces })
     }
   })
-  if (hidden > 0) lines.push({ kind: 'note', num: null, pieces: [{ text: G.ellipsis + ` +${plural(hidden, 'line')} (ctrl+o to expand)`, color: p.faint }] })
+  if (hidden > 0) lines.push({ kind: 'note', num: null, pieces: [{ text: G.ellipsis + ` +${plural(hidden, 'line')}`, color: p.faint }] })
 
   const name = safeText(rel(o.path), 400)
   const counts = (add > 0 ? ` +${add}` : '') + (del > 0 ? ` -${del}` : '')
@@ -585,8 +639,8 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
           ? [
               ...(verb ? [t.Text({ color: p.meta, children: [verb] })] : []),
               t.Text({ color: p.path, children: [shown] }),
-              ...(add > 0 ? [' ', t.Text({ color: p.ok, children: [`+${add}`] })] : []),
-              ...(del > 0 ? [' ', t.Text({ color: p.err, children: [`-${del}`] })] : []),
+              ...(add > 0 ? [' ', t.Text({ color: THEME.success, children: [`+${add}`] })] : []),
+              ...(del > 0 ? [' ', t.Text({ color: THEME.error, children: [`-${del}`] })] : []),
               ' ',
             ]
           : []),
@@ -595,9 +649,14 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
     }),
   )
   for (const l of lines) {
-    const bg = l.kind === 'add' ? p.addBg : l.kind === 'del' ? p.delBg : undefined
+    // 0.5.0: the tints are the active theme's diff slots, so the card
+    // matches the engine's own diff panels; 0.5.3: the marks take the
+    // theme's success and error (the diff*Word slots are the engine's
+    // word-level backgrounds, not text colors). A glass theme sets these to
+    // the palette's addBg, delBg, ok and err.
+    const bg = l.kind === 'add' ? THEME.diffAdded : l.kind === 'del' ? THEME.diffRemoved : undefined
     const mark = l.kind === 'add' ? '+' : l.kind === 'del' ? '-' : ' '
-    const markColor = l.kind === 'add' ? p.ok : l.kind === 'del' ? p.err : p.faint
+    const markColor = l.kind === 'add' ? THEME.success : l.kind === 'del' ? THEME.error : p.faint
     chunk(l.pieces, room).forEach((part, n) => {
       const used = part.reduce((w, x) => w + cellWidth(x.text), 0)
       const head: RenderNode[] =
@@ -954,14 +1013,18 @@ export function renderEventRow(t: Table, p: Palette, id: string, text: string, t
     ],
   }))
   if (rest === '') return row
+  // the rest of the notification hangs off the trunk as a Bash body does,
+  // one row per line, clipped (a body with no trunk sat off the column)
+  const body = rest.split('\n').map(l => t.Text({ wrap: 'truncate-end', color: p.meta, children: [l] }))
   return t.Box({
     flexDirection: 'column',
-    children: [row, t.Box({ marginLeft: 5, children: [t.Text({ wrap: 'wrap', color: p.meta, children: [rest] })] })],
+    children: [row, trunked(t, p, body.length, body)],
   })
 }
 
 // a message another agent sent, folded: `|- . Message from @Explore` in
-// `private`, with the engine's own hint at the right; ctrl+o shows the body
+// `private`; no key hint at the right (0.5.3: the hint line and the group
+// rows gave theirs up, this was the last)
 export function renderMessageRow(t: Table, p: Palette, name: string): RenderElement {
   return spaced(t, p, t.Box({
     key: `message:${name}`,
@@ -970,7 +1033,6 @@ export function renderMessageRow(t: Table, p: Palette, name: string): RenderElem
     children: [
       rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: p.faint, children: [G.ring + ' '] })),
       t.Box({ flexGrow: 1, flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.private, children: [`Message from @${safeText(name, 80)}`] })] }),
-      t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.faint, children: ['ctrl+o'] })] }),
     ],
   }))
 }
@@ -1016,8 +1078,11 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
   const oldest = agents.reduce((n, a) => Math.min(n, a.startedAt), now)
   const elapsed = fmtDuration(Math.max(0, now - oldest))
   const titleText = `background${sep}${agents.length}`
+  // the chevron's hover tint needs a keyed Box around it: without one the
+  // engine refuses the whole tree and draws nothing, so the band was
+  // invisible from 0.5.2 to 0.5.3 (found in the debug log, 2026-10-12)
   const chevron = o.onToggle
-    ? t.Button({ key: 'band:toggle', label: o.open ? G.down : G.right, plain: true, onPress: o.onToggle })
+    ? t.Box({ key: 'band:chevron', children: [t.Button({ key: 'band:toggle', label: o.open ? G.down : G.right, plain: true, dimColor: true, hover: { backgroundColor: p.rowHover }, onPress: o.onToggle })] })
     : t.Text({ color: p.accent, children: [o.open ? G.down : G.right] })
   const title = t.Text({
     children: [
@@ -1079,6 +1144,8 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
       t.Text({ color: p.accent, children: [G.rule + G.arcTR] }),
     ],
   })
+  // the frame and the model column stay accent: a faint frame was tried
+  // and the owner wanted the color back (2026-10-11)
   const edge = (s: string) => t.Text({ color: p.accent, children: [s] })
   const inner = w - 4
   const shown = agents.slice(-BAND_ROWS)
@@ -1173,6 +1240,19 @@ export function renderNoOutput(t: Table, p: Palette): RenderElement {
   return trunked(t, p, 1, [t.Text({ color: p.faint, wrap: 'truncate-end', children: ['(No output)'] })])
 }
 
+// A loaded skill, in place of the engine's body (its corner bracket sat off
+// the trunk, 2026-10-09): one trunked line in `faint`, with the engine's
+// tool count and model where it gives them. A forked skill draws as an
+// Agent's launch.
+export function renderSkillLoad(t: Table, p: Palette, output: unknown): RenderElement {
+  const o = (output && typeof output === 'object' ? output : {}) as { status?: unknown; background?: unknown; allowedTools?: unknown; model?: unknown }
+  if (o.status === 'forked') return o.background === true ? renderAgentLaunch(t, p, false) : trunked(t, p, 1, [t.Text({ color: p.faint, children: ['done'] })])
+  const parts = ['skill loaded']
+  if (Array.isArray(o.allowedTools) && o.allowedTools.length > 0) parts.push(`${plural(o.allowedTools.length, 'tool')} allowed`)
+  if (typeof o.model === 'string' && o.model !== '') parts.push(safeText(o.model, 80))
+  return trunked(t, p, 1, [t.Text({ color: p.faint, wrap: 'truncate-end', children: [parts.join(sep)] })])
+}
+
 // A failed non-Bash call's error, in place of the engine's body (its corner
 // bracket broke the trunk, 2026-10-06): the reason's first line in `err`,
 // the rest a `faint` count; ctrl+o has it whole.
@@ -1250,10 +1330,11 @@ export function cleanHint(hint: string): { vim: string; rest: string } | null {
 const MODE_RE = /mode on|accept edits on|plan mode/i
 
 // the vim mode in `accentUser` (the person's own color: typing is theirs),
-// the permission mode colored by what it means: auto and bypass `warn`, plan
-// `accent`, accepting edits `ok`; anything else `meta`
+// the permission mode in the active theme's own slot for it (0.5.0: the
+// engine's panels and glass agree under any theme): plan `planMode`,
+// accepting edits `autoAccept`, auto and bypass `warning`; anything else `meta`
 export function renderHint(t: Table, p: Palette, h: { vim: string; rest: string }): RenderElement {
-  const modeColor = /auto|bypass/i.test(h.rest) ? p.warn : /plan/i.test(h.rest) ? p.accent : /accept/i.test(h.rest) ? p.ok : p.meta
+  const modeColor = /auto|bypass/i.test(h.rest) ? THEME.warning : /plan/i.test(h.rest) ? THEME.planMode : /accept/i.test(h.rest) ? THEME.autoAccept : p.meta
   return t.Text({
     wrap: 'truncate-end',
     children: [

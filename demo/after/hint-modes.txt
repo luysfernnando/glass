@@ -1,0 +1,10 @@
+-- INSERT --  plan mode on
+-- INSERT --  accept edits on
+-- INSERT --  auto mode on
+-- INSERT --  bypass permissions on
+
+-- colors --
+#7bc0ae
+planMode
+autoAccept
+warning

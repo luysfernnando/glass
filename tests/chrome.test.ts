@@ -1,7 +1,8 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
+import type { GlassAgent } from '../types'
 
-import { CLOCK_CELLS, callRun, callScope, renderRunRow, editRunKeys, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, rel, safeText, setCwd, setHome, shortPath } from '../hooks/chrome'
+import { CLOCK_CELLS, callRun, callScope, renderRunRow, editRunKeys, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, rel, safeText, setCwd, setHome, shortPath, clip, fmtDuration, renderServerToolRows, renderSkillLoad, toolLabel } from '../hooks/chrome'
 import type { RunCall } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { highlight, highlightLine, langOf } from '../hooks/highlight'
@@ -90,10 +91,13 @@ test('a tree row: hollow mark while live, tick and line count once done, the tee
   expect(live.startsWith(G.tee + G.rule + ' ' + G.hollow + ' Bash')).toBe(true)
   expect(live).toContain('git status')
   expect(live).not.toContain('lines')
-  const done = flat(renderTreeRow(t, p, { ...base, isRunning: false, output: { stdout: 'a\nb\nc\n', stderr: '' } }, { last: true, durationMs: 800 }))
+  const done = flat(renderTreeRow(t, p, { ...base, isRunning: false, output: { stdout: 'a\nb\nc\nd\n', stderr: '' } }, { last: true, durationMs: 800 }))
   expect(done.startsWith(G.arcBL + G.rule + ' ' + G.tick + ' Bash')).toBe(true)
-  expect(done).toContain('3 lines')
+  expect(done).toContain('4 lines')
   expect(done.endsWith('0.8s')).toBe(true)
+  // a body the row shows whole is its own count (0.5.3)
+  const short = flat(renderTreeRow(t, p, { ...base, isRunning: false, output: { stdout: 'a\nb\nc\n', stderr: '' } }, { last: false, durationMs: 800 }))
+  expect(short).not.toContain('lines')
   // a done Bash row keeps its command's token colors
   const doneTree = JSON.stringify(renderTreeRow(t, p, { ...base, isRunning: false }, { last: false, durationMs: 800 }))
   expect(doneTree).toContain(JSON.stringify({ type: 'Text', props: { color: p.cmd, children: ['git'] } }))
@@ -157,11 +161,15 @@ test('an event row: a tick and the first line, a cross on a failed task, the dur
   expect(bad).toContain(G.cross + ' Agent died')
   expect(bad.endsWith('Agent died')).toBe(true)
   // expanded, the body follows the row
-  const full = flat(renderEventRow(t, p, 'm3', 'Agent finished\nthe report', { status: 'completed' }, true))
+  const full = flat(renderEventRow(t, p, 'm3', 'Agent finished\nthe report\nsecond line', { status: 'completed' }, true))
   expect(full).toContain('the report')
+  // the body hangs off the trunk: a pipe per line, as a Bash body does
+  expect(full).toContain(G.pipe + '\n' + G.pipe + 'the report' + 'second line')
   const msg = flat(renderMessageRow(t, p, 'Explore'))
   expect(msg.startsWith(G.tee + G.rule + ' ' + G.ring + ' Message from @Explore')).toBe(true)
-  expect(msg.endsWith('ctrl+o')).toBe(true)
+  // no key hint at the right (0.5.3)
+  expect(msg.endsWith('@Explore')).toBe(true)
+  expect(msg).not.toContain('ctrl+o')
 })
 
 test('painted Bash output: the connector, then each line with its words in their colors', async () => {
@@ -203,10 +211,11 @@ test('mounted: a user row, a tree row, a folded group and the band validate on t
     plugin: 'glass',
     surface: 'terminal',
     component: 'ToolUse',
-    props: { tool_use_id: 'toolu_1', tool: 'Bash', input: { command: 'ls -la' }, isRunning: false, isErrored: false, isInterrupted: false, output: { stdout: 'a\n', stderr: '' } },
+    props: { tool_use_id: 'toolu_1', tool: 'Bash', input: { command: 'ls -la' }, isRunning: false, isErrored: false, isInterrupted: false, output: { stdout: 'a\nb\nc\nd\ne\n', stderr: '' } },
   })
   expect(await row.find({ type: 'Text', text: /^Bash$/ })).toBeDefined()
-  expect(await row.find({ type: 'Text', text: /1 line/ })).toBeDefined()
+  // the count draws once the body folds past the painted lines (0.5.3)
+  expect(await row.find({ type: 'Text', text: /5 lines/ })).toBeDefined()
   await row.unmount()
 
   const group = await $.ui.mount({
@@ -264,7 +273,25 @@ test('mounted: a user row, a tree row, a folded group and the band validate on t
   await message.unmount()
 })
 
-test('an Edit diff: one number column, a plus row in ok on addBg, a minus row in err on delBg, code painted', async () => {
+test('mounted: the band with a running agent validates on the terminal (its chevron hover needs a keyed Box; 0.5.2 to 0.5.3 drew nothing)', async ($, on) => {
+  // the world beneath glass: one agent in its state (the kit keeps none), and
+  // an empty band beneath, as the engine's own answers when no plugin draws there
+  mock.clock(on, { now: 60_000 })
+  const agent: GlassAgent = { agentId: 'a1', description: 'Hunt widths', kind: 'Explore', model: 'claude-haiku-5-5', effort: '', stage: 'Read', file: '', tokens: 0, startedAt: 0 }
+  on('state.get', { plugin: 'glass', key: 'agents' } as never, async () => ({ value: { value: [agent], version: 1 } }) as never)
+  on('ui.render', { component: 'AbovePrompt' }, (engine, e) => engine.ui.resolve(e).Box({ children: [] }) as never)
+  const band = await $.ui.mount({
+    plugin: 'glass',
+    surface: 'terminal',
+    component: 'AbovePrompt',
+    props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} },
+  })
+  expect(await band.find({ type: 'Text', text: /background/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /Hunt widths/ })).toBeDefined()
+  await band.unmount()
+})
+
+test('an Edit diff: one number column, a plus row and a minus row in the theme diff slots, code painted', async () => {
   const hunks = [
     { oldStart: 268, newStart: 274, lines: ['  const right = x', '-  return t.Box({', '+  return spaced(t, p, t.Box({', '   key: 1'] },
     { oldStart: 288, newStart: 294, lines: ['-  })', '+  }))'] },
@@ -303,11 +330,16 @@ test('an Edit diff: one number column, a plus row in ok on addBg, a minus row in
   for (const r of long) expect(cellWidth(r)).toBe(76)
   // the frame sits on the trunk column, so its left border is the trunk
   expect(card.props.marginLeft).toBe(2)
-  expect(colors).toContain(p.ok)
-  expect(colors).toContain(p.err)
+  // 0.5.0: the marks and tints name the active theme's diff slots, so the
+  // card follows the theme as the engine's own panels do
+  // 0.5.3: the marks take success and error; the Word slots are the engine's word backgrounds
+  expect(colors).toContain('success')
+  expect(colors).toContain('error')
+  expect(colors).not.toContain('diffAddedWord')
   expect(colors).toContain(p.codeKw)
-  expect(bgs).toContain(p.addBg)
-  expect(bgs).toContain(p.delBg)
+  expect(bgs).toContain('diffAdded')
+  expect(bgs).toContain('diffRemoved')
+  expect(bgs).not.toContain(p.addBg)
 })
 
 test('the highlighter: keywords, calls, types, strings, numbers, comments, a block comment carried across lines', async () => {
@@ -354,6 +386,10 @@ test('0.4.1: no air inside a run, no time under a tenth, one row per output line
   const body = renderToolOutput(t, p, ['x'.repeat(300), 'b'], { columns: 80, maxLines: 3 })
   expect(lines(body).length).toBe(2)
   expect(flat(renderAgentLaunch(t, p, false))).toContain('running in the background')
+  // 0.4.25: a loaded skill's body sits on the trunk, with the engine's extras
+  expect(strings(renderSkillLoad(t, p, {})).join('')).toBe(G.pipe + 'skill loaded')
+  expect(flat(renderSkillLoad(t, p, { allowedTools: ['Read', 'Grep'], model: 'sonnet' }))).toContain('skill loaded ' + G.middot + ' 2 tools allowed ' + G.middot + ' sonnet')
+  expect(flat(renderSkillLoad(t, p, { status: 'forked', background: true }))).toContain('running in the background')
   const group = flat(renderGroupRow(t, p, [{ tool: 'Bash', input: { command: 'git status --short' }, isRunning: false, isErrored: false, isInterrupted: false }], { isActive: false, key: null, onExpand: null }))
   expect(group).toContain('git status --short')
 })
@@ -443,6 +479,18 @@ function fenceCard(node: RenderNode): RenderElement | undefined {
 }
 
 const reply = (md: string, columns = 100) => renderReply(t, parseMarkdown(md), p, { columns, marks: false })
+
+// every element in a tree, depth first
+function elements(node: RenderNode): { type: string; props: Record<string, unknown> }[] {
+  if (typeof node === 'string' || !node) return []
+  const n = node as unknown as { type: string; props: Record<string, unknown> }
+  return [n, ...((n.props.children ?? []) as RenderNode[]).flatMap(elements)]
+}
+// the table a one-table reply draws: reply box, block box, table
+const tableOf = (md: string, columns = 100) => {
+  const block = (reply(md, columns) as unknown as { props: { children: RenderElement[] } }).props.children[0]!
+  return (block as unknown as { props: { children: RenderElement[] } }).props.children[0]!
+}
 
 test('a box-drawing diagram over eight lines draws as itself: no header row, no line numbers', async () => {
   const card = fenceCard(reply('```\n' + boxDiagram.join('\n') + '\n```'))!
@@ -601,4 +649,257 @@ test('a run with a call in the background: hollow mark and a count, no tick and 
   expect(row).toContain(`${G.middot} 1 in background`)
   expect(row).not.toContain(G.tick)
   expect(row).not.toContain('0.9s')
+})
+
+test('a Bottom line head forms with the colon inside the bold too', async () => {
+  for (const head of ['**Bottom line**', '**Bottom line**:', '**Bottom line:**']) {
+    expect(parseMarkdown(head + '\n- Verified: a\n- Issue: b\n- Fix: c')[0]?.kind).toBe('callout')
+  }
+})
+
+test('the band fits its frame on a narrow terminal, open and closed', async () => {
+  const agents = Array.from({ length: 5 }, (_, i) => ({
+    agentId: `a${i}`, description: `Research the widths ${i}`, kind: 'Explore', model: 'claude-opus-5-5', effort: 'high', stage: 'thinking' + G.ellipsis, file: 'hooks/render.ts', tokens: 15_000, startedAt: 0,
+  }))
+  for (const columns of [100, 84, 80, 72, 60, 44, 30]) {
+    const w = Math.max(40, columns - 4)
+    const open = lines(renderBand(t, p, { agents, now: 60_000, columns, open: true, onToggle: () => {}, tasksCommand: 'tasks' }))
+    for (const row of open) expect(cellWidth(row)).toBe(w)
+    const strip = flat(renderBand(t, p, { agents, now: 60_000, columns, open: false, onToggle: () => {}, tasksCommand: null }))
+    expect(cellWidth(strip)).toBe(w)
+  }
+  // no room: nothing, not a stray ellipsis
+  expect(clip('hooks/render.ts', 0)).toBe('')
+})
+
+test('durations past an hour: hours and minutes, whole in the clock', async () => {
+  expect(fmtDuration(59 * 60_000)).toBe('59m 00s')
+  expect(fmtDuration(7_200_000)).toBe('2h 00m')
+  expect(fmtDuration(3_900_000)).toBe('1h 05m')
+  const bytes = Uint8Array.from(atob(clockCells(7_200_000, '#ffffff')), ch => ch.charCodeAt(0))
+  const words = new Uint32Array(bytes.buffer)
+  const text = Array.from({ length: CLOCK_CELLS }, (_, i) => String.fromCharCode(words[i * 3]!)).join('')
+  expect(text).toBe(' 2h 00m')
+  // past 99h 59m the clock holds there, its first digit kept
+  const capped = new Uint32Array(Uint8Array.from(atob(clockCells(100 * 3_600_000, '#ffffff')), ch => ch.charCodeAt(0)).buffer)
+  expect(Array.from({ length: CLOCK_CELLS }, (_, i) => String.fromCharCode(capped[i * 3]!)).join('')).toBe('99h 59m')
+})
+
+test('an output line is a string the API takes: bounded, no control characters, the last pass of a carriage return', async () => {
+  const json = '{"a":' + '1,'.repeat(8000) + '1}'
+  const longest = Math.max(...strings(renderToolOutput(t, p, [json], { columns: 80, maxLines: 3 })).map(s => s.length))
+  expect(longest).toBeLessThanOrEqual(1000)
+  const ctl = flat(renderToolOutput(t, p, ['a' + cp(8) + 'b' + cp(7) + 'c'], { columns: 80, maxLines: 3 }))
+  expect(/[\x00-\x08\x0b-\x1f]/.test(ctl)).toBe(false)
+  expect(flat(renderToolOutput(t, p, ['50%\r100%\r'], { columns: 80, maxLines: 3 }))).toBe(G.pipe + '100%')
+})
+
+test('an event row: no time under a tenth of a second, keyed by its message', async () => {
+  for (const ms of [1, 50, 99]) expect(flat(renderEventRow(t, p, 'm', 'Task done', { status: 'completed', durationMs: ms }))).not.toContain('0.')
+  expect(flat(renderEventRow(t, p, 'm', 'Task done', { status: 'completed', durationMs: 100 })).endsWith('0.1s')).toBe(true)
+  const rowKeys = (id: string) => elements(renderEventRow(t, p, id, 'Agent "x" finished', { status: 'completed' })).map(n => n.props.key).filter(Boolean)
+  expect(rowKeys('m1')).not.toEqual(rowKeys('m2'))
+})
+
+test('a comment-only line in a shell fence draws as a comment', async () => {
+  expect(highlightLine('# note', 'bash')).toEqual([{ text: '# note', kind: 'comment' }])
+  expect(highlightLine('  # note', 'sh')).toEqual([{ text: '  ', kind: 'plain' }, { text: '# note', kind: 'comment' }])
+  expect(highlightLine('ls # x', 'bash').at(-1)).toEqual({ text: '# x', kind: 'comment' })
+})
+
+test('a quoted Bottom line on a narrow terminal: the quote bar is as tall as the card', async () => {
+  const md = '> **Bottom line**\n> - Verified: ' + 'word '.repeat(9) + '\n> - Issue: b\n> - Fix: c'
+  const all = elements(reply(md, 50))
+  const bar = (color: string) => all.find(n => n.type === 'Text' && n.props.color === color && String((n.props.children as unknown[])[0]).startsWith(G.mark))!
+  const height = (color: string) => String((bar(color).props.children as unknown[])[0]).split('\n').length
+  // the card's bar runs its rows; the title line sits above it
+  expect(height(p.quoteBar)).toBe(height(p.calloutBar) + 1)
+  expect(height(p.calloutBar)).toBe(4)
+})
+
+test('no Text string past 10000 characters: a long run goes as several', async () => {
+  const longest = (node: RenderNode) => Math.max(0, ...strings(node).map(s => s.length))
+  const cases = ['word '.repeat(3000), '```ts\n' + 'x'.repeat(15000) + '\n```', '`' + 'y'.repeat(15000) + '`', 'see ' + 'a/'.repeat(7000) + 'b.ts']
+  for (const md of cases) {
+    const tree = reply(md)
+    expect(longest(tree)).toBeLessThanOrEqual(10000)
+    expect(strings(tree).join('').length).toBeGreaterThanOrEqual(14000)
+  }
+})
+
+
+test('0.4.22: a fence under a list item draws as a card under the text, and the quote bar counts it', async () => {
+  const md = '1. Install:\n   ```bash\n   npm i\n   ```\n2. Run it'
+  const tree = reply(md)
+  const card = fenceCard(tree)
+  expect(card).toBeDefined()
+  expect(lines(card!)).toEqual(['npm i'])
+  // the card sits under the item text, in from the marker
+  const holder = elements(tree).find(n => n.type === 'Box' && (n.props.children as RenderNode[])?.[0] === card)
+  expect(holder?.props.marginLeft).toBe(3)
+  // the text row itself has no newline-ridden code span left in it
+  expect(flat(tree)).not.toContain('```')
+  const quoted = parseMarkdown(md.split('\n').map(l => '> ' + l).join('\n'))
+  if (quoted[0]?.kind !== 'quote') throw new Error('expected a quote')
+  // two item rows, one code row, and one row of air each side of the card (0.5.2)
+  expect(quoteRows(quoted[0].blocks, 100)).toBe(5)
+})
+
+test('0.4.22: a blank line in a short fence is a row of its own', async () => {
+  const card = fenceCard(reply('```ts\nconst a = 1\n\nconst b = 2\n```'))!
+  const rows = (card as unknown as { props: { children: { props: { children: unknown[] } }[] } }).props.children
+  expect(rows.length).toBe(3)
+  expect(rows[1]!.props.children).toEqual([' '])
+})
+
+test('0.4.22: a gutter mark reads prose only: a question mark in code or in a URL never marks', async () => {
+  const marked = (md: string) => {
+    const first = (renderReply(t, parseMarkdown(md), p, { columns: 100, marks: true }) as unknown as { props: { children: RenderElement[] } }).props.children[0]!
+    return flat(first).startsWith(G.mark)
+  }
+  expect(marked('Use `foo?.bar` to chain the call.')).toBe(false)
+  expect(marked('See https://x.com/?q=1 for the docs.')).toBe(false)
+  expect(marked('See [the docs](https://x.com/?q=1) for it.')).toBe(false)
+  expect(marked('Did the build pass?')).toBe(true)
+  expect(marked('Run the tests on your machine.')).toBe(true)
+})
+
+test('0.4.22: numeric columns take signs, currency and units, and the header sits over its numbers', async () => {
+  const rows = lines(tableOf('| item | delta | cost |\n|---|---|---|\n| a | -3 | $12 |\n| bb | +1.5k | 80% |\n| c | 12ms |  |'))
+  expect(rows[0]).toBe('item  delta  cost')
+  expect(rows[2]).toBe('a        -3   $12')
+  expect(rows[3]).toBe('bb    +1.5k   80%')
+  // an empty last cell leaves only the column gap behind it
+  expect(rows[4]!.trimEnd()).toBe('c      12ms')
+  // a word column stays left, header included
+  const words = lines(tableOf('| name | n |\n|---|---|\n| a | 1 |\n| bb | 22 |'))
+  expect(words[0]).toBe('name   n')
+})
+
+test('MCP tool names split into a server and a name, prefixes dropped, one underscore at most', () => {
+  expect(toolLabel('mcp__figma__get_design_context')).toEqual({ server: 'figma', name: 'get_design_context' })
+  expect(toolLabel('mcp__plugin_jev-reach_chrome-devtools__take_screenshot')).toEqual({ server: 'chrome-devtools', name: 'take_screenshot' })
+  expect(toolLabel('mcp__claude_ai_Forecast_MCP__get_project_status')).toEqual({ server: 'forecast', name: 'get_project_status' })
+  expect(toolLabel('mcp__claude_ai_Claude_Docs__batch')).toEqual({ server: 'claude-docs', name: 'batch' })
+  expect(toolLabel('mcp__x__a___b')).toEqual({ server: 'x', name: 'a_b' })
+  expect(toolLabel('Bash')).toEqual({ server: null, name: 'Bash' })
+  expect(toolLabel('some__tool')).toEqual({ server: null, name: 'some_tool' })
+})
+
+// the 0.5.2 tests walk trees as plain data: `elements()` lists every node
+type El = { type: string; props: Record<string, unknown> }
+const kidsOf = (n: El) => (n.props.children ?? []) as RenderNode[]
+const asEl = (n: RenderNode) => n as unknown as El
+
+test('0.5.2: ordered numbers right-align, a child hangs off its parent text, a card under an item has air', async () => {
+  const blocks = parseMarkdown('9. nine\n10. ten\n    - child\n11. Run:\n    ```\n    npm i\n    ```\n12. after')
+  const tree = renderReply(t, blocks, p, { first: false, columns: 80, marks: false })
+  const list = elements(tree).find(n => n.type === 'Box' && kidsOf(n).length === 5 && kidsOf(n).every(k => typeof k !== 'string' && k.type === 'Box'))
+  expect(list).toBeDefined()
+  const rows = kidsOf(list!).map(asEl)
+  const rowBox = (n: El): El => (n.props.flexDirection === 'row' ? n : asEl(kidsOf(n)[0]!))
+  const marker = (n: El) => flat(kidsOf(rowBox(n))[0]!)
+  expect(marker(rows[0]!)).toBe(' 9. ')
+  expect(marker(rows[1]!)).toBe('10. ')
+  // the child's marker sits at the parent's text column: 4 cells in
+  expect(rowBox(rows[2]!).props.marginLeft).toBe(4)
+  expect(marker(rows[2]!)).toBe(G.ring + ' ')
+  // the card under item 11 and the item after it each get one row of air
+  const card = asEl(kidsOf(rows[3]!)[1]!)
+  expect(card.props.marginTop).toBe(1)
+  expect(card.props.marginLeft).toBe(4)
+  expect(rowBox(rows[4]!).props.marginTop).toBe(1)
+  expect(rowBox(rows[1]!).props.marginTop).toBeUndefined()
+})
+
+test('0.5.2: a card or table under a heading keeps its blank row, a paragraph does not', async () => {
+  const top = (md: string) => kidsOf(asEl(renderReply(t, parseMarkdown(md), p, { first: false, columns: 80, marks: false }))).map(b => asEl(b).props.marginTop)
+  expect(top('## Title\ntext')).toEqual([0, 0])
+  expect(top('## Title\n```\nx\n```')).toEqual([0, 1])
+  expect(top('## Title\n| a | b |\n| --- | --- |\n| 1 | 2 |')).toEqual([0, 1])
+  expect(top('## Title\n**Bottom line**\nVerified: yes')).toEqual([0, 1])
+})
+
+test('0.5.2: a numeric column survives a placeholder and a longer unit', async () => {
+  const dash = String.fromCodePoint(0x2014)
+  const md = '| cost | p95 | rate |\n| --- | --- | --- |\n| $12 | 1.2s | 3GB |\n| ' + dash + ' | 340ms | 4.5MB/s |'
+  // a table row is a Box of cell Texts
+  const body = elements(reply(md, 80)).filter(n => n.type === 'Box' && n.props.flexDirection === 'row' && /GB|MB/.test(flat(n as unknown as RenderNode))).map(n => flat(n as unknown as RenderNode))
+  expect(body.length).toBe(2)
+  // right-aligned: the cells of each column end on one cell
+  expect(body[0]!.trimEnd().endsWith('3GB')).toBe(true)
+  expect(body[1]!.trimEnd().endsWith('4.5MB/s')).toBe(true)
+  expect(body[0]!.indexOf('$12') + 3).toBe(body[1]!.indexOf(dash) + 1)
+})
+
+test('0.5.2: the dots line carries the tree inset on its right; a server row time is faint; the band chevron is dim', async () => {
+  const dots = renderUserRow(t, p, {
+    text: 'x', submittedAt: 1_000_000, startedAt: 1_000_500, columns: 80, folded: false, onFold: () => undefined, onCopy: () => undefined,
+    turn: { turnId: 'd', calls: [{ id: 't1', tool: 'Read', status: 'ok', ms: 300 }], done: { turnId: 'd', durationMs: 1, tools: 1, edits: 0, failed: 0, inTokens: 0, cacheTokens: 0, outTokens: 0, costUsd: 0, lastToolId: 't1', answer: '', startedAt: 0, finishedAt: 1 } },
+  })
+  const dotsRow = elements(dots).find(n => typeof n.props.key === 'string' && n.props.key.startsWith('dots:'))
+  expect(dotsRow?.props.marginRight).toBe(2)
+  const server = renderServerToolRows(t, p, [{ id: 's1', name: 'advisor', startedAt: 0, endedAt: 4200 }])
+  const times = elements(server).filter(n => n.type === 'Text' && flat(n as unknown as RenderNode) === '4.2s')
+  expect(times.length).toBe(1)
+  expect(times[0]!.props.color).toBe(p.faint)
+  const band = renderBand(t, p, { agents: [{ agentId: 'a', description: 'x', kind: 'Explore', model: 'claude-haiku-5-5', effort: 'low', stage: 'Read', file: '', tokens: 1, startedAt: 0 }], now: 1000, columns: 100, open: true, onToggle: () => undefined, tasksCommand: null })
+  const button = elements(band).find(n => n.type === 'Button')
+  expect(button?.props.dimColor).toBe(true)
+  expect(button?.props.hover).toEqual({ backgroundColor: p.rowHover })
+})
+
+test('the tick stays ok on tree and event rows, a failure err; headers keep their color (muting was turned down 2026-10-11)', async () => {
+  const base = { tool_use_id: 't1', tool: 'Read', input: { file_path: 'a.ts' }, isRunning: false, isErrored: false, isInterrupted: false }
+  const tick = elements(renderTreeRow(t, p, base, { last: false, durationMs: 300 })).find(n => n.type === 'Text' && flat(n as unknown as RenderNode) === G.tick + ' ')
+  expect(tick?.props.color).toBe(p.ok)
+  const cross = elements(renderTreeRow(t, p, { ...base, isErrored: true }, { last: false, durationMs: 300 })).find(n => n.type === 'Text' && flat(n as unknown as RenderNode) === G.cross + ' ')
+  expect(cross?.props.color).toBe(p.err)
+  const ev = elements(renderEventRow(t, p, 'm1', 'Agent "x" finished', { status: 'completed', durationMs: 5000 })).find(n => n.type === 'Text' && flat(n as unknown as RenderNode) === G.tick + ' ')
+  expect(ev?.props.color).toBe(p.ok)
+  // the header names keep their color (a neutral bold name was turned down)
+  const header = renderUserRow(t, p, { text: 'x', submittedAt: 1_000_000, startedAt: 1_000_500, columns: 80, folded: false, turn: null })
+  expect(elements(header).find(n => n.type === 'Text' && flat(n as unknown as RenderNode) === G.diamond + ' You')?.props.color).toBe(p.accentUser)
+  expect(elements(header).find(n => n.type === 'Text' && flat(n as unknown as RenderNode) === G.fisheye + ' Claude')?.props.color).toBe(p.accent)
+})
+
+test('the band frame, title and model stay accent, the faces warn (a faint frame was turned down 2026-10-11)', async () => {
+  const agents = [{ agentId: 'a', description: 'Hunt widths', kind: 'Explore', model: 'claude-sonnet-5-5', effort: 'medium', stage: 'Grep', file: '', tokens: 100, startedAt: 0 }]
+  const open = renderBand(t, p, { agents, now: 1000, columns: 100, open: true, onToggle: null, tasksCommand: 'tasks' })
+  const colorsOf = (n: RenderElement) => elements(n).filter(e => typeof e.props.color === 'string').map(e => [flat(e as unknown as RenderNode), e.props.color as string] as const)
+  const all = colorsOf(open)
+  expect(all.find(([s]) => s.startsWith(G.arcTL))?.[1]).toBe(p.accent)
+  expect(all.find(([s]) => s.startsWith(G.arcBL))?.[1]).toBe(p.accent)
+  expect(all.find(([s]) => s === 'background')?.[1]).toBe(p.accent)
+  expect(all.find(([s]) => s.includes('sonnet-5-5'))?.[1]).toBe(p.accent)
+  expect(all.find(([s]) => s.includes(G.diamond))?.[1]).toBe(p.warn)
+  const strip = renderBand(t, p, { agents, now: 1000, columns: 100, open: false, onToggle: null, tasksCommand: null })
+  expect(colorsOf(strip).find(([s]) => s === G.rule + ' ')?.[1]).toBe(p.accent)
+})
+
+test('quoted prose keeps the prose color (a meta step was turned down 2026-10-11); bold and code keep theirs', async () => {
+  const tree = renderReply(t, parseMarkdown('> quoted **bold** and `glass`'), p, { first: false, columns: 80, marks: false })
+  const texts = elements(tree).filter(n => n.type === 'Text' && typeof n.props.color === 'string')
+  const colorsOf = (s: string) => texts.filter(n => flat(n as unknown as RenderNode) === s).map(n => n.props.color)
+  expect(colorsOf('quoted ')).toEqual([])
+  expect(colorsOf('bold')).toEqual([p.bold])
+  expect(colorsOf('glass')).toEqual([p.code])
+})
+
+test('0.5.3: the highlighter: keywords by language, Rust lifetimes, YAML keys', async () => {
+  const kinds = (spans: CodeSpan[]) => spans.filter(s => s.kind !== 'plain').map(s => `${s.kind}:${s.text}`)
+  // `range` is a Go keyword, a call in Python; `values` is SQL's, a call in TS
+  expect(kinds(highlightLine('for i in range(10):', 'py'))).toEqual(['kw:for', 'kw:in', 'fn:range', 'num:10'])
+  expect(kinds(highlightLine('for i := range xs {', 'go'))).toEqual(['kw:for', 'kw:range'])
+  expect(kinds(highlightLine('const v = values(x)', 'ts'))).toEqual(['kw:const', 'fn:values'])
+  expect(kinds(highlightLine('SELECT a FROM t', 'sql'))).toEqual([])
+  expect(kinds(highlightLine('select a from t', 'sql'))).toEqual(['kw:select', 'kw:from'])
+  // a lifetime is not a string; a char literal still is
+  // a lifetime keeps the string color but ends at its word
+  expect(kinds(highlightLine("fn f<'a>(x: &'a String) -> &'a str {", 'rs'))).toEqual(['kw:fn', "str:'a", "str:'a", 'type:String', "str:'a"])
+  expect(kinds(highlightLine("let c = 'a';", 'rs'))).toEqual(['kw:let', "str:'a'"])
+  // a JSON key is a string and keeps the string color; a YAML key paints as a call
+  expect(kinds(highlightLine('  "name": "glass",', 'json'))).toEqual(['str:"name"', 'str:"glass"'])
+  expect(kinds(highlightLine('  - file_path: hooks/a.ts', 'yaml'))).toEqual(['fn:file_path'])
+  expect(kinds(highlightLine('version: 2 # note', 'yml'))).toEqual(['fn:version', 'num:2', 'comment:# note'])
 })
