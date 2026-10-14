@@ -57,8 +57,8 @@ stored or what the model reads.
   A finished agent is one row. Rows sit back to back, no blank between.
 - **Runs.** Calls with no text between them fold to one row:
   `├─ ⠋ ▸ Bash ×5 · Edit ×2  Run tests  +54 -27`, a spinner while one
-  runs, then a green `✓`, or a red `✗` with `1 failed` and the failed call
-  drawn under it. The subject is the running call's, else the last's. A
+  runs, then a green `✓`, or a red `✗` with `1 failed`; the failed call
+  stays folded until the row opens. The subject is the running call's, else the last's. A
   call joins the run as soon as the model starts writing it, its file read
   from the streaming input (a Bash command waits for its description). A
   Bash that rewrote files is one row, `Bash  <description> · 11 lines

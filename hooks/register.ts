@@ -517,9 +517,10 @@ export const register: Register = (on, options) => {
     if (turnId && foldedTurns.has(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     const t = $.ui.resolve(e)
     // a run of calls is one row (owner's request, 2026-10-05): its first
-    // call's row draws it, the others nothing until it opens
+    // call's row draws it, the others nothing until it opens; a failed call
+    // too: the row's red `1 failed` says it (owner's request, 2026-10-14)
     const run = await findRun($, runCtx(), id)
-    if (run && !run.isOpen && !run.failed.has(id)) return run.head === id ? drawRun($, runCtx(), t, run, e.requestId) : t.Box({ display: 'none', children: [] })
+    if (run && !run.isOpen) return run.head === id ? drawRun($, runCtx(), t, run, e.requestId) : t.Box({ display: 'none', children: [] })
     const wrap = (el: RenderElement) => underRunRow($, runCtx(), t, run, run?.head === id, e.requestId, el)
     // no elbow: knowing the last call needs a subscription to the turn
     const started = liveCalls.get(id)
@@ -563,17 +564,13 @@ export const register: Register = (on, options) => {
     if (turnId && foldedTurns.has(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     const run = first?.tool_use_id ? await findRun($, runCtx(), first.tool_use_id) : null
     const isHead = !!run && e.props.calls.some((c: { tool_use_id?: string }) => c.tool_use_id === run.head)
-    // a group holding a failed call opens (below), and its calls' rows say
-    // which draw while the run is closed
-    const holdsFailed = !!run && e.props.calls.some((c: { tool_use_id?: string }) => run.failed.has(c.tool_use_id ?? ''))
-    if (run && !run.isOpen && !holdsFailed) return isHead ? drawRun($, runCtx(), $.ui.resolve(e), run, e.requestId) : $.ui.resolve(e).Box({ display: 'none', children: [] })
+    if (run && !run.isOpen) return isHead ? drawRun($, runCtx(), $.ui.resolve(e), run, e.requestId) : $.ui.resolve(e).Box({ display: 'none', children: [] })
     const wrap = async (el: RenderElement | Promise<RenderElement>) => underRunRow($, runCtx(), $.ui.resolve(e), run, isHead, e.requestId, await el)
     const id = e.requestId
-    // open after /expand, or on its own when a call in it failed: a red
-    // mark must never hide behind a count
-    const failed = e.props.calls.some((c: { isErrored?: boolean; isInterrupted?: boolean }) => c.isErrored || c.isInterrupted)
+    // open after /expand or a press; a failed call stays folded, the row's
+    // red `1 failed` says it (owner's request, 2026-10-14)
     const all = expandAllNow
-    if ((all && !flatOnly) || failed || ((await read($, expanded)) ?? []).includes(id)) {
+    if ((all && !flatOnly) || ((await read($, expanded)) ?? []).includes(id)) {
       remember(grouped, e.props.calls)
       // opened, the engine draws each call's row: the head's draws the run
       return next({ ...e, props: { ...e.props, isExpanded: true } })
@@ -609,7 +606,7 @@ export const register: Register = (on, options) => {
     if (turnId && foldedTurns.has(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     // a closed run's row says it all
     const run = await findRun($, runCtx(), e.props.tool_use_id)
-    if (run && !run.isOpen && !run.failed.has(e.props.tool_use_id)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
+    if (run && !run.isOpen) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     // a Read's result draws nothing: its row's path says it all, and a
     // press that unfolded the engine's result opened an empty row
     // (owner's request, 2026-10-05); a failed Read keeps its error
@@ -1020,14 +1017,13 @@ type RunCtx = {
   isAllOpen: boolean
 }
 
-type Run = { head: string; turnId: string; calls: RunCall[]; isOpen: boolean; failed: Set<string> }
+type Run = { head: string; turnId: string; calls: RunCall[]; isOpen: boolean }
 
 /**
  * The run the call `id` draws in (callRun), null when it stands alone or
- * glass never saw it. Open when pressed or under /expand. Closed, a failed
- * call still draws under the run's row: a red mark never hides behind a
- * count, and the calls that went fine stay folded (owner's request,
- * 2026-10-05: an open run read as clutter).
+ * glass never saw it. Open when pressed or under /expand. Closed, every
+ * call folds into the run's row, a failed one too: the row's red count says
+ * it (owner's requests, 2026-10-05 and 2026-10-14).
  */
 async function findRun($: EngineInterface, c: RunCtx, id: string): Promise<Run | null> {
   const turnId = c.callTurn.get(id) ?? ''
@@ -1036,7 +1032,7 @@ async function findRun($: EngineInterface, c: RunCtx, id: string): Promise<Run |
   const head = run[0]!.id
   const calls: RunCall[] = run.map(x => ({ id: x.id, tool: x.tool, subject: x.subject, status: !c.callMs.has(x.id) ? 'running' : c.failedCalls.has(x.id) ? 'failed' : c.backgroundCalls.has(x.id) ? 'background' : 'ok' }))
   const isOpen = c.isAllOpen || ((await read($, expanded)) ?? []).includes(`run:${head}`)
-  return { head, turnId, calls, isOpen, failed: new Set(calls.filter(x => x.status === 'failed').map(x => x.id)) }
+  return { head, turnId, calls, isOpen }
 }
 
 /** A run's one row, drawn by its head's row (`requestId`, for the spinner). */
