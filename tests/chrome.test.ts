@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { CLOCK_CELLS, callRun, callScope, renderRunRow, editRunKeys, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, rel, safeText, setCwd, setHome, shortPath, clip, fmtDuration, renderServerToolRows, renderSkillLoad, toolLabel } from '../hooks/chrome'
+import { CLOCK_CELLS, callRun, callScope, renderRunRow, editRunKeys, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderPluginRow, renderToolOutput, renderTreeRow, renderUserRow, rel, safeText, setCwd, setHome, shortPath, clip, fmtDuration, renderServerToolRows, renderSkillLoad, toolLabel } from '../hooks/chrome'
 import type { RunCall } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { highlight, highlightLine, langOf } from '../hooks/highlight'
@@ -141,6 +141,21 @@ test('an event row: a tick and the first line, a cross on a failed task, the dur
   expect(msg).not.toContain('ctrl+o')
 })
 
+test('a plugin prompt row: the plugin by name, a tick or cross from the first line, the body under it, capped', async () => {
+  const ok = flat(renderPluginRow(t, p, 'r1', 'runner', 'ok 3s · 12 passed · `bun test`'))
+  expect(ok.startsWith(G.tee + G.rule + ' ' + G.tick + ' runner  ok 3s')).toBe(true)
+  expect(ok).not.toContain('@plugin')
+  const bad = flat(renderPluginRow(t, p, 'r2', 'runner', 'FAIL exit 1 4s · `bun test`\na.test.ts:3 — boom'))
+  expect(bad).toContain(G.cross + ' runner  FAIL exit 1')
+  expect(bad).toContain(G.pipe + 'a.test.ts:3 — boom')
+  const other = flat(renderPluginRow(t, p, 'r3', 'learn', 'Rode o evolver'))
+  expect(other.startsWith(G.tee + G.rule + ' ' + G.ring + ' learn')).toBe(true)
+  const long = flat(renderPluginRow(t, p, 'r4', 'runner', ['FAIL x', ...Array.from({ length: 12 }, (_, i) => `line ${i}`)].join('\n')))
+  expect(long).toContain('line 7')
+  expect(long).not.toContain('line 8')
+  expect(long).toContain(G.ellipsis + ' +4')
+})
+
 test('painted Bash output: the connector, then each line with its words in their colors', async () => {
   const out = renderToolOutput(t, p, ['M hooks/render.ts', '14 passed, 0 failed', 'third', 'fourth'], { columns: 80, maxLines: 3 })
   const text = flat(out)
@@ -240,6 +255,15 @@ test('mounted: a user row, a tree row, a folded group validate on the terminal',
   })
   expect(await message.find({ type: 'Text', text: /Message from @Explore/ })).toBeDefined()
   await message.unmount()
+  const plugin = await $.ui.mount({
+    plugin: 'glass',
+    surface: 'terminal',
+    component: 'UserMessage',
+    props: { text: 'ok 3s · `bun test`', origin: { kind: 'plugin', name: 'runner' }, isExpanded: false },
+  })
+  expect(await plugin.find({ type: 'Text', text: /Message from/ })).toBeUndefined()
+  expect(await plugin.find({ type: 'Text', text: /runner/ })).toBeDefined()
+  await plugin.unmount()
 })
 
 test('an Edit diff: one number column, a plus row and a minus row in the theme diff slots, code painted', async () => {

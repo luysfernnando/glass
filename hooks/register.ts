@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassServerTool, GlassTurn } from '../types'
-import { agentModels, FLAT_TOOLS, MAX_PAINTED_LINES, toolText, callRun, editRunKeys, renderRunRow, spinCells, cleanHint, renderHint, clockCells, fmtDuration, fmtToolTime, isEditTool, setCwd, setHome, lineCounts, rel, shortPath, spaced, trunked, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderServerToolRows, renderSkillLoad, renderToolError, renderToolOutput, isDeclined, renderDeclined, renderTreeRow, renderUserRow } from './chrome'
+import { agentModels, FLAT_TOOLS, MAX_PAINTED_LINES, toolText, callRun, editRunKeys, renderRunRow, spinCells, cleanHint, renderHint, clockCells, fmtDuration, fmtToolTime, isEditTool, setCwd, setHome, lineCounts, rel, shortPath, spaced, trunked, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderPluginRow, renderServerToolRows, renderSkillLoad, renderToolError, renderToolOutput, isDeclined, renderDeclined, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk, RunCall, TreeOptions, TreeRow } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -463,9 +463,17 @@ export const register: Register = (on, options) => {
       if (!failed && !e.props.isExpanded) return t.Box({ display: 'none', children: [] })
       return renderEventRow(t, palette, e.requestId, e.props.text, task, e.props.isExpanded)
     }
+    // a plugin's framed prompt: its name and its text, not `Message from
+    // @plugin` (no `from` on it); one submitted asUser reads as typed
+    const origin = e.props.origin
+    const asUser = origin.kind === 'plugin' && origin.asUser === true
+    if (origin.kind === 'plugin' && !asUser) {
+      if (e.props.isExpanded) return next(e)
+      return renderPluginRow(t, palette, e.requestId, origin.name, e.props.text)
+    }
     // any other row (another agent's message, a scheduled trigger, a
     // bridge): one muted row; ctrl+o keeps the engine's body
-    if (kind !== 'composer') {
+    if (kind !== 'composer' && !asUser) {
       if (e.props.isExpanded) return next(e)
       if (spawned.has(e.props.from?.name ?? '')) return t.Box({ display: 'none', children: [] })
       return renderMessageRow(t, palette, e.props.from?.name ?? kind)

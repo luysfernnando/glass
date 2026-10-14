@@ -1024,6 +1024,37 @@ export function renderMessageRow(t: Table, p: Palette, name: string): RenderElem
   }))
 }
 
+// a prompt a plugin submitted, framed (not asUser): the plugin's name and
+// the text's first line, a tick on `ok …`, a cross on `FAIL …`, the rest
+// under it up to PLUGIN_LINES (no Box takes a press, so nothing may hide
+// behind one); ctrl+o keeps the engine's body
+const PLUGIN_LINES = 8
+export function renderPluginRow(t: Table, p: Palette, id: string, name: string, text: string): RenderElement {
+  const lines = text.split('\n')
+  const at = lines.findIndex(l => l.trim() !== '')
+  const first = safeText(lines[at] ?? '', 400)
+  const rest = lines.slice(at + 1).filter(l => l.trim() !== '').map(l => safeText(l, 400))
+  const mark = /^FAIL\b/.test(first)
+    ? t.Text({ color: p.err, children: [G.cross + ' '] })
+    : /^ok\b/.test(first)
+      ? t.Text({ color: p.ok, children: [G.tick + ' '] })
+      : t.Text({ color: p.faint, children: [G.ring + ' '] })
+  const row = spaced(t, p, t.Box({
+    key: `plugin:${id}`,
+    flexDirection: 'row',
+    hover: { backgroundColor: p.rowHover },
+    children: [
+      rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), mark),
+      t.Box({ flexGrow: 1, flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', children: [t.Text({ color: p.private, children: [safeText(name, 80)] }), t.Text({ color: p.meta, children: ['  ' + first] })] })] }),
+    ],
+  }))
+  if (rest.length === 0) return row
+  const extra = rest.length - PLUGIN_LINES
+  const shown = extra > 0 ? [...rest.slice(0, PLUGIN_LINES), `${G.ellipsis} +${extra}${sep}ctrl+o`] : rest
+  const body = shown.map(l => t.Text({ wrap: 'truncate-end', color: p.meta, children: [l] }))
+  return t.Box({ flexDirection: 'column', children: [row, trunked(t, p, body.length, body)] })
+}
+
 function shortModel(model: string): string {
   return model.replace(/^claude-/, '').replace(/-\d{8}$/, '')
 }
