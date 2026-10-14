@@ -113,7 +113,7 @@ function inline(node: Node, inherited: Style): string {
     ...inherited,
     ...(typeof p.color === 'string' ? { fg: p.color } : {}),
     ...(typeof p.backgroundColor === 'string' ? { bg: p.backgroundColor } : {}),
-    ...(p.bold ? { bold: true } : {}),
+    ...(p.bold || p.weight === 'bold' || p.weight === 'semibold' ? { bold: true } : {}),
     ...(p.dimColor ? { dim: true } : {}),
     ...(p.italic ? { italic: true } : {}),
     ...(p.underline ? { underline: true } : {}),

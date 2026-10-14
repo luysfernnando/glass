@@ -230,7 +230,7 @@ export function toolText(tool: string): string {
 // request, 2026-10-05); an MCP server before it in `faint`
 function toolNodes(t: Table, p: Palette, tool: string, bold: boolean): RenderNode[] {
   const l = toolLabel(tool)
-  const name = t.Text({ bold, children: [l.name] })
+  const name = t.Text({ weight: bold ? 'bold' : undefined, children: [l.name] })
   return l.server ? [t.Text({ color: p.faint, children: [l.server + ' '] }), name] : [name]
 }
 
@@ -257,7 +257,7 @@ export function renderUserRow(t: Table, p: Palette, r: UserRow): RenderElement {
           children: [
             // name and glyph in one color: a neutral bold name was tried
             // and the owner wanted the color back (2026-10-11)
-            t.Text({ color: p.accentUser, bold: true, children: [G.diamond + ' You'] }),
+            t.Text({ color: p.accentUser, weight: 'bold', children: [G.diamond + ' You'] }),
             ...(r.submittedAt === null ? [] : [t.Text({ color: p.meta, children: [sep + clockTime(r.submittedAt)] })]),
             t.Text({ color: p.faint, children: [' ' + G.rule.repeat(Math.max(1, m - cellWidth(G.diamond + ' You' + (r.submittedAt === null ? '' : sep + clockTime(r.submittedAt))) - 1))] }),
           ],
@@ -273,7 +273,7 @@ export function renderUserRow(t: Table, p: Palette, r: UserRow): RenderElement {
         children: [
           t.Text({
             children: [
-              t.Text({ color: p.accent, bold: true, children: [G.fisheye + ' Claude'] }),
+              t.Text({ color: p.accent, weight: 'bold', children: [G.fisheye + ' Claude'] }),
               t.Text({ color: p.meta, children: [sep + clockTime(r.startedAt)] }),
             ],
           }),
@@ -1087,9 +1087,9 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
   const title = t.Text({
     children: [
       t.Text({ color: p.accent, children: [G.dotted + ' '] }),
-      t.Text({ color: p.accent, bold: true, children: ['background'] }),
+      t.Text({ color: p.accent, weight: 'bold', children: ['background'] }),
       t.Text({ color: p.meta, children: [sep] }),
-      t.Text({ color: p.accent, bold: true, children: [String(agents.length)] }),
+      t.Text({ color: p.accent, weight: 'bold', children: [String(agents.length)] }),
       ' ',
     ],
   })
@@ -1160,7 +1160,7 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
         t.Text({
           children: [
             t.Text({ color: p.warn, children: [G.diamond + ' ' + face(a) + ' '] }),
-            t.Text({ color: p.bold, bold: true, children: [fit(a11(a.description), cols.name)] }),
+            t.Text({ color: p.bold, weight: 'bold', children: [fit(a11(a.description), cols.name)] }),
             ' ',
             t.Text({ color: p.accent, children: [fit(modelText, cols.model)] }),
             ' ',
