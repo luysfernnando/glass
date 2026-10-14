@@ -66,10 +66,8 @@ stored or what the model reads.
   every call; `/expand` opens them all.
 - **Replies on the tree.** A reply is a node: `├─ ● text`, the rest of it
   on the trunk, the turn's last reply closing it with `╰─ ●`.
-- **Background band.** While subagents run, a rounded frame above the
-  prompt lists them with a face, model and effort, current tool, tokens
-  and the file they last touched, five at a time. The chevron folds it to
-  one strip of faces.
+- **Agent models.** While subagents run, the hint line under the prompt,
+  which names them, ends with their models: `haiku-5-5 · sonnet-5-5`.
 - **Event rows.** A background task's notification draws as one tree row
   with its duration; a message from another agent draws as one muted row.
 - **Summary rows.** A compaction summary ends on a quiet `· summary` mark,

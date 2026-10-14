@@ -8,7 +8,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { renderBand, renderDiff, renderGroupRow, renderHint, renderServerToolRows, renderTreeRow, renderUserRow } from '../hooks/chrome'
+import { renderDiff, renderGroupRow, renderHint, renderServerToolRows, renderTreeRow, renderUserRow } from '../hooks/chrome'
 import { parseMarkdown } from '../hooks/markdown'
 import { PALETTES } from '../hooks/palette'
 import { renderReply } from '../hooks/render'
@@ -123,17 +123,6 @@ test('demo dumps: every fixture produces rows', async () => {
         renderHint(t, p, { vim: '-- INSERT --', rest: 'bypass permissions on' }),
       ],
     })),
-    dump('band', renderBand(t, p, {
-      agents: [
-        { agentId: 'a1', description: 'Hunt widths', kind: 'Explore', model: 'claude-sonnet-5-5', effort: 'medium', stage: 'Grep', file: 'hooks/width.ts', tokens: 12_400, startedAt: 0 },
-        { agentId: 'a2', description: 'Review the diff', kind: 'general-purpose', model: 'claude-opus-5-5', effort: 'high', stage: 'thinking' + String.fromCodePoint(0x2026), file: '', tokens: 900, startedAt: 30_000 },
-      ],
-      now: 85_000,
-      columns: 100,
-      open: true,
-      onToggle: null,
-      tasksCommand: 'tasks',
-    })),
     // 0.4.25 drew nothing after the reply (the before dump is the hidden
     // row); 0.5.0 draws the turn's server tool rows there
     dump('server-tools', renderServerToolRows(t, p, [
@@ -147,5 +136,5 @@ test('demo dumps: every fixture produces rows', async () => {
     console.log('@@END')
     expect(lines.length > 0).toBe(true)
   }
-  expect(fixtures.length).toBe(8)
+  expect(fixtures.length).toBe(7)
 })

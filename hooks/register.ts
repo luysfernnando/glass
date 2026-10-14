@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassServerTool, GlassTurn } from '../types'
-import { FLAT_TOOLS, MAX_PAINTED_LINES, toolText, callRun, editRunKeys, renderRunRow, spinCells, cleanHint, renderHint, clockCells, fmtDuration, fmtToolTime, isEditTool, setCwd, setHome, lineCounts, rel, shortPath, spaced, trunked, renderAgentLaunch, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderServerToolRows, renderSkillLoad, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { agentModels, FLAT_TOOLS, MAX_PAINTED_LINES, toolText, callRun, editRunKeys, renderRunRow, spinCells, cleanHint, renderHint, clockCells, fmtDuration, fmtToolTime, isEditTool, setCwd, setHome, lineCounts, rel, shortPath, spaced, trunked, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderServerToolRows, renderSkillLoad, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk, RunCall, TreeOptions, TreeRow } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -25,9 +25,8 @@ const prompts = atom({ plugin: 'glass', key: 'prompts' } as const, [] as GlassPr
 const calls = atom({ plugin: 'glass', key: 'calls' } as const, {} as Record<string, GlassCall[]>)
 // the engine's folded groups the person opened with the fold row's button
 const expanded = atom({ plugin: 'glass', key: 'expanded' } as const, [] as string[])
-// subagents still running, for the band above the prompt
+// subagents still running, for their models on the hint line
 const agents = atom({ plugin: 'glass', key: 'agents' } as const, [] as GlassAgent[])
-const band = atom({ plugin: 'glass', key: 'band' } as const, 'open' as 'open' | 'closed')
 // the main-loop turn now running, or null between turns. State, not module
 // memory: a hot reload mid-turn rebuilds the module but the host keeps this,
 // so an agent finishing inside that turn is not mistaken for one that
@@ -195,8 +194,6 @@ export const register: Register = (on, options) => {
   // gutter marks are off for a turn whose prompt asked for writing: the
   // reply is then the thing itself and asks nothing of the reader
   let marks = true
-  // the slash commands this session has, for the band's `/tasks` hint
-  let commands = new Set<string>()
   // the names and types of subagents this session spawned: their folded
   // `Message from` rows hide, since the finished row says the same
   const spawned = new Set<string>()
@@ -361,11 +358,6 @@ export const register: Register = (on, options) => {
       setCwd('')
     }
     setHome((await $.env.get('HOME').catch(() => undefined)) ?? '')
-    try {
-      commands = new Set((await $.command.list()).map(c => c.name))
-    } catch {
-      commands = new Set()
-    }
     await $.command.register({ name: 'fold', description: 'glass: fold the tool trees of every finished turn' })
     await $.command.register({ name: 'unfold', description: 'glass: open the tool trees of every turn' })
     await $.command.register({ name: 'expand', description: 'glass: open every folded run of reads and searches' })
@@ -653,7 +645,7 @@ export const register: Register = (on, options) => {
 
   on('turn.start', async ($, e, next) => {
     // since 2.1.299 a subagent's or teammate's turn starts here too: the tree
-    // is the main loop's, and their work shows in the agents band
+    // is the main loop's, and their work shows in the engine's agents line
     if (e.agentId !== undefined) return next(e)
     // A turn no prompt started (a background task's or an agent's
     // notification) goes on the tree above it: that turn's corner turns back
@@ -730,12 +722,6 @@ export const register: Register = (on, options) => {
       if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: 'running', ms: null })
       if (id) liveCalls.set(id, { tool: e.tool, t0: await $.clock.now() })
       if (!ticker) ticker = $.clock.every(TICK_MS, () => void tick($, palette))
-    } else if (e.agentId) {
-      const agentId = e.agentId
-      const stage = toolText(e.tool)
-      const args = e as unknown as Record<string, unknown>
-      const file = typeof args.file_path === 'string' ? args.file_path : typeof args.path === 'string' ? args.path : null
-      void update($, agents, as => (as ?? []).map(a => (a.agentId === agentId ? { ...a, stage, file: file ?? a.file } : a)))
     }
     if (isEditTool(e.tool)) live.edits += 1
     const t0 = await $.clock.now()
@@ -788,16 +774,13 @@ export const register: Register = (on, options) => {
     return r
   })
 
-  // a subagent's model requests: its tokens and effort for the band. The
-  // event streams, so the hook is a generator relaying every chunk; the
-  // stop chunk carries the usage.
+  // the main loop's model requests. The event streams, so the hook is a
+  // generator relaying every chunk.
   on('turn.step', async function* ($, e, next) {
     const stream = next(e)
-    let usage: { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number } | null = null
     let step = await stream.next()
     while (!step.done) {
       const chunk = step.value
-      if (chunk.kind === 'stop') usage = chunk.usage
       if (!e.agentId && live.turnId && (chunk.kind === 'tool' || chunk.kind === 'input')) {
         if (header) {
           await revealHeader($, header)
@@ -844,13 +827,6 @@ export const register: Register = (on, options) => {
         live.serverTools.push({ id: s.id, name: s.name, startedAt: s.startedAt, ...(typeof s.endedAt === 'number' ? { endedAt: s.endedAt } : {}) })
       }
     }
-    if (e.agentId) {
-      const agentId = e.agentId
-      const effort = e.effort === undefined ? '' : String(e.effort)
-      const u = usage
-      const used = u ? u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens + u.output_tokens : 0
-      void update($, agents, as => (as ?? []).map(a => (a.agentId === agentId ? { ...a, effort: effort || a.effort, tokens: a.tokens + used } : a)))
-    }
     return step.value
   })
 
@@ -864,14 +840,10 @@ export const register: Register = (on, options) => {
         description: e.description,
         kind: e.subagentType,
         model: r.model,
-        effort: '',
-        stage: 'thinking' + G.ellipsis,
-        file: '',
-        tokens: 0,
         startedAt: await $.clock.now(),
       }
       // a resume (SendMessage) spawns again since 2.1.299, maybe with no
-      // description; a finished agent left the band, so its name is kept here
+      // description; a finished agent left the list, so its name is kept here
       const named = agentLabels.get(agent.agentId)
       if (e.resume !== undefined && named) agent.description ||= named
       else agentLabels.set(agent.agentId, agent.description)
@@ -976,32 +948,15 @@ export const register: Register = (on, options) => {
   })
 
   // ---- the hint line under the prompt: key reminders dropped ---------------
-  on('ui.render', { component: 'PromptHint' }, ($, e, next) => {
+  // the live agents' models at its end, beside the engine's count of them
+  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
+    const tail = agentModels((await read($, agents)) ?? [])
     const h = cleanHint(e.props.hint)
-    return h ? renderHint($.ui.resolve(e), palette, h) : next(e)
+    if (h) return renderHint($.ui.resolve(e), palette, h, tail)
+    return tail ? next({ ...e, props: { ...e.props, tail: e.props.tail ? `${e.props.tail} ${G.middot} ${tail}` : tail } }) : next(e)
   })
 
-  // ---- background band ---------------------------------------------------
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
-    // The band is one site for every plugin: what the plugins beneath draw
-    // stays, under the agents' frame, and alone when no agent runs.
-    const below = await next(e)
-    const list = (await read($, agents)) ?? []
-    if (list.length === 0) return below
-    const t = $.ui.resolve(e)
-    const state = (await read($, band)) ?? 'open'
-    const frame = renderBand(t, palette, {
-      agents: list,
-      now: await $.clock.now(),
-      columns: e.props.bodyColumns,
-      open: state === 'open',
-      onToggle: () => void update($, band, s => (s === 'closed' ? 'open' : 'closed')),
-      tasksCommand: commands.has('tasks') ? 'tasks' : commands.has('bashes') ? 'bashes' : null,
-    })
-    return t.Box({ flexDirection: 'column', children: [frame, below] })
-  })
 }
 
 /** The records the run helpers read: register's, passed in, since `$` only goes to top-level functions. */

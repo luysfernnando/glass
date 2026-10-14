@@ -1,8 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
-import type { GlassAgent } from '../types'
 
-import { CLOCK_CELLS, callRun, callScope, renderRunRow, editRunKeys, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, rel, safeText, setCwd, setHome, shortPath, clip, fmtDuration, renderServerToolRows, renderSkillLoad, toolLabel } from '../hooks/chrome'
+import { CLOCK_CELLS, callRun, callScope, renderRunRow, editRunKeys, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderToolOutput, renderTreeRow, renderUserRow, rel, safeText, setCwd, setHome, shortPath, clip, fmtDuration, renderServerToolRows, renderSkillLoad, toolLabel } from '../hooks/chrome'
 import type { RunCall } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { highlight, highlightLine, langOf } from '../hooks/highlight'
@@ -35,7 +34,7 @@ const flat = (node: RenderNode) => strings(node).join('')
 const lines = (node: RenderElement) => (((node as { props?: { children?: RenderNode[] } }).props?.children ?? []) as RenderNode[]).map(flat)
 
 test('the new glyphs are one cell each', async () => {
-  for (const g of [G.tee, G.pipe, G.tick, G.cross, G.hollow, G.fisheye, G.diamond, G.dotted, G.right, G.down, G.arcTL, G.arcTR, G.arcBL, G.arcBR, G.disc, G.smile, G.times, G.middot, G.ellipsis]) {
+  for (const g of [G.tee, G.pipe, G.tick, G.cross, G.hollow, G.fisheye, G.diamond, G.right, G.down, G.arcTL, G.arcTR, G.arcBL, G.arcBR, G.disc, G.times, G.middot, G.ellipsis]) {
     expect(cellWidth(g)).toBe(1)
   }
 })
@@ -122,36 +121,6 @@ test('a folded group: one line per tool, a command by its description, edits by 
   expect(active).not.toContain('Click')
 })
 
-test('the band: a frame the band wide with five agents and a fold, or one strip when closed', async () => {
-  const agents = Array.from({ length: 7 }, (_, i) => ({
-    agentId: `a${i}`, description: `Hunt ${i}`, kind: 'Explore', model: 'claude-opus-5-5', effort: 'high', stage: i % 2 ? 'Read' : 'thinking' + G.ellipsis, file: i % 2 ? 'hooks/render.ts' : '', tokens: 1500 * i, startedAt: 1000 * i,
-  }))
-  const box = renderBand(t, p, { agents, now: 60_000, columns: 100, open: true, onToggle: () => {}, tasksCommand: 'tasks' })
-  const rows = lines(box)
-  // top edge, five agents, the fold, bottom edge
-  expect(rows.length).toBe(8)
-  for (const row of rows) expect(cellWidth(row)).toBe(96)
-  expect(rows[0]).toContain('background')
-  expect(rows[0]).toContain('7')
-  expect(rows[0]).toContain('1m 00s')
-  expect(rows[0]!.startsWith(G.arcTL)).toBe(true)
-  expect(rows[0]!.endsWith(G.arcTR)).toBe(true)
-  expect(rows[1]).toContain('Hunt 2')
-  expect(rows[1]).toContain('(' + G.disc + G.smile + G.disc + ')')
-  expect(rows[2]).toContain('(' + G.disc + G.down + G.disc + ')')
-  expect(rows[2]).toContain('opus-5-5')
-  expect(rows[2]).toContain('hooks/render.ts')
-  expect(rows[6]).toContain('+2 more')
-  expect(rows[7]).toContain('They outlive this turn')
-  expect(rows[7]).toContain('/tasks')
-  expect(rows[7]!.endsWith(G.arcBR)).toBe(true)
-  const strip = flat(renderBand(t, p, { agents, now: 60_000, columns: 100, open: false, onToggle: () => {}, tasksCommand: null }))
-  expect(cellWidth(strip)).toBe(96)
-  expect(strip).toContain('background')
-  expect(strip).toContain('Hunt 6')
-  expect(strip).toContain('1m 00s')
-})
-
 test('an event row: a tick and the first line, a cross on a failed task, the duration at the right', async () => {
   const ok = flat(renderEventRow(t, p, 'm1', 'Agent "Hunt widths" finished\nmore detail', { status: 'completed', durationMs: 72_000 }))
   expect(ok.startsWith(G.tee + G.rule + ' ' + G.tick + ' Agent  Hunt widths')).toBe(true)
@@ -197,7 +166,7 @@ test('painted Bash output: the connector, then each line with its words in their
 
 // the trees go through the engine's validator: a refused tree would fall
 // back to the engine's own drawing in a session
-test('mounted: a user row, a tree row, a folded group and the band validate on the terminal', async $ => {
+test('mounted: a user row, a tree row, a folded group validate on the terminal', async $ => {
   const user = await $.ui.mount({
     plugin: 'glass',
     surface: 'terminal',
@@ -271,24 +240,6 @@ test('mounted: a user row, a tree row, a folded group and the band validate on t
   })
   expect(await message.find({ type: 'Text', text: /Message from @Explore/ })).toBeDefined()
   await message.unmount()
-})
-
-test('mounted: the band with a running agent validates on the terminal (its chevron hover needs a keyed Box; 0.5.2 to 0.5.3 drew nothing)', async ($, on) => {
-  // the world beneath glass: one agent in its state (the kit keeps none), and
-  // an empty band beneath, as the engine's own answers when no plugin draws there
-  mock.clock(on, { now: 60_000 })
-  const agent: GlassAgent = { agentId: 'a1', description: 'Hunt widths', kind: 'Explore', model: 'claude-haiku-5-5', effort: '', stage: 'Read', file: '', tokens: 0, startedAt: 0 }
-  on('state.get', { plugin: 'glass', key: 'agents' } as never, async () => ({ value: { value: [agent], version: 1 } }) as never)
-  on('ui.render', { component: 'AbovePrompt' }, (engine, e) => engine.ui.resolve(e).Box({ children: [] }) as never)
-  const band = await $.ui.mount({
-    plugin: 'glass',
-    surface: 'terminal',
-    component: 'AbovePrompt',
-    props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} },
-  })
-  expect(await band.find({ type: 'Text', text: /background/ })).toBeDefined()
-  expect(await band.find({ type: 'Text', text: /Hunt widths/ })).toBeDefined()
-  await band.unmount()
 })
 
 test('an Edit diff: one number column, a plus row and a minus row in the theme diff slots, code painted', async () => {
@@ -657,21 +608,6 @@ test('a Bottom line head forms with the colon inside the bold too', async () => 
   }
 })
 
-test('the band fits its frame on a narrow terminal, open and closed', async () => {
-  const agents = Array.from({ length: 5 }, (_, i) => ({
-    agentId: `a${i}`, description: `Research the widths ${i}`, kind: 'Explore', model: 'claude-opus-5-5', effort: 'high', stage: 'thinking' + G.ellipsis, file: 'hooks/render.ts', tokens: 15_000, startedAt: 0,
-  }))
-  for (const columns of [100, 84, 80, 72, 60, 44, 30]) {
-    const w = Math.max(40, columns - 4)
-    const open = lines(renderBand(t, p, { agents, now: 60_000, columns, open: true, onToggle: () => {}, tasksCommand: 'tasks' }))
-    for (const row of open) expect(cellWidth(row)).toBe(w)
-    const strip = flat(renderBand(t, p, { agents, now: 60_000, columns, open: false, onToggle: () => {}, tasksCommand: null }))
-    expect(cellWidth(strip)).toBe(w)
-  }
-  // no room: nothing, not a stray ellipsis
-  expect(clip('hooks/render.ts', 0)).toBe('')
-})
-
 test('durations past an hour: hours and minutes, whole in the clock', async () => {
   expect(fmtDuration(59 * 60_000)).toBe('59m 00s')
   expect(fmtDuration(7_200_000)).toBe('2h 00m')
@@ -832,7 +768,7 @@ test('0.5.2: a numeric column survives a placeholder and a longer unit', async (
   expect(body[0]!.indexOf('$12') + 3).toBe(body[1]!.indexOf(dash) + 1)
 })
 
-test('0.5.2: the dots line carries the tree inset on its right; a server row time is faint; the band chevron is dim', async () => {
+test('0.5.2: the dots line carries the tree inset on its right; a server row time is faint', async () => {
   const dots = renderUserRow(t, p, {
     text: 'x', submittedAt: 1_000_000, startedAt: 1_000_500, columns: 80, folded: false, onFold: () => undefined, onCopy: () => undefined,
     turn: { turnId: 'd', calls: [{ id: 't1', tool: 'Read', status: 'ok', ms: 300 }], done: { turnId: 'd', durationMs: 1, tools: 1, edits: 0, failed: 0, inTokens: 0, cacheTokens: 0, outTokens: 0, costUsd: 0, lastToolId: 't1', answer: '', startedAt: 0, finishedAt: 1 } },
@@ -843,10 +779,6 @@ test('0.5.2: the dots line carries the tree inset on its right; a server row tim
   const times = elements(server).filter(n => n.type === 'Text' && flat(n as unknown as RenderNode) === '4.2s')
   expect(times.length).toBe(1)
   expect(times[0]!.props.color).toBe(p.faint)
-  const band = renderBand(t, p, { agents: [{ agentId: 'a', description: 'x', kind: 'Explore', model: 'claude-haiku-5-5', effort: 'low', stage: 'Read', file: '', tokens: 1, startedAt: 0 }], now: 1000, columns: 100, open: true, onToggle: () => undefined, tasksCommand: null })
-  const button = elements(band).find(n => n.type === 'Button')
-  expect(button?.props.dimColor).toBe(true)
-  expect(button?.props.hover).toEqual({ backgroundColor: p.rowHover })
 })
 
 test('the tick stays ok on tree and event rows, a failure err; headers keep their color (muting was turned down 2026-10-11)', async () => {
@@ -861,20 +793,6 @@ test('the tick stays ok on tree and event rows, a failure err; headers keep thei
   const header = renderUserRow(t, p, { text: 'x', submittedAt: 1_000_000, startedAt: 1_000_500, columns: 80, folded: false, turn: null })
   expect(elements(header).find(n => n.type === 'Text' && flat(n as unknown as RenderNode) === G.diamond + ' You')?.props.color).toBe(p.accentUser)
   expect(elements(header).find(n => n.type === 'Text' && flat(n as unknown as RenderNode) === G.fisheye + ' Claude')?.props.color).toBe(p.accent)
-})
-
-test('the band frame, title and model stay accent, the faces warn (a faint frame was turned down 2026-10-11)', async () => {
-  const agents = [{ agentId: 'a', description: 'Hunt widths', kind: 'Explore', model: 'claude-sonnet-5-5', effort: 'medium', stage: 'Grep', file: '', tokens: 100, startedAt: 0 }]
-  const open = renderBand(t, p, { agents, now: 1000, columns: 100, open: true, onToggle: null, tasksCommand: 'tasks' })
-  const colorsOf = (n: RenderElement) => elements(n).filter(e => typeof e.props.color === 'string').map(e => [flat(e as unknown as RenderNode), e.props.color as string] as const)
-  const all = colorsOf(open)
-  expect(all.find(([s]) => s.startsWith(G.arcTL))?.[1]).toBe(p.accent)
-  expect(all.find(([s]) => s.startsWith(G.arcBL))?.[1]).toBe(p.accent)
-  expect(all.find(([s]) => s === 'background')?.[1]).toBe(p.accent)
-  expect(all.find(([s]) => s.includes('sonnet-5-5'))?.[1]).toBe(p.accent)
-  expect(all.find(([s]) => s.includes(G.diamond))?.[1]).toBe(p.warn)
-  const strip = renderBand(t, p, { agents, now: 1000, columns: 100, open: false, onToggle: null, tasksCommand: null })
-  expect(colorsOf(strip).find(([s]) => s === G.rule + ' ')?.[1]).toBe(p.accent)
 })
 
 test('quoted prose keeps the prose color (a meta step was turned down 2026-10-11); bold and code keep theirs', async () => {

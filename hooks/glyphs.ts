@@ -28,16 +28,14 @@ export const G = {
   hollow: cp(0x25cb),
   /** FISHEYE U+25C9: the assistant header mark and a folded group */
   fisheye: cp(0x25c9),
-  /** BLACK DIAMOND U+25C6: the user row and a band row */
+  /** BLACK DIAMOND U+25C6: the user row */
   diamond: cp(0x25c6),
-  /** DOTTED CIRCLE U+25CC: the band header */
-  dotted: cp(0x25cc),
   /** BLACK SMALL SQUARE U+25AA: the footer */
   square: cp(0x25aa),
   /** fold chevrons, Nerd Font nf-fa-chevron_right U+F054 and chevron_down U+F078: the small triangles U+25B8/U+25BE read as specks (owner's request, 2026-10-05) */
   right: cp(0xf054),
   down: cp(0xf078),
-  /** the band's rounded frame: BOX DRAWINGS LIGHT ARC DOWN AND RIGHT U+256D, DOWN AND LEFT U+256E, UP AND RIGHT U+2570, UP AND LEFT U+256F */
+  /** rounded corners (diff card, the tree's last row): BOX DRAWINGS LIGHT ARC DOWN AND RIGHT U+256D, DOWN AND LEFT U+256E, UP AND RIGHT U+2570, UP AND LEFT U+256F */
   arcTL: cp(0x256d),
   arcTR: cp(0x256e),
   arcBL: cp(0x2570),
@@ -46,8 +44,6 @@ export const G = {
   times: cp(0xd7),
   /** a status dot: BLACK CIRCLE U+25CF */
   disc: cp(0x25cf),
-  /** the agent face's smile: UNDERTIE U+203F */
-  smile: cp(0x203f),
   /** TWO JOINED SQUARES U+29C9: the dots line's Copy button (0.5.0) */
   copy: cp(0x29c9),
   /** DOWNWARDS ARROW U+2193: the engine's `down to manage` key */

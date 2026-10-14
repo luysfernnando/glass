@@ -58,20 +58,13 @@ export type GlassPrompt = {
   turnId: string | null
 }
 
-/** one subagent still running, for the band above the prompt */
+/** one subagent still running, for its model on the hint line */
 export type GlassAgent = {
   agentId: string
   description: string
   /** the agent type (`Explore`, `general-purpose`) */
   kind: string
   model: string
-  effort: string
-  /** the last tool it called, or `thinking` */
-  stage: string
-  /** the path its last file tool touched, or empty */
-  file: string
-  /** tokens its model requests have used so far */
-  tokens: number
   startedAt: number
 }
 
@@ -85,8 +78,6 @@ declare module 'claude-code' {
       /** request ids of the engine's folded groups the person opened */
       expanded: string[]
       agents: GlassAgent[]
-      /** the band above the prompt: the box, or one strip */
-      band: 'open' | 'closed'
       /** the main-loop turn now running, null between turns; kept by the host across a reload (0.5.1) */
       liveTurn: string | null
     }

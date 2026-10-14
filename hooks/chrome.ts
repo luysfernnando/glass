@@ -1,12 +1,12 @@
 // Turn chrome, following SPEC.md "Turn chrome": the user row with its
 // assistant header and dots line, the tool tree, the folded group, event
-// rows and the background band. One glyph
+// rows. One glyph
 // family (glyphs.ts), one ruler (width.ts), one hierarchy rule: bright for
 // the live thing, `meta` for the done thing, `faint` for scaffolding,
 // saturated color on marks only.
 import type { Elements, RenderElement, RenderNode, UiPressArgument } from 'claude-code'
 
-import type { GlassAgent, GlassCall, GlassServerTool, GlassTurn } from '../types'
+import type { GlassCall, GlassServerTool, GlassTurn } from '../types'
 import { G } from './glyphs'
 import { CODE_COLOR, highlightLine, langOf } from './highlight'
 import type { State } from './highlight'
@@ -79,19 +79,6 @@ export function clip(s: string, n: number): string {
     out += ch
   }
   return out + G.ellipsis
-}
-
-// pad or cut to exactly `n` cells
-function fit(s: string, n: number): string {
-  const c = clip(s, n)
-  return c + ' '.repeat(Math.max(0, n - cellWidth(c)))
-}
-
-// a path padded or cut to exactly `n` cells, cut in the middle so the file
-// name stays: `hooks/...render.ts`, not `hooks/rend...`
-function fitPath(s: string, n: number): string {
-  const c = clipPath(s, n)
-  return c + ' '.repeat(Math.max(0, n - cellWidth(c)))
 }
 
 // A tree row in the tree's inset. No air above it: the rows sit back to
@@ -1037,194 +1024,8 @@ export function renderMessageRow(t: Table, p: Palette, name: string): RenderElem
   }))
 }
 
-// ---- background band -----------------------------------------------------
-
-const BAND_ROWS = 5
-const COL_NAME = 20
-const COL_MODEL = 22
-const COL_STAGE = 14
-const COL_TOKENS = 8
-
-export type BandOptions = {
-  agents: GlassAgent[]
-  now: number
-  columns: number
-  open: boolean
-  onToggle: Press | null
-  /** the slash command that lists tasks, when the session has one */
-  tasksCommand: string | null
-}
-
-// the agent's face: eyes level while it thinks, lowered while it reads
-function face(a: GlassAgent): string {
-  const eye = G.disc
-  const mouth = a.stage.startsWith('thinking') ? G.smile : G.down
-  return `(${eye}${mouth}${eye})`
-}
-
 function shortModel(model: string): string {
   return model.replace(/^claude-/, '').replace(/-\d{8}$/, '')
-}
-
-// A rounded frame the band's width, the title in its top edge and the
-// oldest agent's elapsed time at the right; one row per live agent, newest
-// last, five at most and `+N more`; the bottom edge carries the hint.
-// Closed, one strip: the title, the faces, the newest agent's stage.
-export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement {
-  const { agents, now } = o
-  // the engine draws its `[-]` collapse mark over the band's top-right
-  // cells; the frame stops four short of it (2026-10-04)
-  const w = Math.max(40, o.columns - 4)
-  const oldest = agents.reduce((n, a) => Math.min(n, a.startedAt), now)
-  const elapsed = fmtDuration(Math.max(0, now - oldest))
-  const titleText = `background${sep}${agents.length}`
-  // the chevron's hover tint needs a keyed Box around it: without one the
-  // engine refuses the whole tree and draws nothing, so the band was
-  // invisible from 0.5.2 to 0.5.3 (found in the debug log, 2026-10-12)
-  const chevron = o.onToggle
-    ? t.Box({ key: 'band:chevron', children: [t.Button({ key: 'band:toggle', label: o.open ? G.down : G.right, plain: true, dimColor: true, hover: { backgroundColor: p.rowHover }, onPress: o.onToggle })] })
-    : t.Text({ color: p.accent, children: [o.open ? G.down : G.right] })
-  const title = t.Text({
-    children: [
-      t.Text({ color: p.accent, children: [G.dotted + ' '] }),
-      t.Text({ color: p.accent, weight: 'bold', children: ['background'] }),
-      t.Text({ color: p.meta, children: [sep] }),
-      t.Text({ color: p.accent, weight: 'bold', children: [String(agents.length)] }),
-      ' ',
-    ],
-  })
-
-  if (!o.open) {
-    // `- o background . 3 v - (o_o) (o_o)  Research Empryo . thinking... ----- 1m 25s -`
-    // the fill is measured from the strings around it, so the strip is
-    // exactly the band wide
-    const newest = agents[agents.length - 1]!
-    const lead = `${G.rule} `
-    const titleStr = `${G.dotted} background${sep}${agents.length} `
-    const mid = ` ${G.rule} `
-    const tail = ` ${elapsed} ${G.rule}`
-    const fixedFor = (faces: string) => cellWidth(lead + titleStr) + 1 + cellWidth(mid + faces) + 2 + 1 + cellWidth(tail)
-    // a narrow terminal drops the oldest faces, all of them if it must, so
-    // 16 cells stay for the name and the fill; the name then takes what is
-    // left but one
-    let shown = agents.slice(-BAND_ROWS)
-    while (shown.length > 0 && w - fixedFor(shown.map(face).join(' ')) < 16) shown = shown.slice(1)
-    const faces = shown.map(face).join(' ')
-    const fixed = fixedFor(faces)
-    const room = w - fixed
-    const name = clip(`${a11(newest.description)}${sep}${newest.stage}`, room >= 16 ? room - 8 : Math.max(0, room - 1))
-    const fill = Math.max(1, w - fixed - cellWidth(name))
-    return t.Box({
-      flexDirection: 'row',
-      width: w,
-      children: [
-        t.Text({ color: p.accent, children: [lead] }),
-        title,
-        chevron,
-        t.Text({ color: p.accent, children: [mid] }),
-        t.Text({ color: p.warn, children: [faces] }),
-        t.Text({ color: p.meta, children: [`  ${name} `] }),
-        t.Text({ color: p.accent, children: [G.rule.repeat(fill)] }),
-        t.Text({ color: p.meta, children: [` ${elapsed} `] }),
-        t.Text({ color: p.accent, children: [G.rule] }),
-      ],
-    })
-  }
-
-  // the top edge: arc, rule, the title, rules to the elapsed time, arc
-  const topUsed = cellWidth(`${G.arcTL}${G.rule} ${G.dotted} background${sep}${agents.length} `) + 1 + 1 + cellWidth(` ${elapsed} ${G.rule}${G.arcTR}`)
-  const top = t.Box({
-    flexDirection: 'row',
-    children: [
-      t.Text({ color: p.accent, children: [G.arcTL + G.rule + ' '] }),
-      title,
-      chevron,
-      t.Text({ color: p.accent, children: [' ' + G.rule.repeat(Math.max(1, w - topUsed))] }),
-      t.Text({ color: p.meta, children: [` ${elapsed} `] }),
-      t.Text({ color: p.accent, children: [G.rule + G.arcTR] }),
-    ],
-  })
-  // the frame and the model column stay accent: a faint frame was tried
-  // and the owner wanted the color back (2026-10-11)
-  const edge = (s: string) => t.Text({ color: p.accent, children: [s] })
-  const inner = w - 4
-  const shown = agents.slice(-BAND_ROWS)
-  const more = agents.length - shown.length
-  const cols = bandColumns(inner)
-  const rows = shown.map(a => {
-    const modelText = `${shortModel(a.model)}${a.effort ? sep + a.effort : ''}`
-    return t.Box({
-      flexDirection: 'row',
-      children: [
-        edge(G.pipe + ' '),
-        t.Text({
-          children: [
-            t.Text({ color: p.warn, children: [G.diamond + ' ' + face(a) + ' '] }),
-            t.Text({ color: p.bold, weight: 'bold', children: [fit(a11(a.description), cols.name)] }),
-            ' ',
-            t.Text({ color: p.accent, children: [fit(modelText, cols.model)] }),
-            ' ',
-            t.Text({ color: p.meta, children: [fit(a.stage, cols.stage)] }),
-            ' ',
-            t.Text({ color: p.meta, children: [fit(a.tokens > 0 ? fmtTokens(a.tokens) : '', cols.tokens)] }),
-            ' ',
-            t.Text({ color: p.faint, children: [fitPath(rel(a.file), cols.file)] }),
-          ],
-        }),
-        edge(' ' + G.pipe),
-      ],
-    })
-  })
-  if (more > 0) {
-    rows.push(
-      t.Box({
-        flexDirection: 'row',
-        children: [edge(G.pipe + ' '), t.Text({ color: p.faint, children: [fit(`  +${more} more`, inner)] }), edge(' ' + G.pipe)],
-      }),
-    )
-  }
-  const hint = 'They outlive this turn'
-  const cmd = o.tasksCommand ? `/${o.tasksCommand}` : ''
-  const bottomUsed = 2 + 1 + cellWidth(hint) + 1 + (cmd ? cellWidth(cmd) + 2 : 0) + 2
-  const bottom = t.Box({
-    flexDirection: 'row',
-    children: [
-      t.Text({ color: p.accent, children: [G.arcBL + G.rule + ' '] }),
-      t.Text({ color: p.faint, children: [hint + ' '] }),
-      t.Text({ color: p.accent, children: [G.rule.repeat(Math.max(1, w - bottomUsed))] }),
-      ...(cmd ? [t.Text({ color: p.meta, children: [` ${cmd} `] })] : []),
-      t.Text({ color: p.accent, children: [G.rule + G.arcBR] }),
-    ],
-  })
-  return t.Box({ flexDirection: 'column', width: w, children: [top, ...rows, bottom] })
-}
-
-// A band row's column widths inside `inner` cells: the diamond, a space,
-// the five-cell face and a space (8), then name, model, stage, tokens and
-// file with one space after each of the first four. The file takes what is
-// left; on a narrow terminal the model gives up cells first, then the
-// name, the tokens column, the stage, and the name and model again, so a
-// row never outgrows its frame.
-function bandColumns(inner: number): { name: number; model: number; stage: number; tokens: number; file: number } {
-  const c = { name: COL_NAME, model: COL_MODEL, stage: COL_STAGE, tokens: COL_TOKENS }
-  let over = 8 + 4 + c.name + c.model + c.stage + c.tokens - inner
-  const give = (k: keyof typeof c, min: number) => {
-    const d = Math.max(0, Math.min(over, c[k] - min))
-    c[k] -= d
-    over -= d
-  }
-  give('model', 8)
-  give('name', 8)
-  give('tokens', 0)
-  give('stage', 6)
-  give('model', 1)
-  give('name', 1)
-  return { ...c, file: Math.max(0, -over) }
-}
-
-// a description as one printable line
-function a11(s: string): string {
-  return safeText(s.replace(/\s+/g, ' ').trim(), 120)
 }
 
 // A backgrounded Agent's result, in place of the engine's body (its corner
@@ -1333,7 +1134,7 @@ const MODE_RE = /mode on|accept edits on|plan mode/i
 // the permission mode in the active theme's own slot for it (0.5.0: the
 // engine's panels and glass agree under any theme): plan `planMode`,
 // accepting edits `autoAccept`, auto and bypass `warning`; anything else `meta`
-export function renderHint(t: Table, p: Palette, h: { vim: string; rest: string }): RenderElement {
+export function renderHint(t: Table, p: Palette, h: { vim: string; rest: string }, tail = ''): RenderElement {
   const modeColor = /auto|bypass/i.test(h.rest) ? THEME.warning : /plan/i.test(h.rest) ? THEME.planMode : /accept/i.test(h.rest) ? THEME.autoAccept : p.meta
   return t.Text({
     wrap: 'truncate-end',
@@ -1341,6 +1142,16 @@ export function renderHint(t: Table, p: Palette, h: { vim: string; rest: string 
       ...(h.vim ? [t.Text({ color: /INSERT/.test(h.vim) ? p.accentUser : p.meta, children: [h.vim] })] : []),
       ...(h.vim && h.rest ? ['  '] : []),
       ...(h.rest ? [t.Text({ color: modeColor, children: [h.rest] })] : []),
+      ...(tail ? [t.Text({ color: p.faint, children: [(h.vim || h.rest ? sep : '') + tail] })] : []),
     ],
   })
+}
+
+/**
+ * The live agents' models for the end of the hint line, whose start the
+ * engine gives their names: `haiku-5-5 · sonnet-5-5` (owner's request,
+ * 2026-10-14). Empty when none runs.
+ */
+export function agentModels(agents: ReadonlyArray<{ model: string }>): string {
+  return agents.map(a => shortModel(a.model)).join(sep)
 }

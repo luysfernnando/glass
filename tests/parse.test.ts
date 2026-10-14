@@ -8,7 +8,7 @@ import { pathLike } from '../hooks/paths'
 import { needsAttention, writeIntent } from '../hooks/prose'
 import { proseSpans, shellSpans } from '../hooks/shell'
 import { cellWidth } from '../hooks/width'
-import { cleanHint } from '../hooks/chrome'
+import { agentModels, cleanHint } from '../hooks/chrome'
 
 const cp = (n: number) => String.fromCodePoint(n)
 
@@ -297,4 +297,9 @@ test('0.5.2: nesting is the rank of the indent, numbers right-align, a card unde
   const q = parseMarkdown('> 1. Install:\n>    ```\n>    npm i\n>    ```\n> 2. Run')[0]
   if (q?.kind !== 'quote') throw new Error('expected a quote')
   expect(quoteRows(q.blocks, 80)).toBe(5)
+})
+
+test('agentModels names each live agent by its model alone', () => {
+  expect(agentModels([])).toBe('')
+  expect(agentModels([{ model: 'claude-haiku-5-5' }, { model: 'claude-sonnet-5-5-20261001' }])).toBe('haiku-5-5 · sonnet-5-5')
 })
