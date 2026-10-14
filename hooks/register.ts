@@ -475,8 +475,13 @@ export const register: Register = (on, options) => {
     // bridge): one muted row; ctrl+o keeps the engine's body
     if (kind !== 'composer' && !asUser) {
       if (e.props.isExpanded) return next(e)
-      if (spawned.has(e.props.from?.name ?? '')) return t.Box({ display: 'none', children: [] })
-      return renderMessageRow(t, palette, e.props.from?.name ?? kind)
+      const from = e.props.from?.name
+      // no sender (a subagent's own opening prompt, kind `unclassified`):
+      // its text, framed as a plugin's, since `Message from @unclassified`
+      // hid the brief the agent was given
+      if (!from) return renderPluginRow(t, palette, e.requestId, 'Prompt', e.props.text)
+      if (spawned.has(from)) return t.Box({ display: 'none', children: [] })
+      return renderMessageRow(t, palette, from)
     }
     const text = e.props.text
     if (text.trim() === '') return next(e)
