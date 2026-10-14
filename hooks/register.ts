@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassServerTool, GlassTurn } from '../types'
-import { agentModels, FLAT_TOOLS, MAX_PAINTED_LINES, toolText, callRun, editRunKeys, renderRunRow, spinCells, cleanHint, renderHint, clockCells, fmtDuration, fmtToolTime, isEditTool, setCwd, setHome, lineCounts, rel, shortPath, spaced, trunked, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderServerToolRows, renderSkillLoad, renderToolError, renderToolOutput, renderTreeRow, renderUserRow } from './chrome'
+import { agentModels, FLAT_TOOLS, MAX_PAINTED_LINES, toolText, callRun, editRunKeys, renderRunRow, spinCells, cleanHint, renderHint, clockCells, fmtDuration, fmtToolTime, isEditTool, setCwd, setHome, lineCounts, rel, shortPath, spaced, trunked, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderServerToolRows, renderSkillLoad, renderToolError, renderToolOutput, isDeclined, renderDeclined, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk, RunCall, TreeOptions, TreeRow } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -508,6 +508,8 @@ export const register: Register = (on, options) => {
     // a folded turn hides its rows; a row of a turn glass never saw stays
     if (turnId && foldedTurns.has(turnId)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     const t = $.ui.resolve(e)
+    // a declined call is no failure: no red cross
+    if (e.props.isErrored && isDeclined(e.props.output)) e = { ...e, props: { ...e.props, isErrored: false } }
     // a run of calls is one row (owner's request, 2026-10-05): its first
     // call's row draws it, the others nothing until it opens; a failed call
     // too: the row's red `1 failed` says it (owner's request, 2026-10-14)
@@ -603,6 +605,7 @@ export const register: Register = (on, options) => {
     // press that unfolded the engine's result opened an empty row
     // (owner's request, 2026-10-05); a failed Read keeps its error
     if (e.props.tool === 'Read' && !e.props.isErrored) return $.ui.resolve(e).Box({ display: 'none', children: [] })
+    if (e.props.isErrored && isDeclined(e.props.output)) return renderDeclined($.ui.resolve(e), palette)
     // a failed call's reason on the trunk; a failed Bash's body is the ToolUse row's
     if (e.props.isErrored && e.props.tool !== 'Bash' && typeof e.props.output === 'string') {
       const reason = e.props.output.replace(/<\/?tool_use_error>/g, '')
@@ -733,11 +736,13 @@ export const register: Register = (on, options) => {
     }
     if (main) {
       const ms = (await $.clock.now()) - t0
-      if (r.isError) {
+      // a call the person declined counts as no failure
+      const failed = !!r.isError && !isDeclined(r.result)
+      if (failed) {
         live.failed += 1
         live.lastFailedTool = e.tool
       }
-      if (r.isError && id) failedCalls.add(id)
+      if (failed && id) failedCalls.add(id)
       const out = r.isError ? undefined : (r.result as { backgroundTaskId?: unknown; status?: unknown; agentId?: unknown; taskId?: unknown } | undefined)
       const task = typeof out?.backgroundTaskId === 'string' ? out.backgroundTaskId
         : out?.status === 'async_launched' || out?.status === 'remote_launched' ? (typeof out.agentId === 'string' ? out.agentId : typeof out.taskId === 'string' ? out.taskId : null)
@@ -748,7 +753,7 @@ export const register: Register = (on, options) => {
       }
       if (id) callMs.set(id, ms)
       if (id) liveCalls.delete(id)
-      if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: r.isError ? 'failed' : 'ok', ms })
+      if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: failed ? 'failed' : 'ok', ms })
       // the run's row turns its mark
       if (id && turnId && callRun(turnOrder.get(turnId) ?? [], id).length > 1) $.ui.invalidate('ui.render')
       const args = e as unknown as Record<string, unknown>

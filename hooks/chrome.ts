@@ -1057,6 +1057,19 @@ export function renderSkillLoad(t: Table, p: Palette, output: unknown): RenderEl
 // A failed non-Bash call's error, in place of the engine's body (its corner
 // bracket broke the trunk, 2026-10-06): the reason's first line in `err`,
 // the rest a `faint` count; ctrl+o has it whole.
+// A call the person turned down (a denied permission, a question they
+// chose to clarify or dismissed): the engine records it as an error, but
+// nothing failed (owner's request, 2026-10-14).
+export function isDeclined(output: unknown): boolean {
+  const text = typeof output === 'string' ? output : JSON.stringify(output ?? '')
+  return /doesn't want to proceed|tool use was rejected/.test(text)
+}
+
+// A declined call's result: one trunked line in `faint`, not an error.
+export function renderDeclined(t: Table, p: Palette): RenderElement {
+  return trunked(t, p, 1, [t.Text({ color: p.faint, wrap: 'truncate-end', children: ['Declined'] })])
+}
+
 export function renderToolError(t: Table, p: Palette, text: string): RenderElement {
   const lines = text.split('\n').map(l => l.trim()).filter(l => l !== '')
   const rows = [trunked(t, p, 1, [t.Text({ color: p.err, wrap: 'truncate-end', children: [safeText(lines[0] ?? 'Error', 400)] })])]

@@ -8,7 +8,7 @@ import { pathLike } from '../hooks/paths'
 import { needsAttention, writeIntent } from '../hooks/prose'
 import { proseSpans, shellSpans } from '../hooks/shell'
 import { cellWidth } from '../hooks/width'
-import { agentModels, cleanHint } from '../hooks/chrome'
+import { agentModels, cleanHint, isDeclined } from '../hooks/chrome'
 
 const cp = (n: number) => String.fromCodePoint(n)
 
@@ -302,4 +302,11 @@ test('0.5.2: nesting is the rank of the indent, numbers right-align, a card unde
 test('agentModels names each live agent by its model alone', () => {
   expect(agentModels([])).toBe('')
   expect(agentModels([{ model: 'claude-haiku-5-5' }, { model: 'claude-sonnet-5-5-20261001' }])).toBe('haiku-5-5 · sonnet-5-5')
+})
+
+test('isDeclined: a call the person turned down, not a failure', () => {
+  expect(isDeclined("The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit...)")).toBe(true)
+  expect(isDeclined([{ type: 'text', text: "The user doesn't want to proceed with this tool use." }])).toBe(true)
+  expect(isDeclined('Exit code 1')).toBe(false)
+  expect(isDeclined(undefined)).toBe(false)
 })
