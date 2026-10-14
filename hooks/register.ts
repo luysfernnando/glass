@@ -200,6 +200,8 @@ export const register: Register = (on, options) => {
   // the names and types of subagents this session spawned: their folded
   // `Message from` rows hide, since the finished row says the same
   const spawned = new Set<string>()
+  // agentId to the description it was spawned with, for a resume that has none
+  const agentLabels = new Map<string, string>()
   // Tree rows read these module records, never an atom: a read in a render
   // hook subscribes the row, and every write then redraws every row of the
   // turn, which strands duplicate rows above the viewport (2026-10-03).
@@ -653,6 +655,9 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.start', async ($, e, next) => {
+    // since 2.1.299 a subagent's or teammate's turn starts here too: the tree
+    // is the main loop's, and their work shows in the agents band
+    if (e.agentId !== undefined) return next(e)
     // A turn no prompt started (a background task's or an agent's
     // notification) goes on the tree above it: that turn's corner turns back
     // to a tee (owner's request, 2026-10-05: the trunk broke under it).
@@ -868,6 +873,11 @@ export const register: Register = (on, options) => {
         tokens: 0,
         startedAt: await $.clock.now(),
       }
+      // a resume (SendMessage) spawns again since 2.1.299, maybe with no
+      // description; a finished agent left the band, so its name is kept here
+      const named = agentLabels.get(agent.agentId)
+      if (e.resume !== undefined && named) agent.description ||= named
+      else agentLabels.set(agent.agentId, agent.description)
       await update($, agents, as => [...(as ?? []).filter(a => a.agentId !== agent.agentId), agent])
     }
     return r
