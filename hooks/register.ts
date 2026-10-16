@@ -471,6 +471,9 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.start', async ($, e, next) => {
+    // 2.1.299: turn.start also fires for subagents' and teammates' turns; the
+    // live turn is the main loop's (the typings gain agentId with that engine)
+    if ((e as { agentId?: string }).agentId) return next(e)
     live.turnId = e.turnId
     live.active = true
     await update($, liveTurn, () => e.turnId)
