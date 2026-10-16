@@ -5,6 +5,6 @@
 
 -- colors --
 #7bc0ae
-#6cc0e5
-#9cce8b
-#e9b873
+planMode
+autoAccept
+warning

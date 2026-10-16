@@ -58,7 +58,9 @@ stored or what the model reads.
 - **Background band.** While subagents run, a rounded frame above the
   prompt lists them with a face, model and effort, current tool, tokens
   and the file they last touched, five at a time. The chevron folds it to
-  one strip of faces.
+  one strip of faces. A `view` at the end of each row opens that agent's
+  transcript in the main view (Claude Code 2.1.300 or newer); the row in
+  view reads `back`.
 - **Event rows.** A background task's notification draws as one tree row
   with its duration; a message from another agent draws as one muted row.
 - **Summary rows.** A compaction summary ends on a quiet `· summary` mark,
@@ -98,7 +100,8 @@ props that older engines do not send, and the rest is unchanged.
 
 Restart Claude Code. Pick a palette with `/config` under Glass: `tidepool`
 (default), `water` (Empryo's own proxysoul-water tokens), `undertow` (sampled from
-Empryo's desktop video), `codex` or `rose`.
+Empryo's desktop video), `crimson` (Empryo's crimson world, "the heart", from
+empryo.com's own CSS), `codex` or `rose`.
 The palettes assume a dark terminal.
 
 To try it from a clone without installing:

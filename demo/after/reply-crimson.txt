@@ -1,0 +1,26 @@
+
+What changed
+The engine now exposes $.ui.notify and glass reads it. Run claude plugin test . to see the dumps.
+
+• one item with code
+• a second item
+
+const n: number = fmt(42) // note
+
+Bottom line
+▎
+▎
+▎Verified  the tree validates on the terminal.
+Issue     none.
+Fix       nothing to do.
+
+-- colors --
+#d1c1ce
+#ab7bf0
+#f43a6b
+#9a8499
+#301a34
+#ffb3c8
+#45c98d
+#dccbd8
+#ff6a52

@@ -1,0 +1,60 @@
+cmd         #f43a6b  sample text 0.8s hooks/a.ts
+sub         #ab7bf0  sample text 0.8s hooks/a.ts
+flag        #ffb3c8  sample text 0.8s hooks/a.ts
+str         #f2a94c  sample text 0.8s hooks/a.ts
+path        #8fb6e6  sample text 0.8s hooks/a.ts
+op          #9a8499  sample text 0.8s hooks/a.ts
+num         #ab7bf0  sample text 0.8s hooks/a.ts
+var         #ffb3c8  sample text 0.8s hooks/a.ts
+url         #6fa8ff  sample text 0.8s hooks/a.ts
+comment     #9a8499  sample text 0.8s hooks/a.ts
+code        #ab7bf0  sample text 0.8s hooks/a.ts
+heading     #f6eaf1  sample text 0.8s hooks/a.ts
+heading3    #ab7bf0  sample text 0.8s hooks/a.ts
+accent      #f43a6b  sample text 0.8s hooks/a.ts
+bullet      #9a8499  sample text 0.8s hooks/a.ts
+orderedNum  #9a8499  sample text 0.8s hooks/a.ts
+rule        #664468  sample text 0.8s hooks/a.ts
+quoteBar    #ffb3c8  sample text 0.8s hooks/a.ts
+ok          #45c98d  sample text 0.8s hooks/a.ts
+err         #ff6a52  sample text 0.8s hooks/a.ts
+warn        #f2a94c  sample text 0.8s hooks/a.ts
+bold        #f6eaf1  sample text 0.8s hooks/a.ts
+blockBg     #301a34  sample text 0.8s hooks/a.ts
+tool        #f43a6b  sample text 0.8s hooks/a.ts
+calloutBar  #f43a6b  sample text 0.8s hooks/a.ts
+verified    #45c98d  sample text 0.8s hooks/a.ts
+issue       #ff6a52  sample text 0.8s hooks/a.ts
+fix         #ab7bf0  sample text 0.8s hooks/a.ts
+calloutText #dccbd8  sample text 0.8s hooks/a.ts
+private     #7a6679  sample text 0.8s hooks/a.ts
+mark        #f2a94c  sample text 0.8s hooks/a.ts
+meta        #9a8499  sample text 0.8s hooks/a.ts
+faint       #7a6679  sample text 0.8s hooks/a.ts
+rowHover    #3a1f3e  sample text 0.8s hooks/a.ts
+accentUser  #ffb3c8  sample text 0.8s hooks/a.ts
+codeKw      #f43a6b  sample text 0.8s hooks/a.ts
+codeFn      #ab7bf0  sample text 0.8s hooks/a.ts
+codeType    #ffb3c8  sample text 0.8s hooks/a.ts
+codeStr     #f2a94c  sample text 0.8s hooks/a.ts
+codeNum     #ab7bf0  sample text 0.8s hooks/a.ts
+addBg       #301a34  sample text 0.8s hooks/a.ts
+delBg       #3a2420  sample text 0.8s hooks/a.ts
+
+-- colors --
+#7a6679
+#f43a6b
+#ab7bf0
+#ffb3c8
+#f2a94c
+#8fb6e6
+#9a8499
+#6fa8ff
+#f6eaf1
+#664468
+#45c98d
+#ff6a52
+#301a34
+#dccbd8
+#3a1f3e
+#3a2420

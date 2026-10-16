@@ -85,6 +85,29 @@ async function notifyPerson($: EngineInterface, text: string): Promise<void> {
   }
 }
 
+// Puts an agent's transcript in the main view, or the main conversation
+// back (0.10.0). `$.ui.view` is typed from 2.1.300 on; the call is spelled
+// at the call site through a cast of `$`, as notifyPerson's is (the
+// validator refuses `$.ui` bound to a value). A `deny` (the agent is gone,
+// the view moved, no view on this surface) and an engine without the method
+// both end in a toast: a press is never worth a failed hook.
+type Viewer = { ui: { view: (v: { agentId?: string }) => Promise<{ deny?: string } | undefined> } }
+async function showView($: EngineInterface, v: { agentId?: string }): Promise<void> {
+  let text: string | null = null
+  try {
+    const r = await ($ as unknown as Viewer).ui.view(v)
+    if (r?.deny) text = `glass: ${r.deny}`
+  } catch {
+    text = 'glass: viewing an agent needs Claude Code 2.1.300 or newer'
+  }
+  if (text === null) return
+  try {
+    $.ui.toast(text)
+  } catch {
+    // a toast is never worth a failed hook
+  }
+}
+
 // Writes a palette's theme to ~/.claude/themes/glass-<palette>.json and
 // selects it (0.5.0). The one file glass writes outside its own folder:
 // the directory comes from HOME, the name from the closed palette list, the
@@ -713,6 +736,9 @@ export const register: Register = (on, options) => {
     if (list.length === 0) return below
     const t = $.ui.resolve(e)
     const state = (await read($, band)) ?? 'open'
+    // 0.10.0: `view` puts the agent's transcript in the main view and `back`
+    // returns, through `$.ui.view` (engine 2.1.300) in showView. The site
+    // says which agent is in view.
     const frame = renderBand(t, palette, {
       agents: list,
       now: await $.clock.now(),
@@ -720,6 +746,9 @@ export const register: Register = (on, options) => {
       open: state === 'open',
       onToggle: () => void update($, band, s => (s === 'closed' ? 'open' : 'closed')),
       tasksCommand: commands.has('tasks') ? 'tasks' : commands.has('bashes') ? 'bashes' : null,
+      viewing: e.props.view?.agentId ?? null,
+      onView: (agentId: string) => void showView($, { agentId }),
+      onBack: () => void showView($, {}),
     })
     return t.Box({ flexDirection: 'column', children: [frame, below] })
   })

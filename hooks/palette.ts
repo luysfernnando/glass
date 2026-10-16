@@ -69,7 +69,7 @@ export type Palette = {
   delBg: string
 }
 
-export type PaletteName = 'tidepool' | 'codex' | 'rose' | 'undertow' | 'water'
+export type PaletteName = 'tidepool' | 'codex' | 'rose' | 'undertow' | 'water' | 'crimson'
 
 // The owner's own nvim theme, ~/Documents/codes/packages/tidepool.nvim,
 // hybrid variant: lifted content over muted scaffolding. Mapped by role:
@@ -222,11 +222,63 @@ const water: Palette = {
   delBg: '#33222e', // lifted from #241c2a (1.11:1) toward SPEC's 1.2:1 tint floor
 }
 
+// Empryo's crimson world ("the heart"), read off empryo.com's own CSS
+// (`:root[data-world=crimson][data-theme=dark]`, 2026-10-16). The desktop
+// theme `proxysoul-crimson` is not in Empryo's public tokens.ts yet, so
+// these are the site's tokens mapped by role as water's are: the pigment
+// for the verb, the violet alt for builtins and raw, the pink nucleus for
+// flags, amber for strings. Text steps are its ink, ink-soft and ink-faint.
+const crimson: Palette = {
+  cmd: '#f43a6b', // pigment: the crimson itself
+  sub: '#ab7bf0', // pigment-alt: violet
+  flag: '#ffb3c8', // nucleus: the pink
+  str: '#f2a94c', // the site's warn, as water's amber
+  path: '#8fb6e6', // soft sky: the one cool hue the world lacks, so paths sit apart from the crimson verb, the violet code, the pink flags and the amber strings
+  op: '#9a8499', // ink-faint
+  num: '#ab7bf0', // info
+  var: '#ffb3c8',
+  url: '#6fa8ff', // sky, underlined, a step brighter than path
+  comment: '#9a8499',
+  code: '#ab7bf0',
+  heading: '#f6eaf1', // ink
+  heading3: '#ab7bf0',
+  accent: '#f43a6b',
+  bullet: '#9a8499',
+  orderedNum: '#9a8499',
+  rule: '#664468', // the site's #3f2040 is 1.34:1 on the audit ground; lifted to 2.4:1
+  quoteBar: '#ffb3c8',
+  ok: '#45c98d',
+  err: '#ff6a52', // bad: the site's orange-red, apart from the crimson verb
+  warn: '#f2a94c',
+  bold: '#f6eaf1',
+  blockBg: '#301a34', // pigment-deep #2c1022 is 1.09:1 on the audit ground; this is the 1.2:1 step
+  tool: '#f43a6b',
+  calloutBar: '#f43a6b',
+  verified: '#45c98d',
+  issue: '#ff6a52',
+  fix: '#ab7bf0',
+  calloutText: '#dccbd8', // a step under ink
+  private: '#7a6679', // as faint
+  mark: '#f2a94c', // warn
+  meta: '#9a8499', // ink-faint
+  faint: '#7a6679', // 3.6:1, between rule and meta
+  rowHover: '#3a1f3e', // a step above blockBg
+  accentUser: '#ffb3c8',
+  codeKw: '#f43a6b',
+  codeFn: '#ab7bf0',
+  codeType: '#ffb3c8',
+  codeStr: '#f2a94c',
+  codeNum: '#ab7bf0',
+  addBg: '#301a34', // the plum tint, as the other palettes use their band tint
+  delBg: '#3a2420', // a dim ember toward `bad`, apart from the plum
+}
+
 // Every palette spells out every key: no shared block, so a theme reads whole.
 export const PALETTES: Record<PaletteName, Palette> = {
   tidepool,
   undertow,
   water,
+  crimson,
   // One Dark, filled out by role:
   // cyan for the marks and bars, the gutter greys from the theme's own
   // comment and line-number steps.
@@ -323,9 +375,9 @@ export const PALETTES: Record<PaletteName, Palette> = {
   },
 }
 
-/** the palette's name from the option's value: one of the five, tidepool for anything else */
+/** the palette's name from the option's value: one of the six, tidepool for anything else */
 export function paletteNameOf(name: unknown): PaletteName {
-  if (name === 'codex' || name === 'rose' || name === 'undertow' || name === 'water') return name
+  if (name === 'codex' || name === 'rose' || name === 'undertow' || name === 'water' || name === 'crimson') return name
   return 'tidepool'
 }
 

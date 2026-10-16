@@ -1,5 +1,5 @@
-// Paints the DEMO.md fixtures in the terminal, before (the installed 0.4.25
-// in the plugin cache) and after (this working tree), in real colors.
+// Paints the DEMO.md fixtures in the terminal, before (the last release
+// installed in the plugin cache) and after (this working tree), in real colors.
 //
 //   bun scripts/show.ts                     every fixture that differs
 //   bun scripts/show.ts --all               identical fixtures too
@@ -8,6 +8,8 @@
 //   bun scripts/show.ts --theme dark        ... or the stock dark defaults
 //   bun scripts/show.ts --plain             no colors, for a paste
 //   GLASS_BEFORE=/path/to/old/hooks bun scripts/show.ts
+//   GLASS_PALETTE=crimson GLASS_BEFORE_PALETTE=water bun scripts/show.ts --all reply palette
+//                                           one palette against another, same tree
 //
 // Before against the last commit instead of the installed release:
 //   rm -rf /tmp/glass-base && mkdir -p /tmp/glass-base && git archive HEAD hooks types | tar -x -C /tmp/glass-base
@@ -41,15 +43,19 @@ type Mods = {
 
 const HERE = new URL('.', import.meta.url).pathname
 const AFTER = join(HERE, '..', 'hooks')
-const BEFORE = process.env.GLASS_BEFORE ?? join(homedir(), '.claude', 'plugins', 'cache', 'glass', 'glass', '0.4.25', 'hooks')
+const BEFORE_VERSION = '0.9.1'
+const BEFORE = process.env.GLASS_BEFORE ?? join(homedir(), '.claude', 'plugins', 'cache', 'glass', 'glass', BEFORE_VERSION, 'hooks')
 const PALETTE = process.env.GLASS_PALETTE ?? 'water'
+// the palette the before block paints with: the same unless asked, so one
+// palette can stand beside another on the same tree
+const BEFORE_PALETTE = process.env.GLASS_BEFORE_PALETTE ?? PALETTE
 const COLUMNS = Math.min(process.stdout.columns ?? 100, 110)
 
 // arguments: --all, --theme <name>, then fixture name filters
 const argv = process.argv.slice(2)
 const SHOW_ALL = argv.includes('--all')
 const PLAIN = argv.includes('--plain')
-const BEFORE_LABEL = BEFORE.includes('0.4.25') ? 'before 0.4.25' : `before (${BEFORE.replace(/\/hooks\/?$/, '').split('/').pop()})`
+const BEFORE_LABEL = (BEFORE.includes(`/${BEFORE_VERSION}/`) ? `before ${BEFORE_VERSION}` : `before (${BEFORE.replace(/\/hooks\/?$/, '').split('/').pop()})`) + (BEFORE_PALETTE !== PALETTE ? `, palette ${BEFORE_PALETTE}` : '')
 const themeArg = argv.includes('--theme') ? argv[argv.indexOf('--theme') + 1] : undefined
 const want = argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--theme')
 
@@ -255,8 +261,8 @@ const turn = {
 const call = (id: string, tool: string, status: string, ms: number | null) => ({ id, tool, status, ms })
 const row = (tool: string, input: unknown, failed = false, id = 't1') => ({ tool_use_id: id, tool, input, isRunning: false, isErrored: failed, isInterrupted: false })
 
-function fixtures(m: Mods): Record<string, () => Node | null> {
-  const p = m.palette.PALETTES[PALETTE] ?? m.palette.PALETTES.tidepool!
+function fixtures(m: Mods, paletteName = PALETTE): Record<string, () => Node | null> {
+  const p = m.palette.PALETTES[paletteName] ?? m.palette.PALETTES.tidepool!
   const c = m.chrome as unknown as Record<string, (...a: unknown[]) => Node>
   const columns = COLUMNS
   return {
@@ -330,6 +336,7 @@ function fixtures(m: Mods): Record<string, () => Node | null> {
         open: true,
         onToggle: null,
         tasksCommand: 'tasks',
+        onView: () => undefined,
       }),
     'server-tools': () =>
       c.renderServerToolRows
@@ -363,9 +370,9 @@ const SAME = '  '
 console.log(dim(`palette ${PALETTE}, theme slots from ${THEME.name}, ${before ? BEFORE_LABEL : 'no before'}, ${COLUMNS} columns`))
 console.log('')
 
-function paint(mods: Mods | null, name: string): string[] | null {
+function paint(mods: Mods | null, name: string, paletteName = PALETTE): string[] | null {
   if (!mods) return null
-  const make = fixtures(mods)[name]
+  const make = fixtures(mods, paletteName)[name]
   const tree = make ? make() : null
   return tree === null ? null : rows(tree)
 }
@@ -373,7 +380,7 @@ function paint(mods: Mods | null, name: string): string[] | null {
 const names = Object.keys(fixtures(after)).filter(n => want.length === 0 || want.some(w => n.includes(w)))
 let identical = 0
 for (const name of names) {
-  const a = paint(before, name)
+  const a = paint(before, name, BEFORE_PALETTE)
   const b = paint(after, name)
   const same = a !== null && b !== null && a.length === b.length && a.every((r, i) => r === b[i])
   if (same && !SHOW_ALL) {

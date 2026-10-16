@@ -2,9 +2,10 @@
 // distinct colors the tree names. The test sandbox has no file system, so
 // the dumps go to the runner's output between `@@DUMP <name>` and `@@END`
 // markers; `scripts/demo-dump.sh <before|after>` splits them into
-// demo/<target>/<name>.txt. The `before` set was captured on 0.4.25 and
-// committed once; `after` is written on every run of the 0.5.0 tree. Not a
-// test of behaviour: it only asserts that every fixture produced rows.
+// demo/<target>/<name>.txt. The `before` set is captured on the last
+// release's tree (0.9.1 for the 0.10.0 demo) and committed once; `after` is
+// written on every run of the working tree. Not a test of behaviour: it only
+// asserts that every fixture produced rows.
 import { expect, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
@@ -16,6 +17,8 @@ import { renderReply } from '../hooks/render'
 declare const console: { log: (...args: unknown[]) => void }
 
 const p = PALETTES.tidepool
+const water = PALETTES.water
+const crimson = PALETTES.crimson
 const el = (type: string) => (props: Record<string, unknown>) => ({ type, props }) as unknown as RenderElement
 const t = { Box: el('Box'), Text: el('Text'), Button: el('Button'), Link: el('Link'), Code: el('Code'), Markdown: el('Markdown'), Raster: el('Raster') } as unknown as Elements['terminal']
 
@@ -54,6 +57,15 @@ function colors(node: RenderNode, seen: string[] = []): string[] {
   }
   for (const kid of n.props.children ?? []) colors(kid, seen)
   return seen
+}
+
+// every palette role in its own color, one row each: the dump lists the
+// hexes, `bun scripts/show.ts palette` paints them (0.10.0)
+function swatches(pal: typeof p): RenderElement {
+  return t.Box({
+    flexDirection: 'column',
+    children: Object.entries(pal).map(([k, v]) => t.Box({ flexDirection: 'row', children: [t.Text({ color: pal.faint, children: [k.padEnd(12)] }), t.Text({ color: v, children: [`${v}  sample text 0.8s hooks/a.ts`] })] })),
+  })
 }
 
 function dump(name: string, tree: RenderElement): [string, string[]] {
@@ -133,7 +145,14 @@ test('demo dumps: every fixture produces rows', async () => {
       open: true,
       onToggle: null,
       tasksCommand: 'tasks',
+      // 0.10.0: a `view` Button on every row opens the agent's transcript
+      onView: () => undefined,
     })),
+    // 0.10.0: the crimson palette beside water, the Empryo world it joins
+    dump('reply-crimson', renderReply(t, parseMarkdown(reply), crimson, { first: true, columns: 100, marks: true })),
+    dump('reply-water', renderReply(t, parseMarkdown(reply), water, { first: true, columns: 100, marks: true })),
+    dump('palette-crimson', swatches(crimson)),
+    dump('palette-water', swatches(water)),
     // 0.4.25 drew nothing after the reply (the before dump is the hidden
     // row); 0.5.0 draws the turn's server tool rows there
     dump('server-tools', renderServerToolRows(t, p, [
@@ -147,5 +166,5 @@ test('demo dumps: every fixture produces rows', async () => {
     console.log('@@END')
     expect(lines.length > 0).toBe(true)
   }
-  expect(fixtures.length).toBe(8)
+  expect(fixtures.length).toBe(12)
 })

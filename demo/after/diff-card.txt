@@ -8,11 +8,11 @@
 -- colors --
 #48708c
 #d6b477
-diffAddedWord
-diffRemovedWord
+success
+error
 #7aa2f7
 diffRemoved
 #7aa2b5
-#9cce8b
+#d2bdff
 diffAdded
 #7bc0ae

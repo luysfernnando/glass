@@ -3,7 +3,7 @@
 add the notify option
 
 ◉ Claude · 6:16 AM
-● ● ✗ ●  4 actions · 1 edit · 1 failed
+● ● ✗ ●  4 actions · 1 edit · 1 failed[▾]  [⧉ Copy]
 
 -- colors --
 #7bc0ae

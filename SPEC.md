@@ -557,6 +557,18 @@ and reply blocks interleaved as the model made them, then the
   name, the tokens and the stage give up cells; the closed strip drops its
   oldest faces. The file column draws relative to the session's directory
   and cuts in the middle, keeping the file name.
+- **(0.10.0)** A `view` Button at the right end of every agent row (a
+  `key` of `band:view:<agentId>` on the Button and its Box, `plain`,
+  `dimColor`, lit by hover, as the chevron) puts that agent's transcript
+  in the main view through `$.ui.view({ agentId })`; the site's
+  `e.props.view.agentId` names the agent in view, whose row draws `back`
+  (`$.ui.view({})`) and its name in `accent`. The button's five cells come
+  off the file column. The call is spelled at the call site through a
+  cast of `$`, as the notification's is: the validator refuses `$.ui`
+  bound to a value, and an engine without the method (before 2.1.300)
+  throws into a toast that names the version. A press the engine declines
+  (`{ deny }`: the agent is gone, the view moved, no view here) toasts
+  `glass: <reason>`.
 
 ### **(0.5.0)** Notifications
 
@@ -601,7 +613,17 @@ validate` holds the module to it.
   liked. `codex` carries One Dark; `rose`
   rose-pine; `water` Empryo's proxysoul-water tokens (`rule #5a5870`,
   `delBg #33222e` after the live check); `undertow` is read off Empryo's
-  desktop frames, so approximate. Every palette supplies the full
+  desktop frames, so approximate. **(0.10.0)** `crimson` is Empryo's
+  crimson world ("the heart"), the tokens of empryo.com's own CSS
+  (`:root[data-world=crimson][data-theme=dark]`, 2026-10-16) mapped by
+  role as water's are: pigment `#f43a6b` for the verb, the marks and the
+  bars, the violet alt for builtins and raw, the pink nucleus for flags,
+  `var`, `quoteBar` and `accentUser`, amber for strings; its desktop
+  theme `proxysoul-crimson` is not in Empryo's public tokens.ts yet.
+  Derived against the audit ground: `rule #664468` (the site's `#3f2040`
+  is 1.34:1), `blockBg #301a34` (pigment-deep is 1.09:1), `faint #7a6679`
+  (3.6:1), `path` a soft sky `#8fb6e6`, the one cool hue the world lacks,
+  `delBg #3a2420` an ember apart from the plum tint. Every palette supplies the full
   `Palette` type: the prose and shell keys, `meta`, `faint`, `rowHover`,
   `accentUser`, `text`, `bold`, `blockBg`, `tool`, the callout keys, the
   code keys and the diff tints. A test keeps `mark` apart from `ok`,
@@ -784,4 +806,8 @@ carrying `-- INSERT --`. For 0.5.0: the Button press; `config.set` of a
 `custom:` theme; codespans under a glass theme; the notify channel's
 `isSent`; the tall-reply duplicate rows (engine fixes in 2.1.289 and
 2.1.290 may have closed it: reproduce before filing); a tabbed fence after
-the engine's own tab-stop change in 2.1.295.
+the engine's own tab-stop change in 2.1.295. For 0.10.0: the `view`
+press on a band row, `back` on the row in view, Esc from the agent view;
+a `deny` toast when the agent has finished; the dots line's counts under
+a turn that spawns subagents (2.1.299 raises `turn.start` for them; 0.9.1
+guards it); crimson's `blockBg` and `rule` on the owner's ground.

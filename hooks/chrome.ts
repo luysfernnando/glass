@@ -841,6 +841,18 @@ const COL_NAME = 20
 const COL_MODEL = 22
 const COL_STAGE = 14
 const COL_TOKENS = 8
+// the view and back labels are one width, so a row is the band wide either way
+const VIEW_LABEL = 'view'
+const BACK_LABEL = 'back'
+const VIEW_CELLS = 1 + VIEW_LABEL.length
+
+// `view` on an agent's row, `back` on the one in view: a plain dim Button in
+// a keyed Box, as the chevron is (a hover with no keyed Box around it makes
+// the engine refuse the tree)
+function viewButton(t: Table, p: Palette, agentId: string, inView: boolean, onPress: () => void): RenderElement {
+  const key = `band:view:${agentId}`
+  return t.Box({ key, children: [t.Button({ key, label: inView ? BACK_LABEL : VIEW_LABEL, plain: true, dimColor: true, hover: { backgroundColor: p.rowHover }, onPress })] })
+}
 
 export type BandOptions = {
   agents: GlassAgent[]
@@ -850,6 +862,15 @@ export type BandOptions = {
   onToggle: Press | null
   /** the slash command that lists tasks, when the session has one */
   tasksCommand: string | null
+  /**
+   * 0.10.0: opens an agent's transcript in the main view (`$.ui.view`,
+   * engine 2.1.300); absent or null, no row draws a button
+   */
+  onView?: ((agentId: string) => void) | null
+  /** the agent whose transcript is in view (`e.props.view.agentId`), if any */
+  viewing?: string | null
+  /** returns to the main conversation; the row in view draws `back` */
+  onBack?: (() => void) | null
 }
 
 // the agent's face: eyes level while it thinks, lowered while it reads
@@ -947,9 +968,12 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
   const inner = w - 4
   const shown = agents.slice(-BAND_ROWS)
   const more = agents.length - shown.length
-  const cols = bandColumns(inner)
+  const cols = bandColumns(inner, o.onView ? VIEW_CELLS : 0)
   const rows = shown.map(a => {
     const modelText = `${shortModel(a.model)}${a.effort ? sep + a.effort : ''}`
+    const inView = o.viewing === a.agentId
+    const onView = o.onView
+    const press = inView ? () => o.onBack?.() : () => onView?.(a.agentId)
     return t.Box({
       flexDirection: 'row',
       children: [
@@ -957,7 +981,7 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
         t.Text({
           children: [
             t.Text({ color: p.warn, children: [G.diamond + ' ' + face(a) + ' '] }),
-            t.Text({ color: p.bold, bold: true, children: [fit(a11(a.description), cols.name)] }),
+            t.Text({ color: inView ? p.accent : p.bold, bold: true, children: [fit(a11(a.description), cols.name)] }),
             ' ',
             t.Text({ color: p.accent, children: [fit(modelText, cols.model)] }),
             ' ',
@@ -968,6 +992,7 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
             t.Text({ color: p.faint, children: [fitPath(rel(a.file), cols.file)] }),
           ],
         }),
+        ...(onView ? [t.Text({ children: [' '] }), viewButton(t, p, a.agentId, inView, press)] : []),
         edge(' ' + G.pipe),
       ],
     })
@@ -1002,9 +1027,9 @@ export function renderBand(t: Table, p: Palette, o: BandOptions): RenderElement 
 // left; on a narrow terminal the model gives up cells first, then the
 // name, the tokens column, the stage, and the name and model again, so a
 // row never outgrows its frame.
-function bandColumns(inner: number): { name: number; model: number; stage: number; tokens: number; file: number } {
+function bandColumns(inner: number, extra = 0): { name: number; model: number; stage: number; tokens: number; file: number } {
   const c = { name: COL_NAME, model: COL_MODEL, stage: COL_STAGE, tokens: COL_TOKENS }
-  let over = 8 + 4 + c.name + c.model + c.stage + c.tokens - inner
+  let over = 8 + 4 + extra + c.name + c.model + c.stage + c.tokens - inner
   const give = (k: keyof typeof c, min: number) => {
     const d = Math.max(0, Math.min(over, c[k] - min))
     c[k] -= d

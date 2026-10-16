@@ -651,6 +651,41 @@ test('the band fits its frame on a narrow terminal, open and closed', async () =
   expect(clip('hooks/render.ts', 0)).toBe('')
 })
 
+test('the band: a view Button on every row (0.10.0), back on the row in view, none without onView; rows stay the band wide', async () => {
+  const agents = [
+    { agentId: 'a1', description: 'Hunt widths', kind: 'Explore', model: 'claude-sonnet-5-5', effort: 'medium', stage: 'Grep', file: 'hooks/width.ts', tokens: 100, startedAt: 0 },
+    { agentId: 'a2', description: 'Review the diff', kind: 'general-purpose', model: 'claude-opus-5-5', effort: 'high', stage: 'thinking' + G.ellipsis, file: '', tokens: 900, startedAt: 0 },
+  ]
+  // a row's text with its Buttons' labels, as the terminal lays it out
+  const withLabels = (node: RenderNode): string => {
+    if (typeof node === 'string') return node
+    const n = node as unknown as { type: string; props: { label?: unknown; children?: RenderNode[] } }
+    if (n.type === 'Button') return String(n.props.label ?? '')
+    return (n.props.children ?? []).map(withLabels).join('')
+  }
+  const rowsOf = (band: RenderElement) => ((band as unknown as { props: { children: RenderNode[] } }).props.children ?? []).map(withLabels)
+  const plain = renderBand(t, p, { agents, now: 1000, columns: 100, open: true, onToggle: null, tasksCommand: null })
+  expect(elements(plain).filter(n => n.type === 'Button').length).toBe(0)
+  const pressed: string[] = []
+  const band = renderBand(t, p, { agents, now: 1000, columns: 100, open: true, onToggle: null, tasksCommand: null, onView: id => pressed.push('view:' + id), onBack: () => pressed.push('back'), viewing: 'a2' })
+  const buttons = elements(band).filter(n => n.type === 'Button')
+  expect(buttons.map(b => b.props.label)).toEqual(['view', 'back'])
+  expect(buttons.map(b => b.props.key)).toEqual(['band:view:a1', 'band:view:a2'])
+  expect(buttons.every(b => b.props.plain === true && b.props.dimColor === true)).toBe(true)
+  ;(buttons[0]!.props.onPress as () => void)()
+  ;(buttons[1]!.props.onPress as () => void)()
+  expect(pressed).toEqual(['view:a1', 'back'])
+  // the row in view carries its name in accent, the other in bold
+  const names = elements(band).filter(n => n.type === 'Text' && typeof n.props.bold === 'boolean' && /Hunt widths|Review the diff/.test(flat(n as unknown as RenderNode)))
+  expect(names.map(n => n.props.color)).toEqual([p.bold, p.accent])
+  // the button's cells come off the file column: every row stays the band wide
+  for (const columns of [100, 84, 72, 60, 44]) {
+    const w = Math.max(40, columns - 4)
+    const open = renderBand(t, p, { agents, now: 1000, columns, open: true, onToggle: null, tasksCommand: null, onView: () => undefined })
+    for (const row of rowsOf(open)) expect(cellWidth(row)).toBe(w)
+  }
+})
+
 test('durations past an hour: hours and minutes, whole in the clock', async () => {
   expect(fmtDuration(59 * 60_000)).toBe('59m 00s')
   expect(fmtDuration(7_200_000)).toBe('2h 00m')
