@@ -1055,7 +1055,7 @@ export function renderPluginRow(t: Table, p: Palette, id: string, name: string, 
   return t.Box({ flexDirection: 'column', children: [row, trunked(t, p, body.length, body)] })
 }
 
-function shortModel(model: string): string {
+export function shortModel(model: string): string {
   return model.replace(/^claude-/, '').replace(/-\d{8}$/, '')
 }
 
@@ -1189,13 +1189,4 @@ export function renderHint(t: Table, p: Palette, h: { vim: string; rest: string 
       ...(tail ? [t.Text({ color: p.faint, children: [(h.vim || h.rest ? sep : '') + tail] })] : []),
     ],
   })
-}
-
-/**
- * The live agents' models for the end of the hint line, whose start the
- * engine gives their names: `haiku-5-5 · sonnet-5-5` (owner's request,
- * 2026-10-14). Empty when none runs.
- */
-export function agentModels(agents: ReadonlyArray<{ model: string }>): string {
-  return agents.map(a => shortModel(a.model)).join(sep)
 }

@@ -8,7 +8,7 @@ import { pathLike } from '../hooks/paths'
 import { needsAttention, writeIntent } from '../hooks/prose'
 import { proseSpans, shellSpans } from '../hooks/shell'
 import { cellWidth } from '../hooks/width'
-import { agentModels, cleanHint, isDeclined } from '../hooks/chrome'
+import { cleanHint, isDeclined, shortModel } from '../hooks/chrome'
 
 const cp = (n: number) => String.fromCodePoint(n)
 
@@ -299,9 +299,9 @@ test('0.5.2: nesting is the rank of the indent, numbers right-align, a card unde
   expect(quoteRows(q.blocks, 80)).toBe(5)
 })
 
-test('agentModels names each live agent by its model alone', () => {
-  expect(agentModels([])).toBe('')
-  expect(agentModels([{ model: 'claude-haiku-5-5' }, { model: 'claude-sonnet-5-5-20261001' }])).toBe('haiku-5-5 · sonnet-5-5')
+test('shortModel drops the claude- prefix and the date', () => {
+  expect(shortModel('claude-haiku-5-5')).toBe('haiku-5-5')
+  expect(shortModel('claude-sonnet-5-5-20261001')).toBe('sonnet-5-5')
 })
 
 test('isDeclined: a call the person turned down, not a failure', () => {

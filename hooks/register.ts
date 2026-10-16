@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassPrompt, GlassServerTool, GlassTurn } from '../types'
-import { agentModels, FLAT_TOOLS, MAX_PAINTED_LINES, toolText, callRun, editRunKeys, renderRunRow, spinCells, cleanHint, renderHint, clockCells, fmtDuration, fmtToolTime, isEditTool, setCwd, setHome, lineCounts, rel, shortPath, spaced, trunked, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderPluginRow, renderServerToolRows, renderSkillLoad, renderToolError, renderToolOutput, isDeclined, renderDeclined, renderTreeRow, renderUserRow } from './chrome'
+import { shortModel, FLAT_TOOLS, MAX_PAINTED_LINES, toolText, callRun, editRunKeys, renderRunRow, spinCells, clockCells, fmtDuration, fmtToolTime, isEditTool, setCwd, setHome, lineCounts, rel, shortPath, spaced, trunked, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderNoOutput, renderPluginRow, renderServerToolRows, renderSkillLoad, renderToolError, renderToolOutput, isDeclined, renderDeclined, renderTreeRow, renderUserRow } from './chrome'
 import type { ChangedFile, Hunk, RunCall, TreeOptions, TreeRow } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -199,6 +199,9 @@ export const register: Register = (on, options) => {
   const spawned = new Set<string>()
   // agentId to the description it was spawned with, for a resume that has none
   const agentLabels = new Map<string, string>()
+  // each agent's model, kept after it finishes: its transcript stays openable
+  const agentModelIds = new Map<string, string>()
+  let viewedAgent: string | undefined
   // Tree rows read these module records, never an atom: a read in a render
   // hook subscribes the row, and every write then redraws every row of the
   // turn, which strands duplicate rows above the viewport (2026-10-03).
@@ -865,6 +868,7 @@ export const register: Register = (on, options) => {
       const named = agentLabels.get(agent.agentId)
       if (e.resume !== undefined && named) agent.description ||= named
       else agentLabels.set(agent.agentId, agent.description)
+      if (agent.model) agentModelIds.set(agent.agentId, agent.model)
       await update($, agents, as => [...(as ?? []).filter(a => a.agentId !== agent.agentId), agent])
     }
     return r
@@ -966,12 +970,24 @@ export const register: Register = (on, options) => {
   })
 
   // ---- the hint line under the prompt: key reminders dropped ---------------
-  // the live agents' models at its end, beside the engine's count of them
+  // the model of the agent whose transcript is open at its end; the main
+  // view shows none (owner's request, 2026-10-15). PromptHint carries no
+  // view, so the band above the prompt, which does, reports the switch.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const id = e.props.view.agentId
+    if (id !== viewedAgent) {
+      viewedAgent = id
+      $.ui.invalidate('ui.render')
+    }
+    return next(e)
+  })
+
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
-    const tail = agentModels((await read($, agents)) ?? [])
-    const h = cleanHint(e.props.hint)
-    if (h) return renderHint($.ui.resolve(e), palette, h, tail)
+    const model = viewedAgent ? agentModelIds.get(viewedAgent) : undefined
+    const tail = model ? shortModel(model) : ''
+    // only `tail`, never a rewritten `hint`: a rewrite replaces the engine's
+    // line and its pills (`1 shell`) stop opening their lists
     return tail ? next({ ...e, props: { ...e.props, tail: e.props.tail ? `${e.props.tail} ${G.middot} ${tail}` : tail } }) : next(e)
   })
 
