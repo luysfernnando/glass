@@ -4,6 +4,34 @@ A desktop-app look for Claude Code's terminal transcript, as a mod.
 
 https://github.com/user-attachments/assets/365252bf-4b60-49c3-902b-b8e127592d28
 
+## Palettes
+
+The same turn under each palette: pick one with `/config` under Glass.
+
+**tidepool** (default): my nvim theme, mapped by role.
+
+<img src="docs/shots/tidepool.png" width="760" alt="the demo turn under the tidepool palette">
+
+**water**: Empryo's own proxysoul-water tokens.
+
+<img src="docs/shots/water.png" width="760" alt="the demo turn under the water palette">
+
+**undertow**: sampled from Empryo's desktop video.
+
+<img src="docs/shots/undertow.png" width="760" alt="the demo turn under the undertow palette">
+
+**crimson**: Empryo's crimson world, "the heart", from empryo.com's CSS.
+
+<img src="docs/shots/crimson.png" width="760" alt="the demo turn under the crimson palette">
+
+**codex**: One Dark.
+
+<img src="docs/shots/codex.png" width="760" alt="the demo turn under the codex palette">
+
+**rose**: Rose Pine.
+
+<img src="docs/shots/rose.png" width="760" alt="the demo turn under the rose palette">
+
 Claude Code draws replies in one markdown style: inline code in a fixed
 lavender, no color for commands, tables in boxes, tool rows in gray. glass
 replaces the drawing of assistant replies, tool rows and turn headers
@@ -86,38 +114,6 @@ stored or what the model reads.
 
 Every width is measured the way the engine measures cells, so emoji and
 CJK in tables stay aligned.
-
-## Palettes
-
-One turn drawn under each palette, on a night-owl ground (`#011627`) in
-JetBrains Mono Nerd Font: the user row and its dots line, a Read, a Bash
-with its painted output, an Edit with its diff card, an Agent launch, a
-reply with a TypeScript fence and a Bottom line card, then the background
-band with two subagents. `bun scripts/readme-shots.ts` redraws them.
-
-**tidepool** (default): my nvim theme, mapped by role.
-
-<img src="docs/shots/tidepool.png" width="760" alt="the demo turn under the tidepool palette">
-
-**water**: Empryo's own proxysoul-water tokens.
-
-<img src="docs/shots/water.png" width="760" alt="the demo turn under the water palette">
-
-**undertow**: sampled from Empryo's desktop video.
-
-<img src="docs/shots/undertow.png" width="760" alt="the demo turn under the undertow palette">
-
-**crimson**: Empryo's crimson world, "the heart", from empryo.com's CSS.
-
-<img src="docs/shots/crimson.png" width="760" alt="the demo turn under the crimson palette">
-
-**codex**: One Dark.
-
-<img src="docs/shots/codex.png" width="760" alt="the demo turn under the codex palette">
-
-**rose**: Rose Pine.
-
-<img src="docs/shots/rose.png" width="760" alt="the demo turn under the rose palette">
 
 ## Install
 
