@@ -69,7 +69,7 @@ export type Palette = {
   delBg: string
 }
 
-export type PaletteName = 'tidepool' | 'codex' | 'rose' | 'undertow' | 'water' | 'crimson'
+export type PaletteName = 'tidepool' | 'codex' | 'rose' | 'undertow' | 'water' | 'crimson' | 'tarnish'
 
 // The owner's own nvim theme, ~/Documents/codes/packages/tidepool.nvim,
 // hybrid variant: lifted content over muted scaffolding. Mapped by role:
@@ -273,12 +273,68 @@ const crimson: Palette = {
   delBg: '#3a2420', // a dim ember toward `bad`, apart from the plum
 }
 
+// glass's own palette (0.11.0), not a port: metals aging. Fresh copper is
+// the verb, Claude's mark and the tool name (what is happening now); the
+// verdigris it weathers to is the settled things: builtins, raw code, the
+// done mark's green cousin, the user's row, the card tint; brass for
+// strings, the steel blue of old blades for paths and links, and the violet
+// sheen on tarnished silver for flags and variables. Every value was placed
+// in OKLCH (one lightness band for the shell kinds, L 0.74-0.83, and one
+// chroma step between a role and its quieter twin) and read against the
+// audit ground #0d1117 and night-owl #011627; text is bone, a warm
+// off-white, never pure.
+const tarnish: Palette = {
+  cmd: '#e9934c', // copper, L0.74 C0.135 h58
+  sub: '#6fcabf', // verdigris, L0.78 C0.09 h185
+  flag: '#bea3df', // tarnish, L0.76 C0.09 h305
+  str: '#e5c370', // brass, L0.83 C0.11 h88
+  path: '#82bad5', // steel, L0.76 C0.07 h230
+  op: '#90847a', // a warm grey, quiet by design
+  num: '#6fcabf', // verdigris, as raw code
+  var: '#bea3df', // tarnish, with the flags
+  url: '#7ac8f5', // steel lifted, underlined
+  comment: '#928b83',
+  code: '#6fcabf',
+  heading: '#e5ddd0', // bone
+  heading3: '#e5c370', // brass, under the bone H2
+  accent: '#e9934c', // copper: Claude's mark, the band
+  bullet: '#928b83',
+  orderedNum: '#928b83',
+  rule: '#405853', // 2.5:1
+  quoteBar: '#60afa5', // verdigris a step under sub
+  ok: '#67d283', // the green verdigris weathers toward; apart from sub by hue (150 vs 185)
+  err: '#f66c6d', // oxblood lifted
+  warn: '#f4a437', // amber: more chroma than the brass strings, apart by 18 degrees
+  bold: '#efe7d9', // bone, brighter
+  blockBg: '#1b2827', // 1.24:1, a dark verdigris
+  tool: '#e9934c',
+  calloutBar: '#e9934c',
+  verified: '#67d283',
+  issue: '#f66c6d',
+  fix: '#bea3df',
+  calloutText: '#d8d0c3', // bone soft
+  private: '#5d6d69', // as faint
+  mark: '#f4a437', // warn
+  meta: '#928b83', // warm grey, 5.6:1
+  faint: '#5d6d69', // 3.5:1
+  rowHover: '#223130', // a step above the card
+  accentUser: '#6fcabf', // the person is the settled one; Claude the copper
+  codeKw: '#e9934c',
+  codeFn: '#82bad5',
+  codeType: '#bea3df',
+  codeStr: '#e5c370',
+  codeNum: '#6fcabf',
+  addBg: '#1b2827', // the verdigris tint
+  delBg: '#34211e', // a dark copper, apart from it by hue
+}
+
 // Every palette spells out every key: no shared block, so a theme reads whole.
 export const PALETTES: Record<PaletteName, Palette> = {
   tidepool,
   undertow,
   water,
   crimson,
+  tarnish,
   // One Dark, filled out by role:
   // cyan for the marks and bars, the gutter greys from the theme's own
   // comment and line-number steps.
@@ -375,9 +431,9 @@ export const PALETTES: Record<PaletteName, Palette> = {
   },
 }
 
-/** the palette's name from the option's value: one of the six, tidepool for anything else */
+/** the palette's name from the option's value: one of the seven, tidepool for anything else */
 export function paletteNameOf(name: unknown): PaletteName {
-  if (name === 'codex' || name === 'rose' || name === 'undertow' || name === 'water' || name === 'crimson') return name
+  if (name === 'codex' || name === 'rose' || name === 'undertow' || name === 'water' || name === 'crimson' || name === 'tarnish') return name
   return 'tidepool'
 }
 

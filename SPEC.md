@@ -628,7 +628,19 @@ validate` holds the module to it.
   Derived against the audit ground: `rule #664468` (the site's `#3f2040`
   is 1.34:1), `blockBg #301a34` (pigment-deep is 1.09:1), `faint #7a6679`
   (3.6:1), `path` a soft sky `#8fb6e6`, the one cool hue the world lacks,
-  `delBg #3a2420` an ember apart from the plum tint. Every palette supplies the full
+  `delBg #3a2420` an ember apart from the plum tint.
+- **(0.11.0)** `tarnish` is glass's own palette, not a port: metals aging.
+  Copper (`cmd`, `accent`, `tool`, `calloutBar`, `codeKw`) is what happens
+  now; the verdigris it weathers to (`sub`, `num`, `code`, `accentUser`,
+  the card tint) is what has settled; brass strings, steel paths and
+  links, the violet sheen of tarnished silver for flags, variables and
+  `fix`; bone text, never pure white. Every value was placed in OKLCH:
+  the nine shell kinds in one lightness band (L 0.74 to 0.83), a quieter
+  twin one chroma step under its role, greys and tints read against
+  `#0d1117` and night-owl `#011627` and lifted to the floors (rule 2.5:1,
+  faint 3.5:1, blockBg 1.24:1). Named after a search: "Verdigris" and
+  "Patina" exist as 16-color schemes in the iTerm2 gallery; "tarnish" did
+  not. First in the option list; the default stays `tidepool`. Every palette supplies the full
   `Palette` type: the prose and shell keys, `meta`, `faint`, `rowHover`,
   `accentUser`, `text`, `bold`, `blockBg`, `tool`, the callout keys, the
   code keys and the diff tints. A test keeps `mark` apart from `ok`,

@@ -8,6 +8,13 @@ https://github.com/user-attachments/assets/365252bf-4b60-49c3-902b-b8e127592d28
 
 The same turn under each palette: pick one with `/config` under Glass.
 
+**tarnish**: glass's own, not a port. Metals aging: copper for what is
+happening now, the verdigris it weathers to for what has settled, brass
+strings, steel paths, the violet sheen of tarnished silver for flags.
+Placed in OKLCH, one lightness band for every shell kind.
+
+<img src="docs/shots/tarnish.png" width="760" alt="the demo turn under the tarnish palette">
+
 **tidepool** (default): my nvim theme, mapped by role.
 
 <img src="docs/shots/tidepool.png" width="760" alt="the demo turn under the tidepool palette">
@@ -127,7 +134,7 @@ notification falls back to a toast, summary and server tool rows need
 props that older engines do not send, and the rest is unchanged.
 
 Restart Claude Code. Pick a palette with `/config` under Glass: `tidepool`
-(default), `water` (Empryo's own proxysoul-water tokens), `undertow` (sampled from
+(default), `tarnish` (glass's own), `water` (Empryo's own proxysoul-water tokens), `undertow` (sampled from
 Empryo's desktop video), `crimson` (Empryo's crimson world, "the heart", from
 empryo.com's own CSS), `codex` or `rose`.
 The palettes assume a dark terminal.
