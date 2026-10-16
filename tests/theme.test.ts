@@ -34,6 +34,10 @@ test('every palette yields a theme: a dark base, every slot in the table, every 
     expect(theme.overrides.autoAccept).not.toBe(theme.overrides.warning)
     expect(theme.overrides.warning).toBe(PALETTES[name].warn.toLowerCase())
     expect(theme.overrides.permission).toBe(PALETTES[name].tool.toLowerCase())
+    // 0.10.1: the prompt border is the person's color, bash mode the verb's, never the grey rule
+    expect(theme.overrides.promptBorder).toBe(PALETTES[name].accentUser.toLowerCase())
+    expect(theme.overrides.bashBorder).toBe(PALETTES[name].cmd.toLowerCase())
+    expect(theme.overrides.promptBorder).not.toBe(PALETTES[name].rule.toLowerCase())
   }
 })
 

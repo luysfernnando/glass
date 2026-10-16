@@ -40,8 +40,11 @@ const SLOTS: ReadonlyArray<[slot: string, role: keyof Palette]> = [
   ['permission', 'tool'],
   ['planMode', 'cmd'],
   ['autoAccept', 'ok'], // the engine's own autoAccept is a green (0.5.3; `warn` made it one color with `warning`)
-  ['promptBorder', 'rule'],
-  ['bashBorder', 'rule'],
+  // the prompt box is the person's: it takes their color, as the user row
+  // does (0.10.1; `rule` is a grey step in water, codex and rose, so the
+  // border looked uncolored); bash mode takes the verb's
+  ['promptBorder', 'accentUser'],
+  ['bashBorder', 'cmd'],
   ['secondaryBorder', 'rule'],
   // no `text` row: prose is the terminal's own foreground in every palette
   ['secondaryText', 'meta'],

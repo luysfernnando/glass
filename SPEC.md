@@ -672,7 +672,9 @@ Two directions, settled 2026-10-11.
   | `permission` | `tool` (the engine's codespans take it too) |
   | `planMode` | `cmd` |
   | `autoAccept` | `ok` (0.5.3: the engine's own is a green; `warn` made it one color with `warning`) |
-  | `promptBorder`, `bashBorder`, `secondaryBorder` | `rule` |
+  | `promptBorder` | `accentUser` (0.10.1: it was `rule`, a grey step in water, codex and rose, so the box looked uncolored beside crimson's plum; the prompt box is the person's, as the user row is) |
+  | `bashBorder` | `cmd` (0.10.1: the verb's color for `!` mode) |
+  | `secondaryBorder` | `rule` |
   | `text` | left to the base: prose is the terminal's own foreground |
   | `secondaryText` | `meta` |
   | `inactive`, `subtle` | `faint` |
