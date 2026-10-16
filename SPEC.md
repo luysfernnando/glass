@@ -640,7 +640,19 @@ validate` holds the module to it.
   `#0d1117` and night-owl `#011627` and lifted to the floors (rule 2.5:1,
   faint 3.5:1, blockBg 1.24:1). Named after a search: "Verdigris" and
   "Patina" exist as 16-color schemes in the iTerm2 gallery; "tarnish" did
-  not. First in the option list; the default stays `tidepool`. Every palette supplies the full
+  not. First in the option list; the default stays `tidepool`.
+- **(0.12.0)** Two more of glass's own. `overprint`: Risograph inks on
+  black paper, the fluorescent pink, aqua, fluorescent yellow, orange,
+  violet, fluorescent green and scarlet of the ink charts, the tints an
+  ink overprinted on black (violet card, wine removed row, teal added
+  row); loud by design, pink headings approved by the owner. `ironbow`:
+  the thermal camera gradient with heat for activity, yellow verb and
+  mark, orange builtins, magenta flags, violet strings, cold-blue paths,
+  white-hot headings; done is cold (blue status dots, blue Verified),
+  failure the one red; the mark is orange and the callout bar magenta so
+  the mark stays off every bar. Both drawn through `GLASS_EXTRA_PALETTES`
+  first (a `{ name: Palette }` JSON `scripts/readme-shots.ts` merges in),
+  approved by screenshot 2026-10-16, then added here. Every palette supplies the full
   `Palette` type: the prose and shell keys, `meta`, `faint`, `rowHover`,
   `accentUser`, `text`, `bold`, `blockBg`, `tool`, the callout keys, the
   code keys and the diff tints. A test keeps `mark` apart from `ok`,

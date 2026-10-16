@@ -4,6 +4,9 @@
 //   bun scripts/readme-shots.ts                 docs/shots/<palette>.png, every palette
 //   bun scripts/readme-shots.ts crimson water   only these
 //   bun scripts/readme-shots.ts --html          keep the HTML beside each PNG
+//   GLASS_EXTRA_PALETTES=/tmp/try.json bun scripts/readme-shots.ts try-a
+//                                               a palette under design, from a
+//                                               { name: Palette } JSON, not in hooks/
 //
 // The turn: a user row with its dots line, a Read, a Bash with its painted
 // output, an Edit with its diff card, an Agent launch, a reply with prose,
@@ -11,7 +14,7 @@
 // two agents. The ground is the owner's terminal (Ghostty night-owl,
 // `#011627`, foreground `#94a4b6`) in JetBrains Mono Nerd Font; the
 // palettes assume a dark terminal, so one ground serves all six.
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { makePainter, rowToHtml } from './paint'
@@ -168,6 +171,10 @@ function shoot(name: string, p: Palette): void {
 }
 
 mkdirSync(OUT, { recursive: true })
-const names = Object.keys(PALETTES).filter(n => want.length === 0 || want.includes(n))
-if (names.length === 0) throw new Error(`no palette named ${want.join(', ')}; have ${Object.keys(PALETTES).join(', ')}`)
-for (const name of names) shoot(name, PALETTES[name as keyof typeof PALETTES])
+// palettes under design come from a JSON file beside the shipped ones
+const extraFile = process.env.GLASS_EXTRA_PALETTES
+const extra: Record<string, Palette> = extraFile ? (JSON.parse(readFileSync(extraFile, 'utf8')) as Record<string, Palette>) : {}
+const all: Record<string, Palette> = { ...PALETTES, ...extra }
+const names = Object.keys(all).filter(n => want.length === 0 || want.includes(n))
+if (names.length === 0) throw new Error(`no palette named ${want.join(', ')}; have ${Object.keys(all).join(', ')}`)
+for (const name of names) shoot(name, all[name]!)

@@ -69,7 +69,7 @@ export type Palette = {
   delBg: string
 }
 
-export type PaletteName = 'tidepool' | 'codex' | 'rose' | 'undertow' | 'water' | 'crimson' | 'tarnish'
+export type PaletteName = 'tidepool' | 'codex' | 'rose' | 'undertow' | 'water' | 'crimson' | 'tarnish' | 'overprint' | 'ironbow'
 
 // The owner's own nvim theme, ~/Documents/codes/packages/tidepool.nvim,
 // hybrid variant: lifted content over muted scaffolding. Mapped by role:
@@ -328,6 +328,110 @@ const tarnish: Palette = {
   delBg: '#34211e', // a dark copper, apart from it by hue
 }
 
+// glass's own (0.12.0): Risograph inks on black paper. The fluorescent
+// inks of a riso print, as the ink charts list them: fluorescent pink for
+// the verb, Claude's mark and the headings, aqua for builtins and the
+// person's row, fluorescent yellow for flags and numbers, orange strings,
+// violet paths, fluorescent green for done, scarlet for failed. The tints
+// are an ink overprinted on black: a deep violet card, a wine removed row,
+// a teal added row. Loud by design; the owner approved the pink headings.
+const overprint: Palette = {
+  cmd: '#ff48b0',  // fluorescent pink
+  sub: '#5ec8e5',  // aqua
+  flag: '#ffe800',  // fluorescent yellow
+  str: '#ff6c2f',  // orange
+  path: '#9d7ad2',  // violet
+  op: '#8f93a0',
+  num: '#ffe800',
+  var: '#ffe800',
+  url: '#62a8e5',
+  comment: '#8f93a0',
+  code: '#5ec8e5',
+  heading: '#ff48b0',
+  heading3: '#ffe800',
+  accent: '#ff48b0',
+  bullet: '#8f93a0',
+  orderedNum: '#8f93a0',
+  rule: '#4a4f7a',  // indigo, 2.4:1
+  quoteBar: '#5ec8e5',
+  ok: '#44d62c',  // fluorescent green
+  err: '#f65058',  // scarlet
+  warn: '#ffb511',  // sunflower
+  bold: '#f2f0e6',  // the paper
+  blockBg: '#241b45',  // violet ink on black, 1.2:1
+  tool: '#ff48b0',
+  calloutBar: '#ff48b0',
+  verified: '#44d62c',
+  issue: '#f65058',
+  fix: '#9d7ad2',
+  calloutText: '#f2f0e6',
+  private: '#5e6390',
+  mark: '#ffb511',
+  meta: '#8f93a0',
+  faint: '#5e6390',  // indigo lifted, 3.3:1
+  rowHover: '#2e2458',
+  accentUser: '#5ec8e5',
+  codeKw: '#ff48b0',
+  codeFn: '#5ec8e5',
+  codeType: '#ffe800',
+  codeStr: '#ff6c2f',
+  codeNum: '#9d7ad2',
+  addBg: '#0f2a33',  // teal ink on black
+  delBg: '#47163a',  // wine ink on black
+}
+
+// glass's own (0.12.0): the thermal camera's ironbow gradient, violet
+// through magenta, red, orange and yellow to white-hot, with heat standing
+// for activity. The verb, Claude's mark and the tool name are yellow, the
+// hottest text; builtins orange; flags magenta; strings violet; paths the
+// cold blue; headings white-hot. Done is cold, so the status dots and the
+// Verified label are blue, not green, and failure is the one red. Placed
+// in OKLCH along the gradient (L 0.66 to 0.88 for the shell kinds).
+const ironbow: Palette = {
+  cmd: '#f9d544',  // yellow, L0.88 h95
+  sub: '#fe8c2c',  // orange, h55
+  flag: '#e45cbe',  // magenta, h340
+  str: '#b093e5',  // violet, h300
+  path: '#6b8fe2',  // cold blue, h265
+  op: '#8b798f',
+  num: '#fe8c2c',
+  var: '#e45cbe',
+  url: '#77a4f6',
+  comment: '#9d8ba2',
+  code: '#fe8c2c',
+  heading: '#faf5e6',  // white-hot
+  heading3: '#f9d544',
+  accent: '#f9d544',
+  bullet: '#9d8ba2',
+  orderedNum: '#9d8ba2',
+  rule: '#584b6f',
+  quoteBar: '#9274c3',
+  ok: '#769cef',  // cold: settled, apart from sub by the whole gradient
+  err: '#fc4447',  // the one red
+  warn: '#fe8c2c',  // orange, as sub: the mark is never a bar color
+  bold: '#faf5e6',
+  blockBg: '#282136',  // the cold tint
+  tool: '#f9d544',
+  calloutBar: '#e45cbe',  // magenta, apart from the orange mark
+  verified: '#769cef',
+  issue: '#fc4447',
+  fix: '#b093e5',
+  calloutText: '#e3decf',
+  private: '#6d6382',
+  mark: '#fe8c2c',
+  meta: '#9d8ba2',
+  faint: '#6d6382',
+  rowHover: '#312941',
+  accentUser: '#b093e5',
+  codeKw: '#f9d544',
+  codeFn: '#fe8c2c',
+  codeType: '#e45cbe',
+  codeStr: '#b093e5',
+  codeNum: '#6b8fe2',
+  addBg: '#282136',
+  delBg: '#3b1c1c',  // red-black
+}
+
 // Every palette spells out every key: no shared block, so a theme reads whole.
 export const PALETTES: Record<PaletteName, Palette> = {
   tidepool,
@@ -335,6 +439,8 @@ export const PALETTES: Record<PaletteName, Palette> = {
   water,
   crimson,
   tarnish,
+  overprint,
+  ironbow,
   // One Dark, filled out by role:
   // cyan for the marks and bars, the gutter greys from the theme's own
   // comment and line-number steps.
@@ -431,9 +537,9 @@ export const PALETTES: Record<PaletteName, Palette> = {
   },
 }
 
-/** the palette's name from the option's value: one of the seven, tidepool for anything else */
+/** the palette's name from the option's value: one of the nine, tidepool for anything else */
 export function paletteNameOf(name: unknown): PaletteName {
-  if (name === 'codex' || name === 'rose' || name === 'undertow' || name === 'water' || name === 'crimson' || name === 'tarnish') return name
+  if (name === 'codex' || name === 'rose' || name === 'undertow' || name === 'water' || name === 'crimson' || name === 'tarnish' || name === 'overprint' || name === 'ironbow') return name
   return 'tidepool'
 }
 

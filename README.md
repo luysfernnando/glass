@@ -8,43 +8,28 @@ https://github.com/user-attachments/assets/365252bf-4b60-49c3-902b-b8e127592d28
 
 The same turn under each palette: pick one with `/config` under Glass.
 
-**tarnish**: glass's own, not a port. Metals aging: copper for what is
-happening now, the verdigris it weathers to for what has settled, brass
-strings, steel paths, the violet sheen of tarnished silver for flags.
-Placed in OKLCH, one lightness band for every shell kind.
-
-<img src="docs/shots/tarnish.png" width="760" alt="the demo turn under the tarnish palette">
-
-**tidepool** (default): my nvim theme, mapped by role.
-
-<img src="docs/shots/tidepool.png" width="760" alt="the demo turn under the tidepool palette">
-
-**water**: Empryo's own proxysoul-water tokens.
-
-<img src="docs/shots/water.png" width="760" alt="the demo turn under the water palette">
-
-**undertow**: sampled from Empryo's desktop video.
-
-<img src="docs/shots/undertow.png" width="760" alt="the demo turn under the undertow palette">
-
-**crimson**: Empryo's crimson world, "the heart", from empryo.com's CSS.
-
-<img src="docs/shots/crimson.png" width="760" alt="the demo turn under the crimson palette">
-
-**codex**: One Dark.
-
-<img src="docs/shots/codex.png" width="760" alt="the demo turn under the codex palette">
-
-**rose**: Rose Pine.
-
-<img src="docs/shots/rose.png" width="760" alt="the demo turn under the rose palette">
-
-Claude Code draws replies in one markdown style: inline code in a fixed
-lavender, no color for commands, tables in boxes, tool rows in gray. glass
-replaces the drawing of assistant replies, tool rows and turn headers
-with its own, inside the same TUI. Hooks, skills, MCP, permissions
-and Remote Control are untouched: it changes what is drawn, never what is
-stored or what the model reads.
+<table>
+<tr>
+<td width="50%" valign="top"><strong>tarnish</strong> glass's own. Metals aging: copper for what is happening now, the verdigris it weathers to for what has settled, brass strings, steel paths, tarnished silver for flags. Placed in OKLCH.<br><br><img src="docs/shots/tarnish.png" alt="the demo turn under the tarnish palette"></td>
+<td width="50%" valign="top"><strong>overprint</strong> glass's own. Risograph inks on black paper: fluorescent pink, aqua, yellow, orange, violet; the card tints are an ink overprinted on black. Loud by design.<br><br><img src="docs/shots/overprint.png" alt="the demo turn under the overprint palette"></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><strong>ironbow</strong> glass's own. The thermal camera gradient, heat for activity: yellow verb, orange builtins, magenta flags, violet strings, cold-blue paths; done is cold, so the dots are blue.<br><br><img src="docs/shots/ironbow.png" alt="the demo turn under the ironbow palette"></td>
+<td width="50%" valign="top"><strong>tidepool</strong> (default) my nvim theme, mapped by role.<br><br><img src="docs/shots/tidepool.png" alt="the demo turn under the tidepool palette"></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><strong>water</strong> Empryo's own proxysoul-water tokens.<br><br><img src="docs/shots/water.png" alt="the demo turn under the water palette"></td>
+<td width="50%" valign="top"><strong>undertow</strong> sampled from Empryo's desktop video.<br><br><img src="docs/shots/undertow.png" alt="the demo turn under the undertow palette"></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><strong>crimson</strong> Empryo's crimson world, "the heart", from empryo.com's CSS.<br><br><img src="docs/shots/crimson.png" alt="the demo turn under the crimson palette"></td>
+<td width="50%" valign="top"><strong>codex</strong> One Dark.<br><br><img src="docs/shots/codex.png" alt="the demo turn under the codex palette"></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><strong>rose</strong> Rose Pine.<br><br><img src="docs/shots/rose.png" alt="the demo turn under the rose palette"></td>
+<td width="50%"></td>
+</tr>
+</table>
 
 ## What it draws
 
@@ -134,7 +119,7 @@ notification falls back to a toast, summary and server tool rows need
 props that older engines do not send, and the rest is unchanged.
 
 Restart Claude Code. Pick a palette with `/config` under Glass: `tidepool`
-(default), `tarnish` (glass's own), `water` (Empryo's own proxysoul-water tokens), `undertow` (sampled from
+(default), `tarnish`, `overprint` and `ironbow` (glass's own), `water` (Empryo's own proxysoul-water tokens), `undertow` (sampled from
 Empryo's desktop video), `crimson` (Empryo's crimson world, "the heart", from
 empryo.com's own CSS), `codex` or `rose`.
 The palettes assume a dark terminal.
