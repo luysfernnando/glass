@@ -25,6 +25,12 @@ The same turn under each palette: pick one with `/config` under Glass.
 <td><strong>iris</strong> glass's own. The flower: indigo petals lead, leaf-underside teal, honey strings, orchid flags, sky paths; the neutrals carry an indigo cast.<br><br><img src="docs/shots/iris.png" alt="the demo turn under the iris palette"></td>
 </tr>
 <tr>
+<td><strong>tangerine</strong> glass's own. A warm lead on water's cool set: tangerine verb and tool names, water's cyan band and builtins, crimson's pink for your row and flags, lemon strings, periwinkle paths.<br><br><img src="docs/shots/tangerine.png" alt="the demo turn under the tangerine palette"></td>
+</tr>
+<tr>
+<td><strong>prism</strong> glass's own. A starship prompt's rainbow, each color in its segment's role: coral for you, orange paths, golden strings, emerald builtins, a blue verb, purple for Claude and the prompt box; neon green done, red failed.<br><br><img src="docs/shots/prism.png" alt="the demo turn under the prism palette"></td>
+</tr>
+<tr>
 <td><strong>tidepool</strong> (default) my nvim theme, mapped by role.<br><br><img src="docs/shots/tidepool.png" alt="the demo turn under the tidepool palette"></td>
 </tr>
 <tr>
@@ -132,7 +138,7 @@ notification falls back to a toast, summary and server tool rows need
 props that older engines do not send, and the rest is unchanged.
 
 Restart Claude Code. Pick a palette with `/config` under Glass: `tidepool`
-(default), `tarnish`, `overprint`, `ironbow`, `lagoon` and `iris` (glass's own), `water` (Empryo's own proxysoul-water tokens), `undertow` (sampled from
+(default), `tarnish`, `overprint`, `ironbow`, `lagoon`, `iris`, `tangerine` and `prism` (glass's own), `water` (Empryo's own proxysoul-water tokens), `undertow` (sampled from
 Empryo's desktop video), `crimson` (Empryo's crimson world, "the heart", from
 empryo.com's own CSS), `codex` or `rose`.
 The palettes assume a dark terminal.

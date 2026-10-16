@@ -42,8 +42,9 @@ const SLOTS: ReadonlyArray<[slot: string, role: keyof Palette]> = [
   ['autoAccept', 'ok'], // the engine's own autoAccept is a green (0.5.3; `warn` made it one color with `warning`)
   // the prompt box is the person's: it takes their color, as the user row
   // does (0.10.1; `rule` is a grey step in water, codex and rose, so the
-  // border looked uncolored); bash mode takes the verb's
-  ['promptBorder', 'accentUser'],
+  // border looked uncolored); bash mode takes the verb's. A palette may set
+  // its own `promptBorder` (0.14.0: prism's box takes the band's purple)
+  ['promptBorder', 'promptBorder'],
   ['bashBorder', 'cmd'],
   ['secondaryBorder', 'rule'],
   // no `text` row: prose is the terminal's own foreground in every palette
@@ -76,6 +77,9 @@ export function lift(hex: string, k = LIFT): string {
 
 const HEX = /^#[0-9a-f]{6}$/i
 
+// an optional role and the role that stands in when a palette leaves it out
+const FALLBACK: Partial<Record<keyof Palette, keyof Palette>> = { promptBorder: 'accentUser' }
+
 /** the file name a palette's theme is written under, inside ~/.claude/themes */
 export function themeFileName(name: PaletteName): string {
   return `glass-${name}.json`
@@ -90,7 +94,8 @@ export function themeSetting(name: PaletteName): string {
 export function themeFor(p: Palette, name: PaletteName): ThemeFile {
   const overrides: Record<string, string> = {}
   for (const [slot, role] of SLOTS) {
-    const v = p[role]
+    const stand = FALLBACK[role]
+    const v = p[role] ?? (stand ? p[stand] : undefined)
     if (typeof v === 'string' && HEX.test(v)) overrides[slot] = v.toLowerCase()
   }
   for (const [slot, role] of WORD_SLOTS) {

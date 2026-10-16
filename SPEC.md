@@ -662,7 +662,30 @@ validate` holds the module to it.
   neutrals with an indigo cast so the card tint and rules go violet-grey.
   Turned down the same day: `noctiluca` (a glowing cyan: too close to
   water), `labradorite` (blue lead with copper paths: the owner preferred
-  lagoon). Both placed in OKLCH and approved by screenshot. Every palette supplies the full
+  lagoon). Both placed in OKLCH and approved by screenshot.
+- **(0.14.0)** `tangerine`, from a brief of "crimson's vibrance, water's
+  cyan, tarnish's warmth". A first draft put crimson in the lead seat over
+  water's set; the owner found the red bled on the navy ground. Tangerine,
+  rose pink and violet leads were drawn side by side through
+  `GLASS_EXTRA_PALETTES` and tangerine was approved by screenshot
+  2026-10-16: orange is cyan's complement, so it pops without the bleed.
+  Tangerine takes the verb, tool, keywords and callout bar; water's cyan
+  keeps the accent, band, card tint and builtins; crimson's pink takes the
+  person's row, flags and quote bar; strings and warn are lemon, apart from
+  the lead; failed is a rose red.
+- **(0.14.0)** `prism`, from the owner's starship prompt
+  (`gradient_modern` in `~/.config/starship.toml`), each color in its
+  segment's role: coral (username) the person's row, flags and types;
+  orange (directory) paths; gold (git) strings; emerald teal (toolchains)
+  builtins and raw code; blue the verb, tool and keywords; purple (clock)
+  Claude's mark, the band and the callout bar; the prompt character's
+  bright four for done, failed, warn and H3; white headings. The prompt's
+  two dark greys are left out: bg1 is 1.09:1 on night-owl's ground, and
+  bg3 as a neutral grey card sat heavy on the navy, so the owner took
+  water's tints for the cards and diff rows. Approved by screenshot
+  2026-10-16. Prism is the first palette to set the optional
+  `promptBorder`: the owner wanted the prompt box in the band's purple
+  while the row stays coral. Every palette supplies the full
   `Palette` type: the prose and shell keys, `meta`, `faint`, `rowHover`,
   `accentUser`, `text`, `bold`, `blockBg`, `tool`, the callout keys, the
   code keys and the diff tints. A test keeps `mark` apart from `ok`,
@@ -706,7 +729,7 @@ Two directions, settled 2026-10-11.
   | `permission` | `tool` (the engine's codespans take it too) |
   | `planMode` | `cmd` |
   | `autoAccept` | `ok` (0.5.3: the engine's own is a green; `warn` made it one color with `warning`) |
-  | `promptBorder` | `accentUser` (0.10.1: it was `rule`, a grey step in water, codex and rose, so the box looked uncolored beside crimson's plum; the prompt box is the person's, as the user row is) |
+  | `promptBorder` | `accentUser` (0.10.1: it was `rule`, a grey step in water, codex and rose, so the box looked uncolored beside crimson's plum; the prompt box is the person's, as the user row is; 0.14.0: a palette's optional `promptBorder` wins, prism's is the band purple) |
   | `bashBorder` | `cmd` (0.10.1: the verb's color for `!` mode) |
   | `secondaryBorder` | `rule` |
   | `text` | left to the base: prose is the terminal's own foreground |

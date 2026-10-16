@@ -58,6 +58,11 @@ export type Palette = {
   rowHover: string
   /** the user row's diamond and name */
   accentUser: string
+  /**
+   * the prompt box border in the palette's theme, where it should not be
+   * `accentUser`; left out, the box takes the person's color (0.14.0)
+   */
+  promptBorder?: string
   /** glass's own code highlighter: keywords, calls, types, strings, numbers */
   codeKw: string
   codeFn: string
@@ -69,7 +74,7 @@ export type Palette = {
   delBg: string
 }
 
-export type PaletteName = 'tidepool' | 'codex' | 'rose' | 'undertow' | 'water' | 'crimson' | 'tarnish' | 'overprint' | 'ironbow' | 'lagoon' | 'iris'
+export type PaletteName = 'tidepool' | 'codex' | 'rose' | 'undertow' | 'water' | 'crimson' | 'tarnish' | 'overprint' | 'ironbow' | 'lagoon' | 'iris' | 'tangerine' | 'prism'
 
 // The owner's own nvim theme, ~/Documents/codes/packages/tidepool.nvim,
 // hybrid variant: lifted content over muted scaffolding. Mapped by role:
@@ -535,7 +540,121 @@ const iris: Palette = {
   delBg: '#351f22',
 }
 
-// Every palette spells out every key: no shared block, so a theme reads whole.
+// glass's own (0.14.0): a warm lead on water's cool set, from a brief of
+// "crimson's vibrance, water's cyan, tarnish's warmth". Tangerine is the
+// verb, the tool name, keywords and the Bottom line bar; orange is cyan's
+// complement, so it pops without the edge-vibration a saturated red has on
+// a navy ground (crimson in this seat bled; rose pink and violet were
+// drawn too and turned down). Water's cyan keeps Claude's mark, the band
+// and its tint, and the builtins; the person's row, flags and quote bars
+// are crimson's pink, paths water's periwinkle, strings lemon so they sit
+// apart from the lead, failed a rose red.
+const tangerine: Palette = {
+  cmd: '#ff9248',  // tangerine
+  sub: '#3bb8d8',  // water's brandAlt
+  flag: '#ffb3c8',  // crimson's nucleus pink
+  str: '#ecd06f',  // lemon
+  path: '#948ff0',  // water's periwinkle
+  op: '#8e8ca1',
+  num: '#3bb8d8',
+  var: '#ffb3c8',
+  url: '#6fb0ff',
+  comment: '#8e8ca1',
+  code: '#3bb8d8',
+  heading: '#e7e7ee',
+  heading3: '#ffb3c8',
+  accent: '#00a2ce',  // water's brand: Claude's mark, the band
+  bullet: '#8e8ca1',
+  orderedNum: '#8e8ca1',
+  rule: '#5a5870',
+  quoteBar: '#ffb3c8',
+  ok: '#4fd1a0',
+  err: '#ff5c7a',  // rose red, apart from the orange lead
+  warn: '#ecd06f',
+  bold: '#e7e7ee',
+  blockBg: '#0e2a3a',  // water's card tint, 1.23:1
+  tool: '#ff9248',
+  calloutBar: '#ff9248',
+  verified: '#4fd1a0',
+  issue: '#ff5c7a',
+  fix: '#3bb8d8',
+  calloutText: '#d4d4dc',
+  private: '#6e6c82',
+  mark: '#ecd06f',  // warn
+  meta: '#8e8ca1',
+  faint: '#6e6c82',
+  rowHover: '#143444',  // a step above the card
+  accentUser: '#ffb3c8',
+  codeKw: '#ff9248',
+  codeFn: '#3bb8d8',
+  codeType: '#ffb3c8',
+  codeStr: '#ecd06f',
+  codeNum: '#948ff0',
+  addBg: '#0e2a3a',
+  delBg: '#33222e',
+}
+
+// glass's own (0.14.0), from the owner's starship prompt: the
+// `gradient_modern` palette of ~/.config/starship.toml, each color in the
+// role its prompt segment plays. Coral (color_1, the username segment) is
+// the person's row, flags and types; deep orange (color_2, the directory)
+// paths; golden yellow (color_3, git) strings; emerald teal (color_4, the
+// toolchains) builtins and raw code; vibrant blue (color_5) the verb, tool
+// and keywords; soft purple (color_6, the clock) Claude's mark, the band,
+// the Bottom line bar and the prompt box. The bright four are the prompt
+// character's states: success neon green for done, error red for failed,
+// vim-command yellow for warn and the mark; the last orange is H3; white
+// (color_fg0) headings and bold. The two dark greys are left out: bg1 is
+// 1.09:1 on night-owl's ground, and the owner chose water's tints over bg3
+// for the cards and diff rows. The neutral steps are greys, as the prompt
+// has none.
+const prism: Palette = {
+  cmd: '#4d96ff',  // color_5 vibrant blue
+  sub: '#43b581',  // color_4 emerald teal
+  flag: '#ff6b6b',  // color_1 coral
+  str: '#e6c229',  // color_3 golden yellow
+  path: '#e28f2a',  // color_2 deep orange
+  op: '#8a8a8a',
+  num: '#43b581',
+  var: '#ff6b6b',
+  url: '#7fb3ff',  // the blue lifted, underlined
+  comment: '#8a8a8a',
+  code: '#43b581',
+  heading: '#ffffff',  // color_fg0
+  heading3: '#ff9f1a',  // color_10
+  accent: '#8c6ff0',  // color_6 soft purple
+  bullet: '#8a8a8a',
+  orderedNum: '#8a8a8a',
+  rule: '#565656',  // 2.5:1
+  quoteBar: '#43b581',
+  ok: '#32ff7e',  // color_8, the success symbol
+  err: '#e84118',  // color_7, the error symbol
+  warn: '#fff200',  // color_9, the vim command symbol
+  bold: '#ffffff',
+  blockBg: '#0e2a3a',  // water's card tint
+  tool: '#4d96ff',
+  calloutBar: '#8c6ff0',
+  verified: '#32ff7e',
+  issue: '#e84118',
+  fix: '#8c6ff0',
+  calloutText: '#dcdcdc',
+  private: '#6c6c6c',
+  mark: '#fff200',  // warn
+  meta: '#9a9a9a',
+  faint: '#6c6c6c',  // 3.5:1
+  rowHover: '#0e2a3a',  // as water
+  accentUser: '#ff6b6b',  // color_1, the username segment
+  promptBorder: '#8c6ff0',  // the band's purple, the owner's pick over the person's coral
+  codeKw: '#4d96ff',
+  codeFn: '#43b581',
+  codeType: '#ff6b6b',
+  codeStr: '#e6c229',
+  codeNum: '#8c6ff0',
+  addBg: '#0e2a3a',  // water's tints
+  delBg: '#33222e',
+}
+
+// Every palette spells out every required key: no shared block, so a theme reads whole.
 export const PALETTES: Record<PaletteName, Palette> = {
   tidepool,
   undertow,
@@ -546,6 +665,8 @@ export const PALETTES: Record<PaletteName, Palette> = {
   ironbow,
   lagoon,
   iris,
+  tangerine,
+  prism,
   // One Dark, filled out by role:
   // cyan for the marks and bars, the gutter greys from the theme's own
   // comment and line-number steps.
@@ -642,9 +763,9 @@ export const PALETTES: Record<PaletteName, Palette> = {
   },
 }
 
-/** the palette's name from the option's value: one of the eleven, tidepool for anything else */
+/** the palette's name from the option's value: one of the thirteen, tidepool for anything else */
 export function paletteNameOf(name: unknown): PaletteName {
-  if (name === 'codex' || name === 'rose' || name === 'undertow' || name === 'water' || name === 'crimson' || name === 'tarnish' || name === 'overprint' || name === 'ironbow' || name === 'lagoon' || name === 'iris') return name
+  if (name === 'codex' || name === 'rose' || name === 'undertow' || name === 'water' || name === 'crimson' || name === 'tarnish' || name === 'overprint' || name === 'ironbow' || name === 'lagoon' || name === 'iris' || name === 'tangerine' || name === 'prism') return name
   return 'tidepool'
 }
 
