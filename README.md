@@ -10,24 +10,31 @@ The same turn under each palette: pick one with `/config` under Glass.
 
 <table>
 <tr>
-<td width="50%" valign="top"><strong>tarnish</strong> glass's own. Metals aging: copper for what is happening now, the verdigris it weathers to for what has settled, brass strings, steel paths, tarnished silver for flags. Placed in OKLCH.<br><br><img src="docs/shots/tarnish.png" alt="the demo turn under the tarnish palette"></td>
-<td width="50%" valign="top"><strong>overprint</strong> glass's own. Risograph inks on black paper: fluorescent pink, aqua, yellow, orange, violet; the card tints are an ink overprinted on black. Loud by design.<br><br><img src="docs/shots/overprint.png" alt="the demo turn under the overprint palette"></td>
+<td><strong>tarnish</strong> glass's own. Metals aging: copper for what is happening now, the verdigris it weathers to for what has settled, brass strings, steel paths, tarnished silver for flags. Placed in OKLCH.<br><br><img src="docs/shots/tarnish.png" alt="the demo turn under the tarnish palette"></td>
 </tr>
 <tr>
-<td width="50%" valign="top"><strong>ironbow</strong> glass's own. The thermal camera gradient, heat for activity: yellow verb, orange builtins, magenta flags, violet strings, cold-blue paths; done is cold, so the dots are blue.<br><br><img src="docs/shots/ironbow.png" alt="the demo turn under the ironbow palette"></td>
-<td width="50%" valign="top"><strong>tidepool</strong> (default) my nvim theme, mapped by role.<br><br><img src="docs/shots/tidepool.png" alt="the demo turn under the tidepool palette"></td>
+<td><strong>overprint</strong> glass's own. Risograph inks on black paper: fluorescent pink, aqua, yellow, orange, violet; the card tints are an ink overprinted on black. Loud by design.<br><br><img src="docs/shots/overprint.png" alt="the demo turn under the overprint palette"></td>
 </tr>
 <tr>
-<td width="50%" valign="top"><strong>water</strong> Empryo's own proxysoul-water tokens.<br><br><img src="docs/shots/water.png" alt="the demo turn under the water palette"></td>
-<td width="50%" valign="top"><strong>undertow</strong> sampled from Empryo's desktop video.<br><br><img src="docs/shots/undertow.png" alt="the demo turn under the undertow palette"></td>
+<td><strong>ironbow</strong> glass's own. The thermal camera gradient, heat for activity: yellow verb, orange builtins, magenta flags, violet strings, cold-blue paths; done is cold, so the dots are blue.<br><br><img src="docs/shots/ironbow.png" alt="the demo turn under the ironbow palette"></td>
 </tr>
 <tr>
-<td width="50%" valign="top"><strong>crimson</strong> Empryo's crimson world, "the heart", from empryo.com's CSS.<br><br><img src="docs/shots/crimson.png" alt="the demo turn under the crimson palette"></td>
-<td width="50%" valign="top"><strong>codex</strong> One Dark.<br><br><img src="docs/shots/codex.png" alt="the demo turn under the codex palette"></td>
+<td><strong>tidepool</strong> (default) my nvim theme, mapped by role.<br><br><img src="docs/shots/tidepool.png" alt="the demo turn under the tidepool palette"></td>
 </tr>
 <tr>
-<td width="50%" valign="top"><strong>rose</strong> Rose Pine.<br><br><img src="docs/shots/rose.png" alt="the demo turn under the rose palette"></td>
-<td width="50%"></td>
+<td><strong>water</strong> Empryo's own proxysoul-water tokens.<br><br><img src="docs/shots/water.png" alt="the demo turn under the water palette"></td>
+</tr>
+<tr>
+<td><strong>undertow</strong> sampled from Empryo's desktop video.<br><br><img src="docs/shots/undertow.png" alt="the demo turn under the undertow palette"></td>
+</tr>
+<tr>
+<td><strong>crimson</strong> Empryo's crimson world, "the heart", from empryo.com's CSS.<br><br><img src="docs/shots/crimson.png" alt="the demo turn under the crimson palette"></td>
+</tr>
+<tr>
+<td><strong>codex</strong> One Dark.<br><br><img src="docs/shots/codex.png" alt="the demo turn under the codex palette"></td>
+</tr>
+<tr>
+<td><strong>rose</strong> Rose Pine.<br><br><img src="docs/shots/rose.png" alt="the demo turn under the rose palette"></td>
 </tr>
 </table>
 
