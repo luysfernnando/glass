@@ -69,7 +69,7 @@ export type Palette = {
   delBg: string
 }
 
-export type PaletteName = 'tidepool' | 'codex' | 'rose' | 'undertow' | 'water' | 'crimson' | 'tarnish' | 'overprint' | 'ironbow'
+export type PaletteName = 'tidepool' | 'codex' | 'rose' | 'undertow' | 'water' | 'crimson' | 'tarnish' | 'overprint' | 'ironbow' | 'lagoon' | 'iris'
 
 // The owner's own nvim theme, ~/Documents/codes/packages/tidepool.nvim,
 // hybrid variant: lifted content over muted scaffolding. Mapped by role:
@@ -432,6 +432,109 @@ const ironbow: Palette = {
   delBg: '#3b1c1c',  // red-black
 }
 
+// glass's own (0.13.0): daylight shallows, where water is the night sea.
+// Turquoise leads (the verb, Claude's mark, the band, the bar), sky is the
+// secondary for code and the person's row, flags are hibiscus, strings sun
+// yellow, paths sand, headings and bold white sand; done is palm green,
+// failed coral, the card tint deep water. Placed in OKLCH, L 0.76 to 0.88
+// for the shell kinds, the brightest band of any palette here.
+const lagoon: Palette = {
+  cmd: '#40e5e5',  // turquoise, L0.84 h195
+  sub: '#70d5ed',  // sky, h215
+  flag: '#f786be',  // hibiscus, h350
+  str: '#f2d76c',  // sun yellow, h95
+  path: '#e3cead',  // sand, h80
+  op: '#7e989c',
+  num: '#70d5ed',
+  var: '#f786be',
+  url: '#60ccfc',
+  comment: '#7e989c',
+  code: '#70d5ed',
+  heading: '#f2eee3',  // white sand
+  heading3: '#f2d76c',
+  accent: '#40e5e5',
+  bullet: '#7e989c',
+  orderedNum: '#7e989c',
+  rule: '#3a5c5e',  // 2.6:1
+  quoteBar: '#30b4ad',
+  ok: '#87d576',  // palm green
+  err: '#fd7562',  // coral
+  warn: '#ffa44e',  // mango
+  bold: '#f6f2e7',
+  blockBg: '#12292c',  // deep water, 1.24:1
+  tool: '#40e5e5',
+  calloutBar: '#40e5e5',
+  verified: '#87d576',
+  issue: '#fd7562',
+  fix: '#f786be',
+  calloutText: '#e2ded3',
+  private: '#547275',
+  mark: '#ffa44e',
+  meta: '#7e989c',
+  faint: '#547275',  // 3.6:1
+  rowHover: '#1b3235',
+  accentUser: '#70d5ed',
+  codeKw: '#40e5e5',
+  codeFn: '#70d5ed',
+  codeType: '#f786be',
+  codeStr: '#f2d76c',
+  codeNum: '#e3cead',
+  addBg: '#12292c',
+  delBg: '#36201c',
+}
+
+// glass's own (0.13.0): the flower. Indigo petals lead (the verb, Claude's
+// mark, the band, the bar), the teal of the leaf's underside is the
+// secondary for code and the person's row, the beard is honey so strings
+// are honey; flags and `fix` orchid, paths sky, done leaf green, failed a
+// rose red. The neutrals carry an indigo cast, so the card tint and the
+// rules go violet-grey, which is what moves the page away from the blues.
+// Placed in OKLCH, L 0.74 to 0.82 for the shell kinds.
+const iris: Palette = {
+  cmd: '#92a2ff',  // indigo petal, L0.74 C0.14 h275
+  sub: '#63ccc0',  // teal, h185
+  flag: '#d997d2',  // orchid, h330
+  str: '#e6bd77',  // honey, h80
+  path: '#7dc3de',  // sky, h225
+  op: '#888b99',
+  num: '#63ccc0',
+  var: '#d997d2',
+  url: '#98bcff',
+  comment: '#888b99',
+  code: '#63ccc0',
+  heading: '#e2e4ef',  // lavender white
+  heading3: '#e6bd77',
+  accent: '#92a2ff',
+  bullet: '#888b99',
+  orderedNum: '#888b99',
+  rule: '#4c5169',  // 2.4:1
+  quoteBar: '#44a49e',
+  ok: '#75d78d',  // leaf green
+  err: '#f56b7c',  // rose red
+  warn: '#f0a646',  // amber
+  bold: '#e9eaf5',
+  blockBg: '#202436',  // indigo tint, 1.2:1
+  tool: '#92a2ff',
+  calloutBar: '#92a2ff',
+  verified: '#75d78d',
+  issue: '#f56b7c',
+  fix: '#d997d2',
+  calloutText: '#d5d7e2',
+  private: '#64687b',
+  mark: '#f0a646',
+  meta: '#888b99',
+  faint: '#64687b',  // 3.4:1
+  rowHover: '#292c40',
+  accentUser: '#63ccc0',
+  codeKw: '#92a2ff',
+  codeFn: '#63ccc0',
+  codeType: '#d997d2',
+  codeStr: '#e6bd77',
+  codeNum: '#7dc3de',
+  addBg: '#202436',
+  delBg: '#351f22',
+}
+
 // Every palette spells out every key: no shared block, so a theme reads whole.
 export const PALETTES: Record<PaletteName, Palette> = {
   tidepool,
@@ -441,6 +544,8 @@ export const PALETTES: Record<PaletteName, Palette> = {
   tarnish,
   overprint,
   ironbow,
+  lagoon,
+  iris,
   // One Dark, filled out by role:
   // cyan for the marks and bars, the gutter greys from the theme's own
   // comment and line-number steps.
@@ -537,9 +642,9 @@ export const PALETTES: Record<PaletteName, Palette> = {
   },
 }
 
-/** the palette's name from the option's value: one of the nine, tidepool for anything else */
+/** the palette's name from the option's value: one of the eleven, tidepool for anything else */
 export function paletteNameOf(name: unknown): PaletteName {
-  if (name === 'codex' || name === 'rose' || name === 'undertow' || name === 'water' || name === 'crimson' || name === 'tarnish' || name === 'overprint' || name === 'ironbow') return name
+  if (name === 'codex' || name === 'rose' || name === 'undertow' || name === 'water' || name === 'crimson' || name === 'tarnish' || name === 'overprint' || name === 'ironbow' || name === 'lagoon' || name === 'iris') return name
   return 'tidepool'
 }
 

@@ -652,7 +652,17 @@ validate` holds the module to it.
   failure the one red; the mark is orange and the callout bar magenta so
   the mark stays off every bar. Both drawn through `GLASS_EXTRA_PALETTES`
   first (a `{ name: Palette }` JSON `scripts/readme-shots.ts` merges in),
-  approved by screenshot 2026-10-16, then added here. Every palette supplies the full
+  approved by screenshot 2026-10-16, then added here.
+- **(0.13.0)** Two more, from a brief of "the cool family water belongs
+  to, not water again". `lagoon`: daylight shallows, turquoise lead, sky
+  secondary, hibiscus flags, sun-yellow strings, sand paths, white-sand
+  text, palm green and coral, deep-water tint; the brightest shell band
+  (L 0.76 to 0.88). `iris`: the flower, indigo-petal lead, leaf-underside
+  teal secondary, honey strings (the beard), orchid flags, sky paths,
+  neutrals with an indigo cast so the card tint and rules go violet-grey.
+  Turned down the same day: `noctiluca` (a glowing cyan: too close to
+  water), `labradorite` (blue lead with copper paths: the owner preferred
+  lagoon). Both placed in OKLCH and approved by screenshot. Every palette supplies the full
   `Palette` type: the prose and shell keys, `meta`, `faint`, `rowHover`,
   `accentUser`, `text`, `bold`, `blockBg`, `tool`, the callout keys, the
   code keys and the diff tints. A test keeps `mark` apart from `ok`,

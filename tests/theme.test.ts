@@ -6,7 +6,7 @@ import { PALETTES } from '../hooks/palette'
 import type { PaletteName } from '../hooks/palette'
 import { THEME, lift, themeFileName, themeFor, themeJson, themeSetting } from '../hooks/theme'
 
-const NAMES: PaletteName[] = ['tidepool', 'tarnish', 'overprint', 'ironbow', 'water', 'undertow', 'crimson', 'codex', 'rose']
+const NAMES: PaletteName[] = ['tidepool', 'tarnish', 'overprint', 'ironbow', 'lagoon', 'iris', 'water', 'undertow', 'crimson', 'codex', 'rose']
 const REQUIRED = [
   'success', 'error', 'warning', 'claude', 'permission', 'planMode', 'autoAccept',
   'promptBorder', 'bashBorder', 'secondaryBorder', 'secondaryText', 'inactive', 'subtle', 'suggestion',

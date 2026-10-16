@@ -19,6 +19,12 @@ The same turn under each palette: pick one with `/config` under Glass.
 <td><strong>ironbow</strong> glass's own. The thermal camera gradient, heat for activity: yellow verb, orange builtins, magenta flags, violet strings, cold-blue paths; done is cold, so the dots are blue.<br><br><img src="docs/shots/ironbow.png" alt="the demo turn under the ironbow palette"></td>
 </tr>
 <tr>
+<td><strong>lagoon</strong> glass's own. Daylight shallows: turquoise lead, sky, hibiscus flags, sun-yellow strings, sand paths, white-sand text. The bright one.<br><br><img src="docs/shots/lagoon.png" alt="the demo turn under the lagoon palette"></td>
+</tr>
+<tr>
+<td><strong>iris</strong> glass's own. The flower: indigo petals lead, leaf-underside teal, honey strings, orchid flags, sky paths; the neutrals carry an indigo cast.<br><br><img src="docs/shots/iris.png" alt="the demo turn under the iris palette"></td>
+</tr>
+<tr>
 <td><strong>tidepool</strong> (default) my nvim theme, mapped by role.<br><br><img src="docs/shots/tidepool.png" alt="the demo turn under the tidepool palette"></td>
 </tr>
 <tr>
@@ -126,7 +132,7 @@ notification falls back to a toast, summary and server tool rows need
 props that older engines do not send, and the rest is unchanged.
 
 Restart Claude Code. Pick a palette with `/config` under Glass: `tidepool`
-(default), `tarnish`, `overprint` and `ironbow` (glass's own), `water` (Empryo's own proxysoul-water tokens), `undertow` (sampled from
+(default), `tarnish`, `overprint`, `ironbow`, `lagoon` and `iris` (glass's own), `water` (Empryo's own proxysoul-water tokens), `undertow` (sampled from
 Empryo's desktop video), `crimson` (Empryo's crimson world, "the heart", from
 empryo.com's own CSS), `codex` or `rose`.
 The palettes assume a dark terminal.
