@@ -69,7 +69,7 @@ export type Palette = {
   delBg: string
 }
 
-export type PaletteName = 'tidepool' | 'codex' | 'rose' | 'undertow' | 'water'
+export type PaletteName = 'tidepool' | 'codex' | 'rose' | 'undertow' | 'water' | 'crimson' | 'tarnish' | 'overprint' | 'ironbow' | 'lagoon' | 'iris'
 
 // The owner's own nvim theme, ~/Documents/codes/packages/tidepool.nvim,
 // hybrid variant: lifted content over muted scaffolding. Mapped by role:
@@ -222,11 +222,330 @@ const water: Palette = {
   delBg: '#33222e', // lifted from #241c2a (1.11:1) toward SPEC's 1.2:1 tint floor
 }
 
+// Empryo's crimson world ("the heart"), read off empryo.com's own CSS
+// (`:root[data-world=crimson][data-theme=dark]`, 2026-10-16). The desktop
+// theme `proxysoul-crimson` is not in Empryo's public tokens.ts yet, so
+// these are the site's tokens mapped by role as water's are: the pigment
+// for the verb, the violet alt for builtins and raw, the pink nucleus for
+// flags, amber for strings. Text steps are its ink, ink-soft and ink-faint.
+const crimson: Palette = {
+  cmd: '#f43a6b', // pigment: the crimson itself
+  sub: '#ab7bf0', // pigment-alt: violet
+  flag: '#ffb3c8', // nucleus: the pink
+  str: '#f2a94c', // the site's warn, as water's amber
+  path: '#8fb6e6', // soft sky: the one cool hue the world lacks, so paths sit apart from the crimson verb, the violet code, the pink flags and the amber strings
+  op: '#9a8499', // ink-faint
+  num: '#ab7bf0', // info
+  var: '#ffb3c8',
+  url: '#6fa8ff', // sky, underlined, a step brighter than path
+  comment: '#9a8499',
+  code: '#ab7bf0',
+  heading: '#f6eaf1', // ink
+  heading3: '#ab7bf0',
+  accent: '#f43a6b',
+  bullet: '#9a8499',
+  orderedNum: '#9a8499',
+  rule: '#664468', // the site's #3f2040 is 1.34:1 on the audit ground; lifted to 2.4:1
+  quoteBar: '#ffb3c8',
+  ok: '#45c98d',
+  err: '#ff6a52', // bad: the site's orange-red, apart from the crimson verb
+  warn: '#f2a94c',
+  bold: '#f6eaf1',
+  blockBg: '#301a34', // pigment-deep #2c1022 is 1.09:1 on the audit ground; this is the 1.2:1 step
+  tool: '#f43a6b',
+  calloutBar: '#f43a6b',
+  verified: '#45c98d',
+  issue: '#ff6a52',
+  fix: '#ab7bf0',
+  calloutText: '#dccbd8', // a step under ink
+  private: '#7a6679', // as faint
+  mark: '#f2a94c', // warn
+  meta: '#9a8499', // ink-faint
+  faint: '#7a6679', // 3.6:1, between rule and meta
+  rowHover: '#3a1f3e', // a step above blockBg
+  accentUser: '#ffb3c8',
+  codeKw: '#f43a6b',
+  codeFn: '#ab7bf0',
+  codeType: '#ffb3c8',
+  codeStr: '#f2a94c',
+  codeNum: '#ab7bf0',
+  addBg: '#301a34', // the plum tint, as the other palettes use their band tint
+  delBg: '#3a2420', // a dim ember toward `bad`, apart from the plum
+}
+
+// glass's own palette (0.11.0), not a port: metals aging. Fresh copper is
+// the verb, Claude's mark and the tool name (what is happening now); the
+// verdigris it weathers to is the settled things: builtins, raw code, the
+// done mark's green cousin, the user's row, the card tint; brass for
+// strings, the steel blue of old blades for paths and links, and the violet
+// sheen on tarnished silver for flags and variables. Every value was placed
+// in OKLCH (one lightness band for the shell kinds, L 0.74-0.83, and one
+// chroma step between a role and its quieter twin) and read against the
+// audit ground #0d1117 and night-owl #011627; text is bone, a warm
+// off-white, never pure.
+const tarnish: Palette = {
+  cmd: '#e9934c', // copper, L0.74 C0.135 h58
+  sub: '#6fcabf', // verdigris, L0.78 C0.09 h185
+  flag: '#bea3df', // tarnish, L0.76 C0.09 h305
+  str: '#e5c370', // brass, L0.83 C0.11 h88
+  path: '#82bad5', // steel, L0.76 C0.07 h230
+  op: '#90847a', // a warm grey, quiet by design
+  num: '#6fcabf', // verdigris, as raw code
+  var: '#bea3df', // tarnish, with the flags
+  url: '#7ac8f5', // steel lifted, underlined
+  comment: '#928b83',
+  code: '#6fcabf',
+  heading: '#e5ddd0', // bone
+  heading3: '#e5c370', // brass, under the bone H2
+  accent: '#e9934c', // copper: Claude's mark, the band
+  bullet: '#928b83',
+  orderedNum: '#928b83',
+  rule: '#405853', // 2.5:1
+  quoteBar: '#60afa5', // verdigris a step under sub
+  ok: '#67d283', // the green verdigris weathers toward; apart from sub by hue (150 vs 185)
+  err: '#f66c6d', // oxblood lifted
+  warn: '#f4a437', // amber: more chroma than the brass strings, apart by 18 degrees
+  bold: '#efe7d9', // bone, brighter
+  blockBg: '#1b2827', // 1.24:1, a dark verdigris
+  tool: '#e9934c',
+  calloutBar: '#e9934c',
+  verified: '#67d283',
+  issue: '#f66c6d',
+  fix: '#bea3df',
+  calloutText: '#d8d0c3', // bone soft
+  private: '#5d6d69', // as faint
+  mark: '#f4a437', // warn
+  meta: '#928b83', // warm grey, 5.6:1
+  faint: '#5d6d69', // 3.5:1
+  rowHover: '#223130', // a step above the card
+  accentUser: '#6fcabf', // the person is the settled one; Claude the copper
+  codeKw: '#e9934c',
+  codeFn: '#82bad5',
+  codeType: '#bea3df',
+  codeStr: '#e5c370',
+  codeNum: '#6fcabf',
+  addBg: '#1b2827', // the verdigris tint
+  delBg: '#34211e', // a dark copper, apart from it by hue
+}
+
+// glass's own (0.12.0): Risograph inks on black paper. The fluorescent
+// inks of a riso print, as the ink charts list them: fluorescent pink for
+// the verb, Claude's mark and the headings, aqua for builtins and the
+// person's row, fluorescent yellow for flags and numbers, orange strings,
+// violet paths, fluorescent green for done, scarlet for failed. The tints
+// are an ink overprinted on black: a deep violet card, a wine removed row,
+// a teal added row. Loud by design; the owner approved the pink headings.
+const overprint: Palette = {
+  cmd: '#ff48b0',  // fluorescent pink
+  sub: '#5ec8e5',  // aqua
+  flag: '#ffe800',  // fluorescent yellow
+  str: '#ff6c2f',  // orange
+  path: '#9d7ad2',  // violet
+  op: '#8f93a0',
+  num: '#ffe800',
+  var: '#ffe800',
+  url: '#62a8e5',
+  comment: '#8f93a0',
+  code: '#5ec8e5',
+  heading: '#ff48b0',
+  heading3: '#ffe800',
+  accent: '#ff48b0',
+  bullet: '#8f93a0',
+  orderedNum: '#8f93a0',
+  rule: '#4a4f7a',  // indigo, 2.4:1
+  quoteBar: '#5ec8e5',
+  ok: '#44d62c',  // fluorescent green
+  err: '#f65058',  // scarlet
+  warn: '#ffb511',  // sunflower
+  bold: '#f2f0e6',  // the paper
+  blockBg: '#241b45',  // violet ink on black, 1.2:1
+  tool: '#ff48b0',
+  calloutBar: '#ff48b0',
+  verified: '#44d62c',
+  issue: '#f65058',
+  fix: '#9d7ad2',
+  calloutText: '#f2f0e6',
+  private: '#5e6390',
+  mark: '#ffb511',
+  meta: '#8f93a0',
+  faint: '#5e6390',  // indigo lifted, 3.3:1
+  rowHover: '#2e2458',
+  accentUser: '#5ec8e5',
+  codeKw: '#ff48b0',
+  codeFn: '#5ec8e5',
+  codeType: '#ffe800',
+  codeStr: '#ff6c2f',
+  codeNum: '#9d7ad2',
+  addBg: '#0f2a33',  // teal ink on black
+  delBg: '#47163a',  // wine ink on black
+}
+
+// glass's own (0.12.0): the thermal camera's ironbow gradient, violet
+// through magenta, red, orange and yellow to white-hot, with heat standing
+// for activity. The verb, Claude's mark and the tool name are yellow, the
+// hottest text; builtins orange; flags magenta; strings violet; paths the
+// cold blue; headings white-hot. Done is cold, so the status dots and the
+// Verified label are blue, not green, and failure is the one red. Placed
+// in OKLCH along the gradient (L 0.66 to 0.88 for the shell kinds).
+const ironbow: Palette = {
+  cmd: '#f9d544',  // yellow, L0.88 h95
+  sub: '#fe8c2c',  // orange, h55
+  flag: '#e45cbe',  // magenta, h340
+  str: '#b093e5',  // violet, h300
+  path: '#6b8fe2',  // cold blue, h265
+  op: '#8b798f',
+  num: '#fe8c2c',
+  var: '#e45cbe',
+  url: '#77a4f6',
+  comment: '#9d8ba2',
+  code: '#fe8c2c',
+  heading: '#faf5e6',  // white-hot
+  heading3: '#f9d544',
+  accent: '#f9d544',
+  bullet: '#9d8ba2',
+  orderedNum: '#9d8ba2',
+  rule: '#584b6f',
+  quoteBar: '#9274c3',
+  ok: '#769cef',  // cold: settled, apart from sub by the whole gradient
+  err: '#fc4447',  // the one red
+  warn: '#fe8c2c',  // orange, as sub: the mark is never a bar color
+  bold: '#faf5e6',
+  blockBg: '#282136',  // the cold tint
+  tool: '#f9d544',
+  calloutBar: '#e45cbe',  // magenta, apart from the orange mark
+  verified: '#769cef',
+  issue: '#fc4447',
+  fix: '#b093e5',
+  calloutText: '#e3decf',
+  private: '#6d6382',
+  mark: '#fe8c2c',
+  meta: '#9d8ba2',
+  faint: '#6d6382',
+  rowHover: '#312941',
+  accentUser: '#b093e5',
+  codeKw: '#f9d544',
+  codeFn: '#fe8c2c',
+  codeType: '#e45cbe',
+  codeStr: '#b093e5',
+  codeNum: '#6b8fe2',
+  addBg: '#282136',
+  delBg: '#3b1c1c',  // red-black
+}
+
+// glass's own (0.13.0): daylight shallows, where water is the night sea.
+// Turquoise leads (the verb, Claude's mark, the band, the bar), sky is the
+// secondary for code and the person's row, flags are hibiscus, strings sun
+// yellow, paths sand, headings and bold white sand; done is palm green,
+// failed coral, the card tint deep water. Placed in OKLCH, L 0.76 to 0.88
+// for the shell kinds, the brightest band of any palette here.
+const lagoon: Palette = {
+  cmd: '#40e5e5',  // turquoise, L0.84 h195
+  sub: '#70d5ed',  // sky, h215
+  flag: '#f786be',  // hibiscus, h350
+  str: '#f2d76c',  // sun yellow, h95
+  path: '#e3cead',  // sand, h80
+  op: '#7e989c',
+  num: '#70d5ed',
+  var: '#f786be',
+  url: '#60ccfc',
+  comment: '#7e989c',
+  code: '#70d5ed',
+  heading: '#f2eee3',  // white sand
+  heading3: '#f2d76c',
+  accent: '#40e5e5',
+  bullet: '#7e989c',
+  orderedNum: '#7e989c',
+  rule: '#3a5c5e',  // 2.6:1
+  quoteBar: '#30b4ad',
+  ok: '#87d576',  // palm green
+  err: '#fd7562',  // coral
+  warn: '#ffa44e',  // mango
+  bold: '#f6f2e7',
+  blockBg: '#12292c',  // deep water, 1.24:1
+  tool: '#40e5e5',
+  calloutBar: '#40e5e5',
+  verified: '#87d576',
+  issue: '#fd7562',
+  fix: '#f786be',
+  calloutText: '#e2ded3',
+  private: '#547275',
+  mark: '#ffa44e',
+  meta: '#7e989c',
+  faint: '#547275',  // 3.6:1
+  rowHover: '#1b3235',
+  accentUser: '#70d5ed',
+  codeKw: '#40e5e5',
+  codeFn: '#70d5ed',
+  codeType: '#f786be',
+  codeStr: '#f2d76c',
+  codeNum: '#e3cead',
+  addBg: '#12292c',
+  delBg: '#36201c',
+}
+
+// glass's own (0.13.0): the flower. Indigo petals lead (the verb, Claude's
+// mark, the band, the bar), the teal of the leaf's underside is the
+// secondary for code and the person's row, the beard is honey so strings
+// are honey; flags and `fix` orchid, paths sky, done leaf green, failed a
+// rose red. The neutrals carry an indigo cast, so the card tint and the
+// rules go violet-grey, which is what moves the page away from the blues.
+// Placed in OKLCH, L 0.74 to 0.82 for the shell kinds.
+const iris: Palette = {
+  cmd: '#92a2ff',  // indigo petal, L0.74 C0.14 h275
+  sub: '#63ccc0',  // teal, h185
+  flag: '#d997d2',  // orchid, h330
+  str: '#e6bd77',  // honey, h80
+  path: '#7dc3de',  // sky, h225
+  op: '#888b99',
+  num: '#63ccc0',
+  var: '#d997d2',
+  url: '#98bcff',
+  comment: '#888b99',
+  code: '#63ccc0',
+  heading: '#e2e4ef',  // lavender white
+  heading3: '#e6bd77',
+  accent: '#92a2ff',
+  bullet: '#888b99',
+  orderedNum: '#888b99',
+  rule: '#4c5169',  // 2.4:1
+  quoteBar: '#44a49e',
+  ok: '#75d78d',  // leaf green
+  err: '#f56b7c',  // rose red
+  warn: '#f0a646',  // amber
+  bold: '#e9eaf5',
+  blockBg: '#202436',  // indigo tint, 1.2:1
+  tool: '#92a2ff',
+  calloutBar: '#92a2ff',
+  verified: '#75d78d',
+  issue: '#f56b7c',
+  fix: '#d997d2',
+  calloutText: '#d5d7e2',
+  private: '#64687b',
+  mark: '#f0a646',
+  meta: '#888b99',
+  faint: '#64687b',  // 3.4:1
+  rowHover: '#292c40',
+  accentUser: '#63ccc0',
+  codeKw: '#92a2ff',
+  codeFn: '#63ccc0',
+  codeType: '#d997d2',
+  codeStr: '#e6bd77',
+  codeNum: '#7dc3de',
+  addBg: '#202436',
+  delBg: '#351f22',
+}
+
 // Every palette spells out every key: no shared block, so a theme reads whole.
 export const PALETTES: Record<PaletteName, Palette> = {
   tidepool,
   undertow,
   water,
+  crimson,
+  tarnish,
+  overprint,
+  ironbow,
+  lagoon,
+  iris,
   // One Dark, filled out by role:
   // cyan for the marks and bars, the gutter greys from the theme's own
   // comment and line-number steps.
@@ -323,9 +642,9 @@ export const PALETTES: Record<PaletteName, Palette> = {
   },
 }
 
-/** the palette's name from the option's value: one of the five, tidepool for anything else */
+/** the palette's name from the option's value: one of the eleven, tidepool for anything else */
 export function paletteNameOf(name: unknown): PaletteName {
-  if (name === 'codex' || name === 'rose' || name === 'undertow' || name === 'water') return name
+  if (name === 'codex' || name === 'rose' || name === 'undertow' || name === 'water' || name === 'crimson' || name === 'tarnish' || name === 'overprint' || name === 'ironbow' || name === 'lagoon' || name === 'iris') return name
   return 'tidepool'
 }
 

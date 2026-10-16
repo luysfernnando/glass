@@ -1,5 +1,5 @@
-// Paints the DEMO.md fixtures in the terminal, before (the installed 0.4.25
-// in the plugin cache) and after (this working tree), in real colors.
+// Paints the DEMO.md fixtures in the terminal, before (the last release
+// installed in the plugin cache) and after (this working tree), in real colors.
 //
 //   bun scripts/show.ts                     every fixture that differs
 //   bun scripts/show.ts --all               identical fixtures too
@@ -8,18 +8,17 @@
 //   bun scripts/show.ts --theme dark        ... or the stock dark defaults
 //   bun scripts/show.ts --plain             no colors, for a paste
 //   GLASS_BEFORE=/path/to/old/hooks bun scripts/show.ts
+//   GLASS_PALETTE=crimson GLASS_BEFORE_PALETTE=water bun scripts/show.ts --all reply palette
+//                                           one palette against another, same tree
 //
 // Before against the last commit instead of the installed release:
 //   rm -rf /tmp/glass-base && mkdir -p /tmp/glass-base && git archive HEAD hooks types | tar -x -C /tmp/glass-base
 //   GLASS_BEFORE=/tmp/glass-base/hooks bun scripts/show.ts --all
 //
-// Layout is an approximation of the engine's: column boxes stack, row boxes
-// sit side by side, a `space-between` row pushes its last child to the right
-// edge of the room it has (the terminal width less the margins and widths
-// above it), a tinted Box paints its width.
-//
-// The renderers build plain trees and import nothing at runtime from
-// 'claude-code', so both versions load here as ordinary modules. A theme
+// The painter is scripts/paint.ts (shared with scripts/readme-shots.ts): an
+// approximation of the engine's layout. The renderers build plain trees and
+// import nothing at runtime from 'claude-code', so both versions load here
+// as ordinary modules. A theme
 // slot named as a color (planMode, diffAdded) resolves through the active
 // custom theme file when settings.json names one, else the dark defaults;
 // under a glass theme those slots are the palette's own colors, so the
@@ -30,7 +29,8 @@ import { readFileSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-type Node = string | { type: string; props: Record<string, unknown> & { children?: Node[] } }
+import { ESC, makePainter } from './paint'
+import type { Node } from './paint'
 type Mods = {
   chrome: Record<string, (...a: never[]) => unknown>
   render: { renderReply: (...a: never[]) => Node }
@@ -41,15 +41,19 @@ type Mods = {
 
 const HERE = new URL('.', import.meta.url).pathname
 const AFTER = join(HERE, '..', 'hooks')
-const BEFORE = process.env.GLASS_BEFORE ?? join(homedir(), '.claude', 'plugins', 'cache', 'glass', 'glass', '0.4.25', 'hooks')
+const BEFORE_VERSION = '0.9.1'
+const BEFORE = process.env.GLASS_BEFORE ?? join(homedir(), '.claude', 'plugins', 'cache', 'glass', 'glass', BEFORE_VERSION, 'hooks')
 const PALETTE = process.env.GLASS_PALETTE ?? 'water'
+// the palette the before block paints with: the same unless asked, so one
+// palette can stand beside another on the same tree
+const BEFORE_PALETTE = process.env.GLASS_BEFORE_PALETTE ?? PALETTE
 const COLUMNS = Math.min(process.stdout.columns ?? 100, 110)
 
 // arguments: --all, --theme <name>, then fixture name filters
 const argv = process.argv.slice(2)
 const SHOW_ALL = argv.includes('--all')
 const PLAIN = argv.includes('--plain')
-const BEFORE_LABEL = BEFORE.includes('0.4.25') ? 'before 0.4.25' : `before (${BEFORE.replace(/\/hooks\/?$/, '').split('/').pop()})`
+const BEFORE_LABEL = (BEFORE.includes(`/${BEFORE_VERSION}/`) ? `before ${BEFORE_VERSION}` : `before (${BEFORE.replace(/\/hooks\/?$/, '').split('/').pop()})`) + (BEFORE_PALETTE !== PALETTE ? `, palette ${BEFORE_PALETTE}` : '')
 const themeArg = argv.includes('--theme') ? argv[argv.indexOf('--theme') + 1] : undefined
 const want = argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--theme')
 
@@ -81,95 +85,8 @@ const SLOTS = THEME.slots
 
 // ---- painting ----------------------------------------------------------------
 
-const ESC = String.fromCodePoint(0x1b)
-function rgb(color: string, bg: boolean): string {
-  if (PLAIN) return ''
-  const hex = /^#[0-9a-f]{6}$/i.test(color) ? color : SLOTS[color]
-  if (!hex) return ''
-  const n = parseInt(hex.slice(1), 16)
-  return `${ESC}[${bg ? 48 : 38};2;${(n >> 16) & 255};${(n >> 8) & 255};${n & 255}m`
-}
-const RESET = PLAIN ? '' : `${ESC}[0m`
-
-type Style = { fg?: string; bg?: string; bold?: boolean; dim?: boolean; italic?: boolean; underline?: boolean }
-function open(s: Style): string {
-  if (PLAIN) return ''
-  let out = ''
-  if (s.fg) out += rgb(s.fg, false)
-  if (s.bg) out += rgb(s.bg, true)
-  if (s.bold) out += `${ESC}[1m`
-  if (s.dim) out += `${ESC}[2m`
-  if (s.italic) out += `${ESC}[3m`
-  if (s.underline) out += `${ESC}[4m`
-  return out
-}
-
-// one Text's inline content, styles nested
-function inline(node: Node, inherited: Style): string {
-  // a string with newlines (the callout bar is one Text of bars) paints one row per line
-  if (typeof node === 'string') return node.split('\n').map(line => open(inherited) + line + RESET).join('\n')
-  const p = node.props
-  const s: Style = {
-    ...inherited,
-    ...(typeof p.color === 'string' ? { fg: p.color } : {}),
-    ...(typeof p.backgroundColor === 'string' ? { bg: p.backgroundColor } : {}),
-    ...(p.bold || p.weight === 'bold' || p.weight === 'semibold' ? { bold: true } : {}),
-    ...(p.dimColor ? { dim: true } : {}),
-    ...(p.italic ? { italic: true } : {}),
-    ...(p.underline ? { underline: true } : {}),
-  }
-  if (node.type === 'Button') return open({ ...s, dim: true }) + `[${String(p.label ?? '')}]` + RESET
-  if (node.type === 'Raster') return open({ ...s, dim: true }) + `<clock>` + RESET
-  if (node.type === 'Link') return open({ ...s, underline: true }) + (p.children ?? []).map(c => inline(c, s)).join('') + RESET
-  return (p.children ?? []).map(c => inline(c, s)).join('')
-}
-
-// rows of a tree: a column Box stacks, a row Box joins; margins indent.
-// `room` is the width the node may fill: the terminal less the margins and
-// widths above it, so a `space-between` row can push its last child to its
-// right edge (the duration lane, the dots line's buttons).
-function rows(node: Node, inherited: Style = {}, room = COLUMNS): string[] {
-  if (typeof node === 'string') return inline(node, inherited).split('\n')
-  const p = node.props
-  if (p.display === 'none') return []
-  if (node.type !== 'Box') return inline(node, inherited).split('\n')
-  const s: Style = { ...inherited, ...(typeof p.backgroundColor === 'string' ? { bg: p.backgroundColor } : {}) }
-  const kids = p.children ?? []
-  const left = typeof p.marginLeft === 'number' ? ' '.repeat(p.marginLeft) : ''
-  const top = typeof p.marginTop === 'number' ? p.marginTop : 0
-  const inner = typeof p.width === 'number' ? p.width : room - left.length - (typeof p.marginRight === 'number' ? p.marginRight : 0)
-  let out: string[]
-  if (p.flexDirection === 'row') {
-    const parts = kids.map(k => rows(k, s, inner))
-    const height = Math.max(1, ...parts.map(r => r.length))
-    out = []
-    // a child with flexGrow takes the room the others leave, so a right
-    // lane (the duration) ends at the row's edge
-    const grow = kids.findIndex(k => typeof k !== 'string' && typeof k.props.flexGrow === 'number' && k.props.flexGrow > 0)
-    for (let i = 0; i < height; i++) {
-      const cells = parts.map(r => r[i] ?? '')
-      const used = cells.reduce((n, c) => n + visible(c), 0)
-      const gap = ' '.repeat(Math.max(0, inner - used))
-      if (p.justifyContent === 'space-between' && cells.length > 1) {
-        out.push(cells.slice(0, -1).join('') + gap + cells[cells.length - 1])
-      } else if (grow >= 0 && cells.length > 1) {
-        out.push(cells.map((c, j) => (j === grow ? c + gap : c)).join(''))
-      } else {
-        out.push(cells.join(''))
-      }
-    }
-  } else {
-    out = kids.flatMap(k => rows(k, s, inner))
-  }
-  if (typeof p.width === 'number') {
-    // a box with a width fills it; a tinted one paints the fill, as the terminal does
-    out = out.map(r => r + (s.bg ? open({ bg: s.bg }) : '') + ' '.repeat(Math.max(0, p.width as number - visible(r))) + (s.bg ? RESET : ''))
-  }
-  return [...Array<string>(top).fill(''), ...out.map(r => left + r)]
-}
-function visible(s: string): number {
-  return s.replace(/\x1b\[[0-9;]*m/g, '').length
-}
+const painter = makePainter({ columns: COLUMNS, slots: SLOTS, plain: PLAIN })
+const { rows, rgb, RESET } = painter
 
 // ---- fixtures ------------------------------------------------------------------
 
@@ -255,8 +172,8 @@ const turn = {
 const call = (id: string, tool: string, status: string, ms: number | null) => ({ id, tool, status, ms })
 const row = (tool: string, input: unknown, failed = false, id = 't1') => ({ tool_use_id: id, tool, input, isRunning: false, isErrored: failed, isInterrupted: false })
 
-function fixtures(m: Mods): Record<string, () => Node | null> {
-  const p = m.palette.PALETTES[PALETTE] ?? m.palette.PALETTES.tidepool!
+function fixtures(m: Mods, paletteName = PALETTE): Record<string, () => Node | null> {
+  const p = m.palette.PALETTES[paletteName] ?? m.palette.PALETTES.tidepool!
   const c = m.chrome as unknown as Record<string, (...a: unknown[]) => Node>
   const columns = COLUMNS
   return {
@@ -319,18 +236,6 @@ function fixtures(m: Mods): Record<string, () => Node | null> {
         flexDirection: 'column',
         children: ['plan mode on', 'accept edits on', 'auto mode on', 'bypass permissions on'].map(rest => c.renderHint!(t, p, { vim: '-- INSERT --', rest })),
       }),
-    band: () =>
-      c.renderBand!(t, p, {
-        agents: [
-          { agentId: 'a1', description: 'Hunt widths', kind: 'Explore', model: 'claude-sonnet-5-5', effort: 'medium', stage: 'Grep', file: 'hooks/width.ts', tokens: 12_400, startedAt: 0 },
-          { agentId: 'a2', description: 'Review the diff', kind: 'general-purpose', model: 'claude-opus-5-5', effort: 'high', stage: 'thinking' + m.glyphs.G.ellipsis, file: '', tokens: 900, startedAt: 30_000 },
-        ],
-        now: 85_000,
-        columns,
-        open: true,
-        onToggle: null,
-        tasksCommand: 'tasks',
-      }),
     'server-tools': () =>
       c.renderServerToolRows
         ? c.renderServerToolRows(t, p, [
@@ -363,9 +268,9 @@ const SAME = '  '
 console.log(dim(`palette ${PALETTE}, theme slots from ${THEME.name}, ${before ? BEFORE_LABEL : 'no before'}, ${COLUMNS} columns`))
 console.log('')
 
-function paint(mods: Mods | null, name: string): string[] | null {
+function paint(mods: Mods | null, name: string, paletteName = PALETTE): string[] | null {
   if (!mods) return null
-  const make = fixtures(mods)[name]
+  const make = fixtures(mods, paletteName)[name]
   const tree = make ? make() : null
   return tree === null ? null : rows(tree)
 }
@@ -373,7 +278,7 @@ function paint(mods: Mods | null, name: string): string[] | null {
 const names = Object.keys(fixtures(after)).filter(n => want.length === 0 || want.some(w => n.includes(w)))
 let identical = 0
 for (const name of names) {
-  const a = paint(before, name)
+  const a = paint(before, name, BEFORE_PALETTE)
   const b = paint(after, name)
   const same = a !== null && b !== null && a.length === b.length && a.every((r, i) => r === b[i])
   if (same && !SHOW_ALL) {

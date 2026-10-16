@@ -4,12 +4,45 @@ A desktop-app look for Claude Code's terminal transcript, as a mod.
 
 https://github.com/user-attachments/assets/365252bf-4b60-49c3-902b-b8e127592d28
 
-Claude Code draws replies in one markdown style: inline code in a fixed
-lavender, no color for commands, tables in boxes, tool rows in gray. glass
-replaces the drawing of assistant replies, tool rows and turn headers
-with its own, inside the same TUI. Hooks, skills, MCP, permissions
-and Remote Control are untouched: it changes what is drawn, never what is
-stored or what the model reads.
+## Palettes
+
+The same turn under each palette: pick one with `/config` under Glass.
+
+<table>
+<tr>
+<td><strong>tarnish</strong> glass's own. Metals aging: copper for what is happening now, the verdigris it weathers to for what has settled, brass strings, steel paths, tarnished silver for flags. Placed in OKLCH.<br><br><img src="docs/shots/tarnish.png" alt="the demo turn under the tarnish palette"></td>
+</tr>
+<tr>
+<td><strong>overprint</strong> glass's own. Risograph inks on black paper: fluorescent pink, aqua, yellow, orange, violet; the card tints are an ink overprinted on black. Loud by design.<br><br><img src="docs/shots/overprint.png" alt="the demo turn under the overprint palette"></td>
+</tr>
+<tr>
+<td><strong>ironbow</strong> glass's own. The thermal camera gradient, heat for activity: yellow verb, orange builtins, magenta flags, violet strings, cold-blue paths; done is cold, so the dots are blue.<br><br><img src="docs/shots/ironbow.png" alt="the demo turn under the ironbow palette"></td>
+</tr>
+<tr>
+<td><strong>lagoon</strong> glass's own. Daylight shallows: turquoise lead, sky, hibiscus flags, sun-yellow strings, sand paths, white-sand text. The bright one.<br><br><img src="docs/shots/lagoon.png" alt="the demo turn under the lagoon palette"></td>
+</tr>
+<tr>
+<td><strong>iris</strong> glass's own. The flower: indigo petals lead, leaf-underside teal, honey strings, orchid flags, sky paths; the neutrals carry an indigo cast.<br><br><img src="docs/shots/iris.png" alt="the demo turn under the iris palette"></td>
+</tr>
+<tr>
+<td><strong>tidepool</strong> (default) my nvim theme, mapped by role.<br><br><img src="docs/shots/tidepool.png" alt="the demo turn under the tidepool palette"></td>
+</tr>
+<tr>
+<td><strong>water</strong> Empryo's own proxysoul-water tokens.<br><br><img src="docs/shots/water.png" alt="the demo turn under the water palette"></td>
+</tr>
+<tr>
+<td><strong>undertow</strong> sampled from Empryo's desktop video.<br><br><img src="docs/shots/undertow.png" alt="the demo turn under the undertow palette"></td>
+</tr>
+<tr>
+<td><strong>crimson</strong> Empryo's crimson world, "the heart", from empryo.com's CSS.<br><br><img src="docs/shots/crimson.png" alt="the demo turn under the crimson palette"></td>
+</tr>
+<tr>
+<td><strong>codex</strong> One Dark.<br><br><img src="docs/shots/codex.png" alt="the demo turn under the codex palette"></td>
+</tr>
+<tr>
+<td><strong>rose</strong> Rose Pine.<br><br><img src="docs/shots/rose.png" alt="the demo turn under the rose palette"></td>
+</tr>
+</table>
 
 ## What it draws
 
@@ -66,8 +99,8 @@ stored or what the model reads.
   every call; `/expand` opens them all.
 - **Replies on the tree.** A reply is a node: `├─ ● text`, the rest of it
   on the trunk, the turn's last reply closing it with `╰─ ●`.
-- **Agent models.** While subagents run, the hint line under the prompt,
-  which names them, ends with their models: `haiku-5-5 · sonnet-5-5`.
+- **Agent model.** With a subagent's transcript in the main view, the hint
+  line under the prompt ends with that agent's model: `haiku-5-5`.
 - **Event rows.** A background task's notification draws as one tree row
   with its duration; a message from another agent draws as one muted row.
 - **Summary rows.** A compaction summary ends on a quiet `· summary` mark,
@@ -106,8 +139,9 @@ notification falls back to a toast, summary and server tool rows need
 props that older engines do not send, and the rest is unchanged.
 
 Restart Claude Code. Pick a palette with `/config` under Glass: `tidepool`
-(default), `water` (Empryo's own proxysoul-water tokens), `undertow` (sampled from
-Empryo's desktop video), `codex` or `rose`.
+(default), `tarnish`, `overprint`, `ironbow`, `lagoon` and `iris` (glass's own), `water` (Empryo's own proxysoul-water tokens), `undertow` (sampled from
+Empryo's desktop video), `crimson` (Empryo's crimson world, "the heart", from
+empryo.com's own CSS), `codex` or `rose`.
 The palettes assume a dark terminal.
 
 To try it from a clone without installing:
@@ -138,7 +172,10 @@ LC_ALL=C grep -rn '[^ -~]' hooks/   # must print nothing
 
 `scripts/check.sh` runs all four and checks that both manifests carry
 the same version. `scripts/demo-dump.sh before|after` writes the text
-dumps `DEMO.md` compares, from `tests/demo.test.ts`. CI runs it on every push and pull request, without tsc:
+dumps `DEMO.md` compares, from `tests/demo.test.ts`. `bun scripts/show.ts`
+paints the fixtures before and after in the terminal, and `bun
+scripts/readme-shots.ts` shoots the palette screenshots above with
+headless Chrome; both draw through `scripts/paint.ts`. CI runs it on every push and pull request, without tsc:
 the types only exist once the engine has loaded the plugin.
 
 Every non-ASCII glyph is built from a code point in `hooks/glyphs.ts`.

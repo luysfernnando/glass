@@ -62,7 +62,12 @@ hooks/
 types/index.d.ts   the $.state contract (PluginState.glass)
 tests/             parse.test.ts, chrome.test.ts, (0.5.0) theme.test.ts, demo.test.ts
 scripts/check.sh   every check in one run
+scripts/paint.ts   (0.10.0) the demo painter: a tree to SGR rows, rows to HTML
+scripts/show.ts    the fixtures before and after, painted in the terminal
+scripts/readme-shots.ts  (0.10.0) the README's palette screenshots, headless Chrome
+scripts/demo-dump.sh     the text dumps under demo/
 demo/              (0.5.0) before/ and after/ text dumps for review
+docs/shots/        (0.10.0) one demo turn per palette, 100 columns on the owner's ground
 .claude-plugin/    plugin.json, marketplace.json, types/ (engine-written, ignored)
 ```
 
@@ -563,6 +568,18 @@ and reply blocks interleaved as the model made them, then the
   name, the tokens and the stage give up cells; the closed strip drops its
   oldest faces. The file column draws relative to the session's directory
   and cuts in the middle, keeping the file name.
+- **(0.10.0)** A `view` Button at the right end of every agent row (a
+  `key` of `band:view:<agentId>` on the Button and its Box, `plain`,
+  `dimColor`, lit by hover, as the chevron) puts that agent's transcript
+  in the main view through `$.ui.view({ agentId })`; the site's
+  `e.props.view.agentId` names the agent in view, whose row draws `back`
+  (`$.ui.view({})`) and its name in `accent`. The button's five cells come
+  off the file column. The call is spelled at the call site through a
+  cast of `$`, as the notification's is: the validator refuses `$.ui`
+  bound to a value, and an engine without the method (before 2.1.300)
+  throws into a toast that names the version. A press the engine declines
+  (`{ deny }`: the agent is gone, the view moved, no view here) toasts
+  `glass: <reason>`.
 
 ### **(0.5.0)** Notifications
 
@@ -607,7 +624,51 @@ validate` holds the module to it.
   liked. `codex` carries One Dark; `rose`
   rose-pine; `water` Empryo's proxysoul-water tokens (`rule #5a5870`,
   `delBg #33222e` after the live check); `undertow` is read off Empryo's
-  desktop frames, so approximate. Every palette supplies the full
+  desktop frames, so approximate. **(0.10.0)** `crimson` is Empryo's
+  crimson world ("the heart"), the tokens of empryo.com's own CSS
+  (`:root[data-world=crimson][data-theme=dark]`, 2026-10-16) mapped by
+  role as water's are: pigment `#f43a6b` for the verb, the marks and the
+  bars, the violet alt for builtins and raw, the pink nucleus for flags,
+  `var`, `quoteBar` and `accentUser`, amber for strings; its desktop
+  theme `proxysoul-crimson` is not in Empryo's public tokens.ts yet.
+  Derived against the audit ground: `rule #664468` (the site's `#3f2040`
+  is 1.34:1), `blockBg #301a34` (pigment-deep is 1.09:1), `faint #7a6679`
+  (3.6:1), `path` a soft sky `#8fb6e6`, the one cool hue the world lacks,
+  `delBg #3a2420` an ember apart from the plum tint.
+- **(0.11.0)** `tarnish` is glass's own palette, not a port: metals aging.
+  Copper (`cmd`, `accent`, `tool`, `calloutBar`, `codeKw`) is what happens
+  now; the verdigris it weathers to (`sub`, `num`, `code`, `accentUser`,
+  the card tint) is what has settled; brass strings, steel paths and
+  links, the violet sheen of tarnished silver for flags, variables and
+  `fix`; bone text, never pure white. Every value was placed in OKLCH:
+  the nine shell kinds in one lightness band (L 0.74 to 0.83), a quieter
+  twin one chroma step under its role, greys and tints read against
+  `#0d1117` and night-owl `#011627` and lifted to the floors (rule 2.5:1,
+  faint 3.5:1, blockBg 1.24:1). Named after a search: "Verdigris" and
+  "Patina" exist as 16-color schemes in the iTerm2 gallery; "tarnish" did
+  not. First in the option list; the default stays `tidepool`.
+- **(0.12.0)** Two more of glass's own. `overprint`: Risograph inks on
+  black paper, the fluorescent pink, aqua, fluorescent yellow, orange,
+  violet, fluorescent green and scarlet of the ink charts, the tints an
+  ink overprinted on black (violet card, wine removed row, teal added
+  row); loud by design, pink headings approved by the owner. `ironbow`:
+  the thermal camera gradient with heat for activity, yellow verb and
+  mark, orange builtins, magenta flags, violet strings, cold-blue paths,
+  white-hot headings; done is cold (blue status dots, blue Verified),
+  failure the one red; the mark is orange and the callout bar magenta so
+  the mark stays off every bar. Both drawn through `GLASS_EXTRA_PALETTES`
+  first (a `{ name: Palette }` JSON `scripts/readme-shots.ts` merges in),
+  approved by screenshot 2026-10-16, then added here.
+- **(0.13.0)** Two more, from a brief of "the cool family water belongs
+  to, not water again". `lagoon`: daylight shallows, turquoise lead, sky
+  secondary, hibiscus flags, sun-yellow strings, sand paths, white-sand
+  text, palm green and coral, deep-water tint; the brightest shell band
+  (L 0.76 to 0.88). `iris`: the flower, indigo-petal lead, leaf-underside
+  teal secondary, honey strings (the beard), orchid flags, sky paths,
+  neutrals with an indigo cast so the card tint and rules go violet-grey.
+  Turned down the same day: `noctiluca` (a glowing cyan: too close to
+  water), `labradorite` (blue lead with copper paths: the owner preferred
+  lagoon). Both placed in OKLCH and approved by screenshot. Every palette supplies the full
   `Palette` type: the prose and shell keys, `meta`, `faint`, `rowHover`,
   `accentUser`, `text`, `bold`, `blockBg`, `tool`, the callout keys, the
   code keys and the diff tints. A test keeps `mark` apart from `ok`,
@@ -651,7 +712,9 @@ Two directions, settled 2026-10-11.
   | `permission` | `tool` (the engine's codespans take it too) |
   | `planMode` | `cmd` |
   | `autoAccept` | `ok` (0.5.3: the engine's own is a green; `warn` made it one color with `warning`) |
-  | `promptBorder`, `bashBorder`, `secondaryBorder` | `rule` |
+  | `promptBorder` | `accentUser` (0.10.1: it was `rule`, a grey step in water, codex and rose, so the box looked uncolored beside crimson's plum; the prompt box is the person's, as the user row is) |
+  | `bashBorder` | `cmd` (0.10.1: the verb's color for `!` mode) |
+  | `secondaryBorder` | `rule` |
   | `text` | left to the base: prose is the terminal's own foreground |
   | `secondaryText` | `meta` |
   | `inactive`, `subtle` | `faint` |
@@ -790,4 +853,8 @@ carrying `-- INSERT --`. For 0.5.0: the Button press; `config.set` of a
 `custom:` theme; codespans under a glass theme; the notify channel's
 `isSent`; the tall-reply duplicate rows (engine fixes in 2.1.289 and
 2.1.290 may have closed it: reproduce before filing); a tabbed fence after
-the engine's own tab-stop change in 2.1.295.
+the engine's own tab-stop change in 2.1.295. For 0.10.0: the `view`
+press on a band row, `back` on the row in view, Esc from the agent view;
+a `deny` toast when the agent has finished; the dots line's counts under
+a turn that spawns subagents (2.1.299 raises `turn.start` for them; 0.9.1
+guards it); crimson's `blockBg` and `rule` on the owner's ground.

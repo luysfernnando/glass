@@ -8,10 +8,11 @@
 -- colors --
 #48708c
 #d6b477
-#9cce8b
-#e67680
+success
+error
 #7aa2f7
-#241c2a
+diffRemoved
 #7aa2b5
-#0e2a3a
+#d2bdff
+diffAdded
 #7bc0ae
