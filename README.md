@@ -87,6 +87,38 @@ stored or what the model reads.
 Every width is measured the way the engine measures cells, so emoji and
 CJK in tables stay aligned.
 
+## Palettes
+
+One turn drawn under each palette, on a night-owl ground (`#011627`) in
+JetBrains Mono Nerd Font: the user row and its dots line, a Read, a Bash
+with its painted output, an Edit with its diff card, an Agent launch, a
+reply with a TypeScript fence and a Bottom line card, then the background
+band with two subagents. `bun scripts/readme-shots.ts` redraws them.
+
+**tidepool** (default): the owner's nvim theme mapped by role.
+
+<img src="docs/shots/tidepool.png" width="760" alt="the demo turn under the tidepool palette">
+
+**water**: Empryo's own proxysoul-water tokens.
+
+<img src="docs/shots/water.png" width="760" alt="the demo turn under the water palette">
+
+**undertow**: sampled from Empryo's desktop video.
+
+<img src="docs/shots/undertow.png" width="760" alt="the demo turn under the undertow palette">
+
+**crimson**: Empryo's crimson world, "the heart", from empryo.com's CSS.
+
+<img src="docs/shots/crimson.png" width="760" alt="the demo turn under the crimson palette">
+
+**codex**: One Dark.
+
+<img src="docs/shots/codex.png" width="760" alt="the demo turn under the codex palette">
+
+**rose**: Rose Pine.
+
+<img src="docs/shots/rose.png" width="760" alt="the demo turn under the rose palette">
+
 ## Install
 
 ```
@@ -132,7 +164,10 @@ LC_ALL=C grep -rn '[^ -~]' hooks/   # must print nothing
 
 `scripts/check.sh` runs all four and checks that both manifests carry
 the same version. `scripts/demo-dump.sh before|after` writes the text
-dumps `DEMO.md` compares, from `tests/demo.test.ts`. CI runs it on every push and pull request, without tsc:
+dumps `DEMO.md` compares, from `tests/demo.test.ts`. `bun scripts/show.ts`
+paints the fixtures before and after in the terminal, and `bun
+scripts/readme-shots.ts` shoots the palette screenshots above with
+headless Chrome; both draw through `scripts/paint.ts`. CI runs it on every push and pull request, without tsc:
 the types only exist once the engine has loaded the plugin.
 
 Every non-ASCII glyph is built from a code point in `hooks/glyphs.ts`.

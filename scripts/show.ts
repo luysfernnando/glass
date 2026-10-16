@@ -15,13 +15,10 @@
 //   rm -rf /tmp/glass-base && mkdir -p /tmp/glass-base && git archive HEAD hooks types | tar -x -C /tmp/glass-base
 //   GLASS_BEFORE=/tmp/glass-base/hooks bun scripts/show.ts --all
 //
-// Layout is an approximation of the engine's: column boxes stack, row boxes
-// sit side by side, a `space-between` row pushes its last child to the right
-// edge of the room it has (the terminal width less the margins and widths
-// above it), a tinted Box paints its width.
-//
-// The renderers build plain trees and import nothing at runtime from
-// 'claude-code', so both versions load here as ordinary modules. A theme
+// The painter is scripts/paint.ts (shared with scripts/readme-shots.ts): an
+// approximation of the engine's layout. The renderers build plain trees and
+// import nothing at runtime from 'claude-code', so both versions load here
+// as ordinary modules. A theme
 // slot named as a color (planMode, diffAdded) resolves through the active
 // custom theme file when settings.json names one, else the dark defaults;
 // under a glass theme those slots are the palette's own colors, so the
@@ -32,7 +29,8 @@ import { readFileSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-type Node = string | { type: string; props: Record<string, unknown> & { children?: Node[] } }
+import { ESC, makePainter } from './paint'
+import type { Node } from './paint'
 type Mods = {
   chrome: Record<string, (...a: never[]) => unknown>
   render: { renderReply: (...a: never[]) => Node }
@@ -87,95 +85,8 @@ const SLOTS = THEME.slots
 
 // ---- painting ----------------------------------------------------------------
 
-const ESC = String.fromCodePoint(0x1b)
-function rgb(color: string, bg: boolean): string {
-  if (PLAIN) return ''
-  const hex = /^#[0-9a-f]{6}$/i.test(color) ? color : SLOTS[color]
-  if (!hex) return ''
-  const n = parseInt(hex.slice(1), 16)
-  return `${ESC}[${bg ? 48 : 38};2;${(n >> 16) & 255};${(n >> 8) & 255};${n & 255}m`
-}
-const RESET = PLAIN ? '' : `${ESC}[0m`
-
-type Style = { fg?: string; bg?: string; bold?: boolean; dim?: boolean; italic?: boolean; underline?: boolean }
-function open(s: Style): string {
-  if (PLAIN) return ''
-  let out = ''
-  if (s.fg) out += rgb(s.fg, false)
-  if (s.bg) out += rgb(s.bg, true)
-  if (s.bold) out += `${ESC}[1m`
-  if (s.dim) out += `${ESC}[2m`
-  if (s.italic) out += `${ESC}[3m`
-  if (s.underline) out += `${ESC}[4m`
-  return out
-}
-
-// one Text's inline content, styles nested
-function inline(node: Node, inherited: Style): string {
-  // a string with newlines (the callout bar is one Text of bars) paints one row per line
-  if (typeof node === 'string') return node.split('\n').map(line => open(inherited) + line + RESET).join('\n')
-  const p = node.props
-  const s: Style = {
-    ...inherited,
-    ...(typeof p.color === 'string' ? { fg: p.color } : {}),
-    ...(typeof p.backgroundColor === 'string' ? { bg: p.backgroundColor } : {}),
-    ...(p.bold ? { bold: true } : {}),
-    ...(p.dimColor ? { dim: true } : {}),
-    ...(p.italic ? { italic: true } : {}),
-    ...(p.underline ? { underline: true } : {}),
-  }
-  if (node.type === 'Button') return open({ ...s, dim: true }) + `[${String(p.label ?? '')}]` + RESET
-  if (node.type === 'Raster') return open({ ...s, dim: true }) + `<clock>` + RESET
-  if (node.type === 'Link') return open({ ...s, underline: true }) + (p.children ?? []).map(c => inline(c, s)).join('') + RESET
-  return (p.children ?? []).map(c => inline(c, s)).join('')
-}
-
-// rows of a tree: a column Box stacks, a row Box joins; margins indent.
-// `room` is the width the node may fill: the terminal less the margins and
-// widths above it, so a `space-between` row can push its last child to its
-// right edge (the duration lane, the dots line's buttons).
-function rows(node: Node, inherited: Style = {}, room = COLUMNS): string[] {
-  if (typeof node === 'string') return inline(node, inherited).split('\n')
-  const p = node.props
-  if (p.display === 'none') return []
-  if (node.type !== 'Box') return inline(node, inherited).split('\n')
-  const s: Style = { ...inherited, ...(typeof p.backgroundColor === 'string' ? { bg: p.backgroundColor } : {}) }
-  const kids = p.children ?? []
-  const left = typeof p.marginLeft === 'number' ? ' '.repeat(p.marginLeft) : ''
-  const top = typeof p.marginTop === 'number' ? p.marginTop : 0
-  const inner = typeof p.width === 'number' ? p.width : room - left.length - (typeof p.marginRight === 'number' ? p.marginRight : 0)
-  let out: string[]
-  if (p.flexDirection === 'row') {
-    const parts = kids.map(k => rows(k, s, inner))
-    const height = Math.max(1, ...parts.map(r => r.length))
-    out = []
-    // a child with flexGrow takes the room the others leave, so a right
-    // lane (the duration) ends at the row's edge
-    const grow = kids.findIndex(k => typeof k !== 'string' && typeof k.props.flexGrow === 'number' && k.props.flexGrow > 0)
-    for (let i = 0; i < height; i++) {
-      const cells = parts.map(r => r[i] ?? '')
-      const used = cells.reduce((n, c) => n + visible(c), 0)
-      const gap = ' '.repeat(Math.max(0, inner - used))
-      if (p.justifyContent === 'space-between' && cells.length > 1) {
-        out.push(cells.slice(0, -1).join('') + gap + cells[cells.length - 1])
-      } else if (grow >= 0 && cells.length > 1) {
-        out.push(cells.map((c, j) => (j === grow ? c + gap : c)).join(''))
-      } else {
-        out.push(cells.join(''))
-      }
-    }
-  } else {
-    out = kids.flatMap(k => rows(k, s, inner))
-  }
-  if (typeof p.width === 'number') {
-    // a box with a width fills it; a tinted one paints the fill, as the terminal does
-    out = out.map(r => r + (s.bg ? open({ bg: s.bg }) : '') + ' '.repeat(Math.max(0, p.width as number - visible(r))) + (s.bg ? RESET : ''))
-  }
-  return [...Array<string>(top).fill(''), ...out.map(r => left + r)]
-}
-function visible(s: string): number {
-  return s.replace(/\x1b\[[0-9;]*m/g, '').length
-}
+const painter = makePainter({ columns: COLUMNS, slots: SLOTS, plain: PLAIN })
+const { rows, rgb, RESET } = painter
 
 // ---- fixtures ------------------------------------------------------------------
 

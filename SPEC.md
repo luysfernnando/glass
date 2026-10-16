@@ -62,7 +62,12 @@ hooks/
 types/index.d.ts   the $.state contract (PluginState.glass)
 tests/             parse.test.ts, chrome.test.ts, (0.5.0) theme.test.ts, demo.test.ts
 scripts/check.sh   every check in one run
+scripts/paint.ts   (0.10.0) the demo painter: a tree to SGR rows, rows to HTML
+scripts/show.ts    the fixtures before and after, painted in the terminal
+scripts/readme-shots.ts  (0.10.0) the README's palette screenshots, headless Chrome
+scripts/demo-dump.sh     the text dumps under demo/
 demo/              (0.5.0) before/ and after/ text dumps for review
+docs/shots/        (0.10.0) one demo turn per palette, 100 columns on the owner's ground
 .claude-plugin/    plugin.json, marketplace.json, types/ (engine-written, ignored)
 ```
 
