@@ -95,7 +95,7 @@ with its painted output, an Edit with its diff card, an Agent launch, a
 reply with a TypeScript fence and a Bottom line card, then the background
 band with two subagents. `bun scripts/readme-shots.ts` redraws them.
 
-**tidepool** (default): the owner's nvim theme mapped by role.
+**tidepool** (default): my nvim theme, mapped by role.
 
 <img src="docs/shots/tidepool.png" width="760" alt="the demo turn under the tidepool palette">
 
