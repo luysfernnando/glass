@@ -4,7 +4,7 @@
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
 import { G } from './glyphs'
-import { CODE_COLOR, highlight } from './highlight'
+import { codeColor, highlight } from './highlight'
 import { inlineText } from './markdown'
 import type { Align, Block, CalloutRow, Inline, ListItem } from './markdown'
 import type { Palette } from './palette'
@@ -289,7 +289,7 @@ function renderFence(c: Ctx, lang: string, source: string): RenderElement {
     // may measure no rows at all, and the card would lose its blank lines
     const body = t.Text({
       wrap: diagram ? 'truncate-end' : 'wrap',
-      children: spans.length === 0 ? [' '] : spans.flatMap((s): RenderNode[] => (s.kind === 'plain' ? cut(s.text) : [t.Text({ color: p[CODE_COLOR[s.kind]], children: cut(s.text) })])),
+      children: spans.length === 0 ? [' '] : spans.flatMap((s): RenderNode[] => (s.kind === 'plain' ? cut(s.text) : [t.Text({ color: codeColor(p, s.kind), children: cut(s.text) })])),
     })
     children.push(
       gutter

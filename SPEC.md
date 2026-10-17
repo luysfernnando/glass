@@ -693,7 +693,17 @@ validate` holds the module to it.
   yellow. Martina is 9.0:1, cool, and a hue prism had no other use for.
   Merchant Marine `#0652dd` (2.8:1, sank), Mediterranean Sea (4.5:1,
   muted) and Android Green (9.7:1, warm, among prism's greens) were drawn
-  beside it; the owner picked Martina 2026-10-17. Every palette supplies the full
+  beside it; the owner picked Martina 2026-10-17.
+- **(0.15.2)** A JSON key is its own highlighter kind, painted in the
+  palette's optional `jsonKey`, else in `codeStr` as before (water's orange
+  keys stay). Prism sets coral `#ff6b6b` keys, so a key reads apart from
+  its value, and its strings move from Martina to Mediterranean Sea
+  `#1289a7` lifted in OKLCH (hue and chroma kept) to `#4eb4d3`: 7.0:1 on
+  the owner's real ground. Their Ghostty runs at `background-opacity =
+  0.96` with blur, and the ground measured off a screenshot is `#0a1f30`,
+  not night-owl's `#011627`, so every color reads about 10% under its
+  night-owl contrast. No other prism key uses `#4eb4d3`. Approved by
+  screenshot 2026-10-17. Every palette supplies the full
   `Palette` type: the prose and shell keys, `meta`, `faint`, `rowHover`,
   `accentUser`, `text`, `bold`, `blockBg`, `tool`, the callout keys, the
   code keys and the diff tints. A test keeps `mark` apart from `ok`,

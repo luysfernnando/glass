@@ -4,7 +4,7 @@ import type { GlassAgent } from '../types'
 
 import { CLOCK_CELLS, callScope, clip, clockCells, renderAgentLaunch, fmtCost, fmtDuration, fmtToolTime, renderBand, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderServerToolRows, renderSkillLoad, renderToolOutput, renderTreeRow, renderUserRow, safeText, setCwd, toolLabel } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
-import { highlight, highlightLine, langOf } from '../hooks/highlight'
+import { codeColor, highlight, highlightLine, langOf } from '../hooks/highlight'
 import { parseMarkdown } from '../hooks/markdown'
 import { quoteRows, renderReply } from '../hooks/render'
 import type { CodeSpan } from '../hooks/highlight'
@@ -912,8 +912,23 @@ test('0.5.3: the highlighter: keywords by language, Rust lifetimes, YAML keys', 
   // a lifetime keeps the string color but ends at its word
   expect(kinds(highlightLine("fn f<'a>(x: &'a String) -> &'a str {", 'rs'))).toEqual(['kw:fn', "str:'a", "str:'a", 'type:String', "str:'a"])
   expect(kinds(highlightLine("let c = 'a';", 'rs'))).toEqual(['kw:let', "str:'a'"])
-  // a JSON key is a string and keeps the string color; a YAML key paints as a call
-  expect(kinds(highlightLine('  "name": "glass",', 'json'))).toEqual(['str:"name"', 'str:"glass"'])
+  // a JSON key is its own kind (0.15.2); a YAML key paints as a call
+  expect(kinds(highlightLine('  "name": "glass",', 'json'))).toEqual(['key:"name"', 'str:"glass"'])
   expect(kinds(highlightLine('  - file_path: hooks/a.ts', 'yaml'))).toEqual(['fn:file_path'])
   expect(kinds(highlightLine('version: 2 # note', 'yml'))).toEqual(['fn:version', 'num:2', 'comment:# note'])
+})
+
+test('0.15.2: a JSON key paints in the palette\'s jsonKey, else in the string color', async () => {
+  const kinds = (spans: CodeSpan[]) => spans.filter(s => s.kind !== 'plain').map(s => `${s.kind}:${s.text}`)
+  // a colon inside a value does not make it a key; space before the colon does not stop one
+  expect(kinds(highlightLine('"url": "http://x", "a" : 1', 'json'))).toEqual(['key:"url"', 'str:"http://x"', 'key:"a"', 'num:1'])
+  expect(kinds(highlightLine('{ "k": "v" }', 'jsonc'))).toEqual(['key:"k"', 'str:"v"'])
+  // only JSON: a quoted key in TypeScript stays a string
+  expect(kinds(highlightLine("const o = { 'k': 1 }", 'ts'))).toEqual(['kw:const', "str:'k'", 'num:1'])
+  // prism sets coral keys apart from its strings; water sets none, so its keys keep the string orange
+  expect(codeColor(PALETTES.prism, 'key')).toBe(PALETTES.prism.jsonKey!)
+  expect(codeColor(PALETTES.prism, 'key')).not.toBe(PALETTES.prism.codeStr)
+  expect(PALETTES.water.jsonKey).toBeUndefined()
+  expect(codeColor(PALETTES.water, 'key')).toBe(PALETTES.water.codeStr)
+  expect(codeColor(PALETTES.water, 'str')).toBe(PALETTES.water.codeStr)
 })

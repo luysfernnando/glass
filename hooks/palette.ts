@@ -63,6 +63,11 @@ export type Palette = {
    * `accentUser`; left out, the box takes the person's color (0.14.0)
    */
   promptBorder?: string
+  /**
+   * a JSON key in the highlighter, where it should not be `codeStr`; left
+   * out, a key is a string like its value (0.15.2)
+   */
+  jsonKey?: string
   /** glass's own code highlighter: keywords, calls, types, strings, numbers */
   codeKw: string
   codeFn: string
@@ -549,8 +554,9 @@ const tangerine: Palette = {
 // `gradient_modern` palette of ~/.config/starship.toml, each color in the
 // role its prompt segment plays. Coral (color_1, the username segment) is
 // the person's row, flags and types; deep orange (color_2, the directory)
-// paths; Blue Martina strings (0.15.1, from Flat UI's NL set: golden
-// yellow, color_3, glared at 10.6:1 on a JSON-heavy diff); emerald teal (color_4, the
+// paths; steel-cyan strings (0.15.2: Flat UI's Mediterranean Sea lifted
+// in OKLCH, since golden yellow, color_3, glared at 10.6:1 on a JSON-heavy
+// diff) with coral JSON keys; emerald teal (color_4, the
 // toolchains) builtins and raw code; vibrant blue (color_5) the verb, tool
 // and keywords; soft purple (color_6, the clock) Claude's mark, the band,
 // the Bottom line bar and the prompt box. The bright four are the prompt
@@ -564,7 +570,7 @@ const prism: Palette = {
   cmd: '#4d96ff',  // color_5 vibrant blue
   sub: '#43b581',  // color_4 emerald teal
   flag: '#ff6b6b',  // color_1 coral
-  str: '#12cbc4',  // Blue Martina, 9.0:1 (0.15.1; golden yellow #e6c229 glared)
+  str: '#4eb4d3',  // Mediterranean Sea #1289a7 lifted: 7.0:1 on the owner's 0.96-opacity ground #0a1f30, 7.7:1 on night-owl's (0.15.2)
   path: '#e28f2a',  // color_2 deep orange
   op: '#8a8a8a',
   num: '#43b581',
@@ -600,7 +606,8 @@ const prism: Palette = {
   codeKw: '#4d96ff',
   codeFn: '#43b581',
   codeType: '#ff6b6b',
-  codeStr: '#12cbc4',
+  codeStr: '#4eb4d3',
+  jsonKey: '#ff6b6b',  // coral, so a key reads apart from its value (0.15.2)
   codeNum: '#8c6ff0',
   addBg: '#0e2a3a',  // water's tints
   delBg: '#33222e',
