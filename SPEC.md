@@ -686,7 +686,14 @@ validate` holds the module to it.
   water's tints for the cards and diff rows. Approved by screenshot
   2026-10-16. Prism is the first palette to set the optional
   `promptBorder`: the owner wanted the prompt box in the band's purple
-  while the row stays coral. Every palette supplies the full
+  while the row stays coral.
+- **(0.15.1)** Prism's strings (`str` and `codeStr`) are Blue Martina
+  `#12cbc4` from Flat UI's NL palette, not the prompt's gold `#e6c229`:
+  gold sat at 10.6:1 and a JSON diff, keys and values both strings, glared
+  yellow. Martina is 9.0:1, cool, and a hue prism had no other use for.
+  Merchant Marine `#0652dd` (2.8:1, sank), Mediterranean Sea (4.5:1,
+  muted) and Android Green (9.7:1, warm, among prism's greens) were drawn
+  beside it; the owner picked Martina 2026-10-17. Every palette supplies the full
   `Palette` type: the prose and shell keys, `meta`, `faint`, `rowHover`,
   `accentUser`, `text`, `bold`, `blockBg`, `tool`, the callout keys, the
   code keys and the diff tints. A test keeps `mark` apart from `ok`,
