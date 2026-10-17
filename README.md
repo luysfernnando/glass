@@ -37,16 +37,10 @@ The same turn under each palette: pick one with `/config` under Glass.
 <td><strong>water</strong> Empryo's own proxysoul-water tokens.<br><br><img src="docs/shots/water.png" alt="the demo turn under the water palette"></td>
 </tr>
 <tr>
-<td><strong>undertow</strong> sampled from Empryo's desktop video.<br><br><img src="docs/shots/undertow.png" alt="the demo turn under the undertow palette"></td>
-</tr>
-<tr>
 <td><strong>crimson</strong> Empryo's crimson world, "the heart", from empryo.com's CSS.<br><br><img src="docs/shots/crimson.png" alt="the demo turn under the crimson palette"></td>
 </tr>
 <tr>
 <td><strong>codex</strong> One Dark.<br><br><img src="docs/shots/codex.png" alt="the demo turn under the codex palette"></td>
-</tr>
-<tr>
-<td><strong>rose</strong> Rose Pine.<br><br><img src="docs/shots/rose.png" alt="the demo turn under the rose palette"></td>
 </tr>
 </table>
 
@@ -138,9 +132,8 @@ notification falls back to a toast, summary and server tool rows need
 props that older engines do not send, and the rest is unchanged.
 
 Restart Claude Code. Pick a palette with `/config` under Glass: `tidepool`
-(default), `tarnish`, `overprint`, `ironbow`, `lagoon`, `iris`, `tangerine` and `prism` (glass's own), `water` (Empryo's own proxysoul-water tokens), `undertow` (sampled from
-Empryo's desktop video), `crimson` (Empryo's crimson world, "the heart", from
-empryo.com's own CSS), `codex` or `rose`.
+(default), `tarnish`, `overprint`, `ironbow`, `lagoon`, `iris`, `tangerine` and `prism` (glass's own), `water` (Empryo's own proxysoul-water tokens), `crimson` (Empryo's crimson
+world, "the heart", from empryo.com's own CSS) or `codex`.
 The palettes assume a dark terminal.
 
 To try it from a clone without installing:

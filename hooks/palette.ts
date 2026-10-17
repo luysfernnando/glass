@@ -74,7 +74,7 @@ export type Palette = {
   delBg: string
 }
 
-export type PaletteName = 'tidepool' | 'codex' | 'rose' | 'undertow' | 'water' | 'crimson' | 'tarnish' | 'overprint' | 'ironbow' | 'lagoon' | 'iris' | 'tangerine' | 'prism'
+export type PaletteName = 'tidepool' | 'codex' | 'water' | 'crimson' | 'tarnish' | 'overprint' | 'ironbow' | 'lagoon' | 'iris' | 'tangerine' | 'prism'
 
 // The owner's own nvim theme, ~/Documents/codes/packages/tidepool.nvim,
 // hybrid variant: lifted content over muted scaffolding. Mapped by role:
@@ -123,55 +123,6 @@ const tidepool: Palette = {
   codeNum: '#7bc0ae', // pine
   addBg: '#0e2a3a', // the band tint, not a green: the marker and its color say added (colorblind-safe, owner's pick 2026-10-03)
   delBg: '#241c2a', // a dim plum, apart from the band on the blue-violet axis
-}
-
-// Read off the frames of Empryo's v3 desktop (the X post of 2026-10-02):
-// a dark blue-grey ground, sea-glass green for the live thing, dusty rose
-// for errors, cyan for the brand marks. Empryo's own `proxysoul-undertow`
-// theme is not public, so every value is a sample, not a token.
-const undertow: Palette = {
-  cmd: '#8fd3e8', // the brand cyan, lifted
-  sub: '#9ab3a8', // sea-glass
-  flag: '#c9a7e0', // dusty violet
-  str: '#d4c38a', // sand
-  path: '#d6b477', // gold
-  op: '#6b6e78',
-  num: '#9ab3a8',
-  var: '#8fd3e8',
-  url: '#5ec8d8',
-  comment: '#8a8d94',
-  code: '#9ab3a8',
-  heading: '#e7e6e9',
-  heading3: '#c9ccd3',
-  accent: '#5ec8d8', // the brand cyan: the assistant mark, the band
-  bullet: '#8a8d94',
-  orderedNum: '#8a8d94',
-  rule: '#4e5258', // 2.4:1 (0.5.3; #3c4043 was 1.8:1)
-  quoteBar: '#9ab3a8',
-  ok: '#4fd1a0',
-  err: '#e85c6b', // dusty rose
-  warn: '#e8a04c',
-  bold: '#ffffff',
-  blockBg: '#262a31', // 1.3:1, the floor the spec asks (0.5.3; #1c1e23 was 1.13:1)
-  tool: '#5ec8d8',
-  calloutBar: '#5ec8d8',
-  verified: '#4fd1a0',
-  issue: '#e85c6b',
-  fix: '#c9a7e0',
-  calloutText: '#e7e6e9',
-  private: '#6a6c76',
-  mark: '#e8a04c', // warn
-  meta: '#8a8d94',
-  faint: '#6a6c76', // 3.6:1 (0.5.3; #52535c was 2.5:1, under the 3:1 a faint step needs)
-  rowHover: '#2a2f38', // a step above blockBg (0.5.3; #1e2024 was invisible beside it)
-  accentUser: '#4fd1a0',
-  codeKw: '#5ec8d8', // the brand cyan
-  codeFn: '#8fd3e8',
-  codeType: '#e8a04c',
-  codeStr: '#9ab3a8', // sea-glass
-  codeNum: '#e8a04c',
-  addBg: '#1b2a2f', // Empryo's own row band
-  delBg: '#2a2126',
 }
 
 // Empryo's `proxysoul-water` theme, exact: the tokens of PROXYSOUL_WATER
@@ -657,7 +608,6 @@ const prism: Palette = {
 // Every palette spells out every required key: no shared block, so a theme reads whole.
 export const PALETTES: Record<PaletteName, Palette> = {
   tidepool,
-  undertow,
   water,
   crimson,
   tarnish,
@@ -714,58 +664,11 @@ export const PALETTES: Record<PaletteName, Palette> = {
     addBg: '#0e2a3a',
     delBg: '#241c2a',
   },
-  // Rose Pine, filled out from the
-  // theme's own set: foam for the marks and bars, iris for the fix, gold
-  // for H3, subtle and muted for the two grey steps.
-  rose: {
-    cmd: '#9ccfd8',
-    sub: '#c4a7e7',
-    flag: '#c4a7e7', // iris (0.5.3; rose went to paths)
-    str: '#f6c177',
-    path: '#ebbcba', // rose: warm, apart from `bold` (0.5.3; text #e0def4 made a path read as plain bold)
-    op: '#9ccfd8',
-    num: '#ea9a97',
-    var: '#f6c177', // gold with the strings (0.5.3; love was `err`, so $VAR read as an error)
-    url: '#9ccfd8',
-    comment: '#6e6a86',
-    code: '#c4a7e7',
-    heading: '#c4a7e7',
-    heading3: '#f6c177', // gold
-    accent: '#c4a7e7',
-    bullet: '#6e6a86',
-    orderedNum: '#908caa', // subtle
-    rule: '#6e6a86',
-    quoteBar: '#9ccfd8', // foam
-    ok: '#5aa5c4', // pine lifted (0.5.3; #3e8fb0 sat a step from codeKw's pine, so done read as a keyword)
-    err: '#eb6f92', // love
-    warn: '#f6c177',
-    bold: '#e0def4', // text
-    blockBg: '#0e2a3a',
-    tool: '#c4a7e7',
-    calloutBar: '#9ccfd8', // foam
-    verified: '#9ccfd8', // the theme has no green; foam reads as calm
-    issue: '#eb6f92',
-    fix: '#c4a7e7', // iris
-    calloutText: '#e0def4',
-    private: '#6e6a86', // muted
-    mark: '#f6c177', // warn: the foam it had was both bars'
-    meta: '#908caa', // subtle
-    faint: '#6e6a86', // muted
-    rowHover: '#0e2a3a',
-    accentUser: '#9ccfd8',
-    codeKw: '#31748f',
-    codeFn: '#ebbcba',
-    codeType: '#9ccfd8',
-    codeStr: '#f6c177',
-    codeNum: '#ea9a97',
-    addBg: '#0e2a3a',
-    delBg: '#241c2a',
-  },
 }
 
-/** the palette's name from the option's value: one of the thirteen, tidepool for anything else */
+/** the palette's name from the option's value: one of the eleven, tidepool for anything else */
 export function paletteNameOf(name: unknown): PaletteName {
-  if (name === 'codex' || name === 'rose' || name === 'undertow' || name === 'water' || name === 'crimson' || name === 'tarnish' || name === 'overprint' || name === 'ironbow' || name === 'lagoon' || name === 'iris' || name === 'tangerine' || name === 'prism') return name
+  if (name === 'codex' || name === 'water' || name === 'crimson' || name === 'tarnish' || name === 'overprint' || name === 'ironbow' || name === 'lagoon' || name === 'iris' || name === 'tangerine' || name === 'prism') return name
   return 'tidepool'
 }
 

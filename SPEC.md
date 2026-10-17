@@ -615,10 +615,11 @@ validate` holds the module to it.
 - `tidepool` (default) maps the owner's nvim theme by role: strings olive,
   numbers and inline code pine, commands iris, builtins foam, paths gold,
   links mint; its code keys are the engine's reply-fence colors the owner
-  liked. `codex` carries One Dark; `rose`
-  rose-pine; `water` Empryo's proxysoul-water tokens (`rule #5a5870`,
-  `delBg #33222e` after the live check); `undertow` is read off Empryo's
-  desktop frames, so approximate. **(0.10.0)** `crimson` is Empryo's
+  liked. `codex` carries One Dark; `water` Empryo's proxysoul-water
+  tokens (`rule #5a5870`, `delBg #33222e` after the live check).
+  **(0.15.0)** `rose` (rose-pine) and `undertow` (sampled off Empryo's desktop frames)
+  are gone: both read muted beside glass's own palettes. A saved
+  `rose` or `undertow` falls back to `tidepool`. **(0.10.0)** `crimson` is Empryo's
   crimson world ("the heart"), the tokens of empryo.com's own CSS
   (`:root[data-world=crimson][data-theme=dark]`, 2026-10-16) mapped by
   role as water's are: pigment `#f43a6b` for the verb, the marks and the
