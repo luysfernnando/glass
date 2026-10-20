@@ -179,10 +179,12 @@ docs/shots/        (0.10.0) one demo turn per palette, 100 columns on the owner'
   `![alt](src)` draws as the link its alt names, the bang gone; a link
   title stays out of the text.
 - Inline code is color only, as Claude Desktop and the Codex TUI draw it.
-  Contents, in order: shell spans when `shellSpans()` recognizes a known
-  command head (each token in its kind color); else a path in `path`; else
-  `code`. (Tinted pills with padding and Nerd Font caps
-  were tried and rejected as noise, 2026-10-02.)
+  Contents, in order: a URL whole (no whitespace, an href the Links rule
+  takes) as a Link, the span its label, so a wrapped one is one click (the
+  engine's renderer does this since 2.1.302); else shell spans when
+  `shellSpans()` recognizes a known command head (each token in its kind
+  color); else a path in `path`; else `code`. (Tinted pills with padding
+  and Nerd Font caps were tried and rejected as noise, 2026-10-02.)
 - A U+FE0F after a text-default symbol (U+26A0 and kin) is dropped: the
   terminal draws the emoji form 2 cells while the engine counts 1.
 - Streaming: unclosed `` ` ``, `**`, `*`, `[` stay literal. Code colors

@@ -932,3 +932,16 @@ test('0.15.2: a JSON key paints in the palette\'s jsonKey, else in the string co
   expect(codeColor(PALETTES.water, 'key')).toBe(PALETTES.water.codeStr)
   expect(codeColor(PALETTES.water, 'str')).toBe(PALETTES.water.codeStr)
 })
+
+test('0.15.3: a URL in backticks is one Link, the whole span its label; anything else stays code', async () => {
+  const links = (md: string) => elements(reply(md)).filter(n => n.type === 'Link')
+  const url = 'https://github.com/rashedInt32/glass/blob/main/hooks/render.ts'
+  const [link] = links('See `' + url + '` for it.')
+  expect(link?.props.href).toBe(url)
+  expect(strings(link as unknown as RenderNode).join('')).toBe(url)
+  expect(links('Open `http://localhost:3000/a` now.').length).toBe(1)
+  // only the span that is a URL whole: no plain http, no spaces, no prose around it
+  expect(links('Not `http://example.com/a` here.').length).toBe(0)
+  expect(links('Not `https://x.com/a b` here.').length).toBe(0)
+  expect(links('Not `curl https://x.com` here.').length).toBe(0)
+})

@@ -713,9 +713,12 @@ function safeHref(href: string): string | null {
 
 // Inline code is color only, as Claude Desktop and the Codex TUI draw it:
 // shell tokens in their kind colors, paths in the path color underlined,
-// anything else in the code color. No tint, no padding.
+// anything else in the code color. No tint, no padding. A span that is a
+// URL whole is a link like any other, so a wrapped one stays one click
+// (0.15.3: the engine's own renderer does this since 2.1.302).
 function renderCode(c: Ctx, code: string): RenderElement {
   const { t, p } = c
+  if (!/\s/.test(code) && safeHref(code)) return renderLink(c, code, code)
   const spans = shellSpans(code)
   if (spans) {
     return t.Text({
