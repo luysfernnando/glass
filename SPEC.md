@@ -179,10 +179,12 @@ docs/shots/        (0.10.0) one demo turn per palette, 100 columns on the owner'
   `![alt](src)` draws as the link its alt names, the bang gone; a link
   title stays out of the text.
 - Inline code is color only, as Claude Desktop and the Codex TUI draw it.
-  Contents, in order: shell spans when `shellSpans()` recognizes a known
-  command head (each token in its kind color); else a path in `path`; else
-  `code`. (Tinted pills with padding and Nerd Font caps
-  were tried and rejected as noise, 2026-10-02.)
+  Contents, in order: a URL whole (no whitespace, an href the Links rule
+  takes) as a Link, the span its label, so a wrapped one is one click (the
+  engine's renderer does this since 2.1.302); else shell spans when
+  `shellSpans()` recognizes a known command head (each token in its kind
+  color); else a path in `path`; else `code`. (Tinted pills with padding
+  and Nerd Font caps were tried and rejected as noise, 2026-10-02.)
 - A U+FE0F after a text-default symbol (U+26A0 and kin) is dropped: the
   terminal draws the emoji form 2 cells while the engine counts 1.
 - Streaming: unclosed `` ` ``, `**`, `*`, `[` stay literal. Code colors
@@ -621,10 +623,11 @@ validate` holds the module to it.
 - `tidepool` (default) maps the owner's nvim theme by role: strings olive,
   numbers and inline code pine, commands iris, builtins foam, paths gold,
   links mint; its code keys are the engine's reply-fence colors the owner
-  liked. `codex` carries One Dark; `rose`
-  rose-pine; `water` Empryo's proxysoul-water tokens (`rule #5a5870`,
-  `delBg #33222e` after the live check); `undertow` is read off Empryo's
-  desktop frames, so approximate. **(0.10.0)** `crimson` is Empryo's
+  liked. `codex` carries One Dark; `water` Empryo's proxysoul-water
+  tokens (`rule #5a5870`, `delBg #33222e` after the live check).
+  **(0.15.0)** `rose` (rose-pine) and `undertow` (sampled off Empryo's desktop frames)
+  are gone: both read muted beside glass's own palettes. A saved
+  `rose` or `undertow` falls back to `tidepool`. **(0.10.0)** `crimson` is Empryo's
   crimson world ("the heart"), the tokens of empryo.com's own CSS
   (`:root[data-world=crimson][data-theme=dark]`, 2026-10-16) mapped by
   role as water's are: pigment `#f43a6b` for the verb, the marks and the
@@ -668,7 +671,47 @@ validate` holds the module to it.
   neutrals with an indigo cast so the card tint and rules go violet-grey.
   Turned down the same day: `noctiluca` (a glowing cyan: too close to
   water), `labradorite` (blue lead with copper paths: the owner preferred
-  lagoon). Both placed in OKLCH and approved by screenshot. Every palette supplies the full
+  lagoon). Both placed in OKLCH and approved by screenshot.
+- **(0.14.0)** `tangerine`, from a brief of "crimson's vibrance, water's
+  cyan, tarnish's warmth". A first draft put crimson in the lead seat over
+  water's set; the owner found the red bled on the navy ground. Tangerine,
+  rose pink and violet leads were drawn side by side through
+  `GLASS_EXTRA_PALETTES` and tangerine was approved by screenshot
+  2026-10-16: orange is cyan's complement, so it pops without the bleed.
+  Tangerine takes the verb, tool, keywords and callout bar; water's cyan
+  keeps the accent, band, card tint and builtins; crimson's pink takes the
+  person's row, flags and quote bar; strings and warn are lemon, apart from
+  the lead; failed is a rose red.
+- **(0.14.0)** `prism`, from the owner's starship prompt
+  (`gradient_modern` in `~/.config/starship.toml`), each color in its
+  segment's role: coral (username) the person's row, flags and types;
+  orange (directory) paths; gold (git) strings; emerald teal (toolchains)
+  builtins and raw code; blue the verb, tool and keywords; purple (clock)
+  Claude's mark, the band and the callout bar; the prompt character's
+  bright four for done, failed, warn and H3; white headings. The prompt's
+  two dark greys are left out: bg1 is 1.09:1 on night-owl's ground, and
+  bg3 as a neutral grey card sat heavy on the navy, so the owner took
+  water's tints for the cards and diff rows. Approved by screenshot
+  2026-10-16. Prism is the first palette to set the optional
+  `promptBorder`: the owner wanted the prompt box in the band's purple
+  while the row stays coral.
+- **(0.15.1)** Prism's strings (`str` and `codeStr`) are Blue Martina
+  `#12cbc4` from Flat UI's NL palette, not the prompt's gold `#e6c229`:
+  gold sat at 10.6:1 and a JSON diff, keys and values both strings, glared
+  yellow. Martina is 9.0:1, cool, and a hue prism had no other use for.
+  Merchant Marine `#0652dd` (2.8:1, sank), Mediterranean Sea (4.5:1,
+  muted) and Android Green (9.7:1, warm, among prism's greens) were drawn
+  beside it; the owner picked Martina 2026-10-17.
+- **(0.15.2)** A JSON key is its own highlighter kind, painted in the
+  palette's optional `jsonKey`, else in `codeStr` as before (water's orange
+  keys stay). Prism sets coral `#ff6b6b` keys, so a key reads apart from
+  its value, and its strings move from Martina to Mediterranean Sea
+  `#1289a7` lifted in OKLCH (hue and chroma kept) to `#4eb4d3`: 7.0:1 on
+  the owner's real ground. Their Ghostty runs at `background-opacity =
+  0.96` with blur, and the ground measured off a screenshot is `#0a1f30`,
+  not night-owl's `#011627`, so every color reads about 10% under its
+  night-owl contrast. No other prism key uses `#4eb4d3`. Approved by
+  screenshot 2026-10-17. Every palette supplies the full
   `Palette` type: the prose and shell keys, `meta`, `faint`, `rowHover`,
   `accentUser`, `text`, `bold`, `blockBg`, `tool`, the callout keys, the
   code keys and the diff tints. A test keeps `mark` apart from `ok`,
@@ -712,7 +755,7 @@ Two directions, settled 2026-10-11.
   | `permission` | `tool` (the engine's codespans take it too) |
   | `planMode` | `cmd` |
   | `autoAccept` | `ok` (0.5.3: the engine's own is a green; `warn` made it one color with `warning`) |
-  | `promptBorder` | `accentUser` (0.10.1: it was `rule`, a grey step in water, codex and rose, so the box looked uncolored beside crimson's plum; the prompt box is the person's, as the user row is) |
+  | `promptBorder` | `accentUser` (0.10.1: it was `rule`, a grey step in water, codex and rose, so the box looked uncolored beside crimson's plum; the prompt box is the person's, as the user row is; 0.14.0: a palette's optional `promptBorder` wins, prism's is the band purple) |
   | `bashBorder` | `cmd` (0.10.1: the verb's color for `!` mode) |
   | `secondaryBorder` | `rule` |
   | `text` | left to the base: prose is the terminal's own foreground |

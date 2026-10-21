@@ -6,7 +6,7 @@ import { PALETTES } from '../hooks/palette'
 import type { PaletteName } from '../hooks/palette'
 import { THEME, lift, themeFileName, themeFor, themeJson, themeSetting } from '../hooks/theme'
 
-const NAMES: PaletteName[] = ['tidepool', 'tarnish', 'overprint', 'ironbow', 'lagoon', 'iris', 'water', 'undertow', 'crimson', 'codex', 'rose']
+const NAMES: PaletteName[] = ['tidepool', 'tarnish', 'overprint', 'ironbow', 'lagoon', 'iris', 'tangerine', 'prism', 'water', 'crimson', 'codex']
 const REQUIRED = [
   'success', 'error', 'warning', 'claude', 'permission', 'planMode', 'autoAccept',
   'promptBorder', 'bashBorder', 'secondaryBorder', 'secondaryText', 'inactive', 'subtle', 'suggestion',
@@ -35,7 +35,7 @@ test('every palette yields a theme: a dark base, every slot in the table, every 
     expect(theme.overrides.warning).toBe(PALETTES[name].warn.toLowerCase())
     expect(theme.overrides.permission).toBe(PALETTES[name].tool.toLowerCase())
     // 0.10.1: the prompt border is the person's color, bash mode the verb's, never the grey rule
-    expect(theme.overrides.promptBorder).toBe(PALETTES[name].accentUser.toLowerCase())
+    expect(theme.overrides.promptBorder).toBe((PALETTES[name].promptBorder ?? PALETTES[name].accentUser).toLowerCase())
     expect(theme.overrides.bashBorder).toBe(PALETTES[name].cmd.toLowerCase())
     expect(theme.overrides.promptBorder).not.toBe(PALETTES[name].rule.toLowerCase())
   }
@@ -62,4 +62,12 @@ test('the forward slot names are the engine keys, spelled exactly', async () => 
     diffAddedWord: 'diffAddedWord',
     diffRemovedWord: 'diffRemovedWord',
   })
+})
+
+test('0.14.0: a palette may set its own prompt border; prism takes the band purple, its row stays coral', async () => {
+  const theme = themeFor(PALETTES.prism, 'prism')
+  expect(theme.overrides.promptBorder).toBe(PALETTES.prism.accent.toLowerCase())
+  expect(theme.overrides.promptBorder).not.toBe(PALETTES.prism.accentUser.toLowerCase())
+  // a palette that leaves it out keeps the person's color
+  expect(themeFor(PALETTES.tarnish, 'tarnish').overrides.promptBorder).toBe(PALETTES.tarnish.accentUser.toLowerCase())
 })

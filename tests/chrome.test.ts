@@ -4,7 +4,7 @@ import type { Elements, RenderElement, RenderNode } from 'claude-code'
 import { CLOCK_CELLS, callRun, callScope, renderRunRow, editRunKeys, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBashResult, renderDiff, renderEventRow, renderGroupRow, renderMessageRow, renderPluginRow, renderToolOutput, renderTreeRow, renderUserRow, rel, safeText, setCwd, setHome, shortPath, clip, fmtDuration, renderServerToolRows, renderSkillLoad, toolLabel } from '../hooks/chrome'
 import type { RunCall } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
-import { highlight, highlightLine, langOf } from '../hooks/highlight'
+import { codeColor, highlight, highlightLine, langOf } from '../hooks/highlight'
 import { parseMarkdown } from '../hooks/markdown'
 import { quoteRows, renderReply } from '../hooks/render'
 import type { CodeSpan } from '../hooks/highlight'
@@ -840,8 +840,36 @@ test('0.5.3: the highlighter: keywords by language, Rust lifetimes, YAML keys', 
   // a lifetime keeps the string color but ends at its word
   expect(kinds(highlightLine("fn f<'a>(x: &'a String) -> &'a str {", 'rs'))).toEqual(['kw:fn', "str:'a", "str:'a", 'type:String', "str:'a"])
   expect(kinds(highlightLine("let c = 'a';", 'rs'))).toEqual(['kw:let', "str:'a'"])
-  // a JSON key is a string and keeps the string color; a YAML key paints as a call
-  expect(kinds(highlightLine('  "name": "glass",', 'json'))).toEqual(['str:"name"', 'str:"glass"'])
+  // a JSON key is its own kind (0.15.2); a YAML key paints as a call
+  expect(kinds(highlightLine('  "name": "glass",', 'json'))).toEqual(['key:"name"', 'str:"glass"'])
   expect(kinds(highlightLine('  - file_path: hooks/a.ts', 'yaml'))).toEqual(['fn:file_path'])
   expect(kinds(highlightLine('version: 2 # note', 'yml'))).toEqual(['fn:version', 'num:2', 'comment:# note'])
+})
+
+test('0.15.2: a JSON key paints in the palette\'s jsonKey, else in the string color', async () => {
+  const kinds = (spans: CodeSpan[]) => spans.filter(s => s.kind !== 'plain').map(s => `${s.kind}:${s.text}`)
+  // a colon inside a value does not make it a key; space before the colon does not stop one
+  expect(kinds(highlightLine('"url": "http://x", "a" : 1', 'json'))).toEqual(['key:"url"', 'str:"http://x"', 'key:"a"', 'num:1'])
+  expect(kinds(highlightLine('{ "k": "v" }', 'jsonc'))).toEqual(['key:"k"', 'str:"v"'])
+  // only JSON: a quoted key in TypeScript stays a string
+  expect(kinds(highlightLine("const o = { 'k': 1 }", 'ts'))).toEqual(['kw:const', "str:'k'", 'num:1'])
+  // prism sets coral keys apart from its strings; water sets none, so its keys keep the string orange
+  expect(codeColor(PALETTES.prism, 'key')).toBe(PALETTES.prism.jsonKey!)
+  expect(codeColor(PALETTES.prism, 'key')).not.toBe(PALETTES.prism.codeStr)
+  expect(PALETTES.water.jsonKey).toBeUndefined()
+  expect(codeColor(PALETTES.water, 'key')).toBe(PALETTES.water.codeStr)
+  expect(codeColor(PALETTES.water, 'str')).toBe(PALETTES.water.codeStr)
+})
+
+test('0.15.3: a URL in backticks is one Link, the whole span its label; anything else stays code', async () => {
+  const links = (md: string) => elements(reply(md)).filter(n => n.type === 'Link')
+  const url = 'https://github.com/rashedInt32/glass/blob/main/hooks/render.ts'
+  const [link] = links('See `' + url + '` for it.')
+  expect(link?.props.href).toBe(url)
+  expect(strings(link as unknown as RenderNode).join('')).toBe(url)
+  expect(links('Open `http://localhost:3000/a` now.').length).toBe(1)
+  // only the span that is a URL whole: no plain http, no spaces, no prose around it
+  expect(links('Not `http://example.com/a` here.').length).toBe(0)
+  expect(links('Not `https://x.com/a b` here.').length).toBe(0)
+  expect(links('Not `curl https://x.com` here.').length).toBe(0)
 })

@@ -12,11 +12,12 @@ import { shellSpans } from './shell'
 import type { SpanKind } from './shell'
 
 // `sh.*`: a shell token in a fence, painted with the prose key of its kind
-export type CodeKind = 'kw' | 'fn' | 'type' | 'str' | 'num' | 'comment' | 'plain' | `sh.${Exclude<SpanKind, 'plain' | 'comment'>}`
+export type CodeKind = 'key' | 'kw' | 'fn' | 'type' | 'str' | 'num' | 'comment' | 'plain' | `sh.${Exclude<SpanKind, 'plain' | 'comment'>}`
 export type CodeSpan = { text: string; kind: CodeKind }
 
 /** the palette key a code kind paints with */
 export const CODE_COLOR: Record<Exclude<CodeKind, 'plain'>, keyof Palette> = {
+  key: 'codeStr',
   kw: 'codeKw',
   fn: 'codeFn',
   type: 'codeType',
@@ -32,6 +33,11 @@ export const CODE_COLOR: Record<Exclude<CodeKind, 'plain'>, keyof Palette> = {
   'sh.num': 'num',
   'sh.var': 'var',
   'sh.url': 'url',
+}
+
+/** the color a code kind paints in: a JSON key takes the palette's `jsonKey` where it sets one */
+export function codeColor(p: Palette, kind: Exclude<CodeKind, 'plain'>): string {
+  return (kind === 'key' ? p.jsonKey : undefined) ?? (p[CODE_COLOR[kind]] as string)
 }
 
 const SHELL_LANGS = new Set(['sh', 'bash', 'zsh', 'shell', 'console', 'fish'])
@@ -69,8 +75,10 @@ const KW_BY_LANG: Record<string, Set<string>> = {
   lua: KW_LUA,
 }
 const RUST_LANGS = new Set(['rs', 'rust'])
-// a YAML word before a colon is a key, painted as a call (a JSON key is a
-// string and keeps the string color: the owner likes the orange, 2026-10-11)
+// a YAML word before a colon is a key, painted as a call. A JSON key is
+// its own kind: the string color unless the palette sets `jsonKey` (water's
+// orange keys stay, the owner liked them 2026-10-11; prism's are coral)
+const JSON_LANGS = new Set(['json', 'jsonc', 'json5'])
 const YAML_LANGS = new Set(['yaml', 'yml'])
 const YAML_KEY = /^(\s*(?:-\s+)?)([\w.\/-]+)(\s*)(?=:(?:\s|$))/
 const CONSTANTS = new Set(['true', 'false', 'null', 'undefined', 'None', 'True', 'False', 'nil', 'NaN', 'Infinity'])
@@ -169,7 +177,8 @@ export function highlightLine(line: string, lang: string, state: State = { inBlo
     if (ch === '"' || ch === "'" || ch === '`') {
       let j = i + 1
       while (j < n && line[j] !== ch) j += line[j] === '\\' ? 2 : 1
-      push(line.slice(i, Math.min(n, j + 1)), 'str')
+      const key = JSON_LANGS.has(lang) && /^\s*:/.test(line.slice(j + 1))
+      push(line.slice(i, Math.min(n, j + 1)), key ? 'key' : 'str')
       i = Math.min(n, j + 1)
       continue
     }

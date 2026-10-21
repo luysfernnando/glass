@@ -8,7 +8,7 @@ import type { Elements, RenderElement, RenderNode, UiPressArgument } from 'claud
 
 import type { GlassCall, GlassServerTool, GlassTurn } from '../types'
 import { G } from './glyphs'
-import { CODE_COLOR, highlightLine, langOf } from './highlight'
+import { codeColor, highlightLine, langOf } from './highlight'
 import type { State } from './highlight'
 import { paintLine } from './output'
 import type { Palette } from './palette'
@@ -592,7 +592,7 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
         lines.push({ kind, num: null, pieces: [{ text: body, color: p.faint }] })
         continue
       }
-      const pieces = highlightLine(body, lang, state).map(s => (s.kind === 'plain' ? { text: s.text } : { text: s.text, color: p[CODE_COLOR[s.kind]] }))
+      const pieces = highlightLine(body, lang, state).map(s => (s.kind === 'plain' ? { text: s.text } : { text: s.text, color: codeColor(p, s.kind) }))
       lines.push({ kind, num, pieces })
     }
   })
