@@ -27,7 +27,7 @@ export const THEME = {
 /** a custom theme as ~/.claude/themes/<name>.json holds it */
 export type ThemeFile = {
   name: string
-  base: 'dark'
+  base: 'dark' | 'light'
   overrides: Record<string, string>
 }
 
@@ -64,8 +64,10 @@ const SLOTS: ReadonlyArray<[slot: string, role: keyof Palette]> = [
 
 // the engine paints diff*Word as the background behind a changed word, a
 // step brighter than the row tint; a text color there was a bright block
-// behind the text (0.5.3). Lifted from the row tint toward white.
+// behind the text (0.5.3). Lifted from the row tint toward white; on a
+// light palette, deepened toward black (0.16.0)
 const LIFT = 0.18
+const DEEPEN = 0.1
 const WORD_SLOTS: ReadonlyArray<[slot: string, role: keyof Palette]> = [
   ['diffAddedWord', 'addBg'],
   ['diffRemovedWord', 'delBg'],
@@ -73,6 +75,15 @@ const WORD_SLOTS: ReadonlyArray<[slot: string, role: keyof Palette]> = [
 export function lift(hex: string, k = LIFT): string {
   const ch = (i: number) => parseInt(hex.slice(1 + 2 * i, 3 + 2 * i), 16)
   return '#' + [0, 1, 2].map(i => Math.round(ch(i) + (255 - ch(i)) * k).toString(16).padStart(2, '0')).join('')
+}
+export function deepen(hex: string, k = DEEPEN): string {
+  const ch = (i: number) => parseInt(hex.slice(1 + 2 * i, 3 + 2 * i), 16)
+  return '#' + [0, 1, 2].map(i => Math.round(ch(i) * (1 - k)).toString(16).padStart(2, '0')).join('')
+}
+
+/** a palette's word tint: a step from its row tint, away from the ground */
+export function wordTint(p: Palette, hex: string): string {
+  return p.ground === 'light' ? deepen(hex) : lift(hex)
 }
 
 const HEX = /^#[0-9a-f]{6}$/i
@@ -100,9 +111,9 @@ export function themeFor(p: Palette, name: PaletteName): ThemeFile {
   }
   for (const [slot, role] of WORD_SLOTS) {
     const v = p[role]
-    if (typeof v === 'string' && HEX.test(v)) overrides[slot] = lift(v).toLowerCase()
+    if (typeof v === 'string' && HEX.test(v)) overrides[slot] = wordTint(p, v).toLowerCase()
   }
-  return { name: `glass-${name}`, base: 'dark', overrides }
+  return { name: `glass-${name}`, base: p.ground ?? 'dark', overrides }
 }
 
 /** the theme as the file holds it: serialised, never templated */

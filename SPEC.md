@@ -710,6 +710,20 @@ validate` holds the module to it.
   `accentUser`, `text`, `bold`, `blockBg`, `tool`, the callout keys, the
   code keys and the diff tints. A test keeps `mark` apart from `ok`,
   `quoteBar` and `calloutBar` in every palette.
+- **(0.16.0)** The light pair, `prism-light` and `tangerine-light`: prism
+  and tangerine by role for a light terminal. A palette's optional
+  `ground: 'light'` gives its theme the engine's `light` base and steps the
+  diff word tints toward black (`deepen`, 10%) where a dark palette lifts
+  them toward white. Drawn for GitHub Light (`#ffffff`, fg `#1f2328`), the
+  light ground of VS Code, the macOS Terminal and GitHub; every text role
+  holds 4.5:1 there and on One Light `#fafafa`, Solarized Light `#fdf6e3`
+  and Catppuccin Latte `#eff1f5`. Scaffolding keeps the dark floors: rule
+  2.4:1, faint 3.4 to 3.5:1. Neons and pastels go down along their hue;
+  the yellows (prism's warn, tangerine's lemon) cannot reach 4.5:1 on
+  white and become a dark gold. The card and diff tints are water's tint
+  and a plum step under white, 1.13:1 and 1.18:1; on Latte the card tint
+  reads as the ground. The README shots draw a light palette on GitHub
+  Light. The owner picked the pair; the ground is the most common light one.
 - **(0.5.3)** Palette fixes from the color audit (contrast against
   `#0d1117`): undertow's `faint`, `rule`, `blockBg` and `rowHover` lifted
   to their floors (faint 3.6:1, blockBg 1.3:1, hover a step above the card);

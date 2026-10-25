@@ -31,6 +31,12 @@ The same turn under each palette: pick one with `/config` under Glass.
 <td><strong>prism</strong> glass's own. A starship prompt's rainbow, each color in its segment's role: coral for you, orange paths, steel-cyan strings with coral JSON keys, emerald builtins, a blue verb, purple for Claude and the prompt box; neon green done, red failed.<br><br><img src="docs/shots/prism.png" alt="the demo turn under the prism palette"></td>
 </tr>
 <tr>
+<td><strong>prism-light</strong> glass's own, for a light terminal. prism by role on GitHub Light: each neon and pastel taken down along its own hue to 4.5:1, the yellow as a dark gold.<br><br><img src="docs/shots/prism-light.png" alt="the demo turn under the prism-light palette"></td>
+</tr>
+<tr>
+<td><strong>tangerine-light</strong> glass's own, for a light terminal. tangerine by role on GitHub Light: orange verb, cyan band, pink for you, the lemon strings as a dark gold.<br><br><img src="docs/shots/tangerine-light.png" alt="the demo turn under the tangerine-light palette"></td>
+</tr>
+<tr>
 <td><strong>tidepool</strong> (default) my nvim theme, mapped by role.<br><br><img src="docs/shots/tidepool.png" alt="the demo turn under the tidepool palette"></td>
 </tr>
 <tr>
@@ -132,9 +138,13 @@ notification falls back to a toast, summary and server tool rows need
 props that older engines do not send, and the rest is unchanged.
 
 Restart Claude Code. Pick a palette with `/config` under Glass: `tidepool`
-(default), `tarnish`, `overprint`, `ironbow`, `lagoon`, `iris`, `tangerine` and `prism` (glass's own), `water` (Empryo's own proxysoul-water tokens), `crimson` (Empryo's crimson
+(default), `tarnish`, `overprint`, `ironbow`, `lagoon`, `iris`, `tangerine` and `prism` (glass's own), `prism-light` and `tangerine-light` (glass's own, for a light terminal), `water` (Empryo's own proxysoul-water tokens), `crimson` (Empryo's crimson
 world, "the heart", from empryo.com's own CSS) or `codex`.
-The palettes assume a dark terminal.
+Every palette but the two `-light` ones assumes a dark terminal. The light
+pair is drawn for GitHub Light (`#ffffff`) and keeps 4.5:1 text on One
+Light, Solarized Light and Catppuccin Latte too; on Latte the card tint
+reads as the ground. Run `/glass-theme` after picking one so the engine's
+own panels take a light base.
 
 To try it from a clone without installing:
 

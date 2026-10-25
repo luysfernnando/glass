@@ -12,8 +12,8 @@
 // output, an Edit with its diff card, an Agent launch, a reply with prose,
 // a TypeScript fence and a Bottom line card, then the background band with
 // two agents. The ground is the owner's terminal (Ghostty night-owl,
-// `#011627`, foreground `#94a4b6`) in JetBrains Mono Nerd Font; the
-// palettes assume a dark terminal, so one ground serves all six.
+// `#011627`, foreground `#94a4b6`) in JetBrains Mono Nerd Font; a light
+// palette draws on GitHub Light (`#ffffff`, foreground `#1f2328`).
 import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -31,8 +31,7 @@ const OUT = join(HERE, '..', 'docs', 'shots')
 const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
 const COLUMNS = 100
-const GROUND = '#011627'
-const FOREGROUND = '#94a4b6'
+const GROUNDS = { dark: ['#011627', '#94a4b6'], light: ['#ffffff', '#1f2328'] } as const
 const FONT_PX = 14
 const LINE_PX = 21
 const PAD_X = 34
@@ -131,7 +130,8 @@ function demo(p: Palette): Node {
   return t.Box({ flexDirection: 'column', children: [header, tree, reply, t.Text({ children: [''] }), band] })
 }
 
-function html(lines: string[]): string {
+function html(lines: string[], p: Palette): string {
+  const [GROUND, FOREGROUND] = GROUNDS[p.ground ?? 'dark']
   const body = lines.map(l => rowToHtml(l, 0.55)).join('\n')
   return `<!doctype html>
 <meta charset="utf-8">
@@ -155,7 +155,7 @@ function shoot(name: string, p: Palette): void {
   const lines = painter.rows(demo(p)).map(l => l.replace(/\s+$/, ''))
   const page = join(OUT, `${name}.html`)
   const png = join(OUT, `${name}.png`)
-  writeFileSync(page, html(lines))
+  writeFileSync(page, html(lines, p))
   const width = Math.round(COLUMNS * CELL_PX + PAD_X * 2)
   const height = lines.length * LINE_PX + PAD_Y * 2
   const profile = `/tmp/glass-shots-profile-${process.pid}`

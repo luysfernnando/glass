@@ -4,9 +4,9 @@ import { expect, test } from 'claude-code/testing'
 
 import { PALETTES } from '../hooks/palette'
 import type { PaletteName } from '../hooks/palette'
-import { THEME, lift, themeFileName, themeFor, themeJson, themeSetting } from '../hooks/theme'
+import { THEME, deepen, lift, themeFileName, themeFor, themeJson, themeSetting } from '../hooks/theme'
 
-const NAMES: PaletteName[] = ['tidepool', 'tarnish', 'overprint', 'ironbow', 'lagoon', 'iris', 'tangerine', 'prism', 'water', 'crimson', 'codex']
+const NAMES: PaletteName[] = ['tidepool', 'tarnish', 'overprint', 'ironbow', 'lagoon', 'iris', 'tangerine', 'prism', 'prism-light', 'tangerine-light', 'water', 'crimson', 'codex']
 const REQUIRED = [
   'success', 'error', 'warning', 'claude', 'permission', 'planMode', 'autoAccept',
   'promptBorder', 'bashBorder', 'secondaryBorder', 'secondaryText', 'inactive', 'subtle', 'suggestion',
@@ -14,19 +14,20 @@ const REQUIRED = [
   'diffAdded', 'diffRemoved', 'diffAddedDimmed', 'diffRemovedDimmed', 'diffAddedWord', 'diffRemovedWord',
 ]
 
-test('every palette yields a theme: a dark base, every slot in the table, every value a six-digit hex', async () => {
+test('every palette yields a theme: its ground as the base, every slot in the table, every value a six-digit hex', async () => {
   for (const name of NAMES) {
     const theme = themeFor(PALETTES[name], name)
     expect(theme.name).toBe(`glass-${name}`)
-    expect(theme.base).toBe('dark')
+    expect(theme.base).toBe(PALETTES[name].ground ?? 'dark')
     for (const slot of REQUIRED) expect(typeof theme.overrides[slot]).toBe('string')
     for (const v of Object.values(theme.overrides)) expect(/^#[0-9a-f]{6}$/.test(v)).toBe(true)
     // the slots glass reads forward resolve to the palette's own colors under its theme
     expect(theme.overrides.diffAdded).toBe(PALETTES[name].addBg.toLowerCase())
     expect(theme.overrides.diffRemoved).toBe(PALETTES[name].delBg.toLowerCase())
-    // the word slots are the engine's word backgrounds: the row tint lifted, not a text color (0.5.3)
-    expect(theme.overrides.diffAddedWord).toBe(lift(PALETTES[name].addBg).toLowerCase())
-    expect(theme.overrides.diffRemovedWord).toBe(lift(PALETTES[name].delBg).toLowerCase())
+    // the word slots are the engine's word backgrounds: the row tint a step from the ground, not a text color (0.5.3, 0.16.0)
+    const step = PALETTES[name].ground === 'light' ? deepen : lift
+    expect(theme.overrides.diffAddedWord).toBe(step(PALETTES[name].addBg).toLowerCase())
+    expect(theme.overrides.diffRemovedWord).toBe(step(PALETTES[name].delBg).toLowerCase())
     expect(theme.overrides.success).toBe(PALETTES[name].ok.toLowerCase())
     expect(theme.overrides.error).toBe(PALETTES[name].err.toLowerCase())
     // the engine's own autoAccept is a green, so it takes `ok`, apart from `warning`
@@ -70,4 +71,18 @@ test('0.14.0: a palette may set its own prompt border; prism takes the band purp
   expect(theme.overrides.promptBorder).not.toBe(PALETTES.prism.accentUser.toLowerCase())
   // a palette that leaves it out keeps the person's color
   expect(themeFor(PALETTES.tarnish, 'tarnish').overrides.promptBorder).toBe(PALETTES.tarnish.accentUser.toLowerCase())
+})
+
+test('0.16.0: the light pair takes the light base and word tints darker than its rows', async () => {
+  const lum = (hex: string) => [1, 3, 5].reduce((n, i) => n + parseInt(hex.slice(i, i + 2), 16), 0)
+  for (const name of ['prism-light', 'tangerine-light'] as const) {
+    const theme = themeFor(PALETTES[name], name)
+    expect(theme.base).toBe('light')
+    expect(lum(theme.overrides.diffAddedWord!)).toBeLessThan(lum(theme.overrides.diffAdded!))
+    expect(lum(theme.overrides.diffRemovedWord!)).toBeLessThan(lum(theme.overrides.diffRemoved!))
+  }
+  // a dark palette's word tints stay lifted
+  const dark = themeFor(PALETTES.prism, 'prism')
+  expect(dark.base).toBe('dark')
+  expect(lum(dark.overrides.diffAddedWord!)).toBeGreaterThan(lum(dark.overrides.diffAdded!))
 })
