@@ -1,5 +1,11 @@
 // Colors are raw hex; `Text.color` takes a theme key or a raw color.
 export type Palette = {
+  /**
+   * the terminal ground the palette is drawn for; left out, a dark one.
+   * A light palette's theme takes the engine's light base and its diff
+   * word tints step darker, not lighter (0.16.0)
+   */
+  ground?: 'light'
   cmd: string
   sub: string
   flag: string
@@ -79,7 +85,7 @@ export type Palette = {
   delBg: string
 }
 
-export type PaletteName = 'tidepool' | 'codex' | 'water' | 'crimson' | 'tarnish' | 'overprint' | 'ironbow' | 'lagoon' | 'iris' | 'tangerine' | 'prism'
+export type PaletteName = 'tidepool' | 'codex' | 'water' | 'crimson' | 'tarnish' | 'overprint' | 'ironbow' | 'lagoon' | 'iris' | 'tangerine' | 'prism' | 'prism-light' | 'tangerine-light'
 
 // The owner's own nvim theme, ~/Documents/codes/packages/tidepool.nvim,
 // hybrid variant: lifted content over muted scaffolding. Mapped by role:
@@ -613,6 +619,109 @@ const prism: Palette = {
   delBg: '#33222e',
 }
 
+// The light pair (0.16.0): prism and tangerine by role, drawn for GitHub
+// Light (ground #ffffff, fg #1f2328), the default light ground of VS Code,
+// the macOS Terminal and GitHub itself. Every text role holds 4.5:1 on it
+// and on the darker light grounds devs run most: One Light #fafafa,
+// Solarized Light #fdf6e3 and Catppuccin Latte #eff1f5; scaffolding (rule,
+// faint, private) keeps the dark palettes' 2.4 to 3.5:1. The neon and
+// pastel steps cannot hold 4.5:1 on white, so each is taken down along its
+// own hue. The tints are a step under white; on Latte the card tint reads
+// as the ground itself.
+const prismLight: Palette = {
+  ground: 'light',
+  cmd: '#1f66d1',
+  sub: '#0f7b4f',
+  flag: '#c42f43',
+  str: '#0b7490',  // Mediterranean Sea #1289a7 taken down to 4.7:1 on Latte
+  path: '#a85000',
+  op: '#6b6b6b',
+  num: '#0f7b4f',
+  var: '#c42f43',
+  url: '#1a5fd0',
+  comment: '#6b6b6b',
+  code: '#0f7b4f',
+  heading: '#11151a',  // a step past the terminal fg, as white is on a dark ground
+  heading3: '#c2410c',
+  accent: '#6b4fd8',
+  bullet: '#6b6b6b',
+  orderedNum: '#6b6b6b',
+  rule: '#a8a8a8',  // 2.4:1, as the dark rule is 2.5:1
+  quoteBar: '#0f7b4f',
+  ok: '#0f7f36',  // the neon green, taken down to 4.5:1 on Latte
+  err: '#c4310f',
+  warn: '#7d6400',  // the vim yellow as a dark gold: yellow cannot reach 4.5:1 on white
+  bold: '#11151a',
+  blockBg: '#e9f3f7',  // water's card tint on white, 1.13:1
+  tool: '#1f66d1',
+  calloutBar: '#6b4fd8',
+  verified: '#0f7f36',
+  issue: '#c4310f',
+  fix: '#6b4fd8',
+  calloutText: '#2f343b',
+  private: '#858585',
+  mark: '#7d6400',
+  meta: '#5f6368',
+  faint: '#8a8a8a',  // 3.5:1, as the dark faint is
+  rowHover: '#dcebf2',
+  accentUser: '#c42f43',
+  promptBorder: '#6b4fd8',
+  codeKw: '#1f66d1',
+  codeFn: '#0f7b4f',
+  codeType: '#c42f43',
+  codeStr: '#0b7490',
+  jsonKey: '#c42f43',
+  codeNum: '#6b4fd8',
+  addBg: '#e9f3f7',
+  delBg: '#f8e8ee',  // a plum step, apart from it by hue
+}
+
+const tangerineLight: Palette = {
+  ground: 'light',
+  cmd: '#c2410c',  // tangerine as orange-700: 4.6:1 on Latte
+  sub: '#0e7490',
+  flag: '#be185d',
+  str: '#8a6400',  // lemon as a dark gold: yellow cannot reach 4.5:1 on white
+  path: '#5b55d6',
+  op: '#6b6b80',
+  num: '#0e7490',
+  var: '#be185d',
+  url: '#1a64cc',
+  comment: '#6b6b80',
+  code: '#0e7490',
+  heading: '#11151a',  // a step past the terminal fg
+  heading3: '#be185d',
+  accent: '#006f99',  // water's brand, taken down
+  bullet: '#6b6b80',
+  orderedNum: '#6b6b80',
+  rule: '#acacba',
+  quoteBar: '#be185d',
+  ok: '#17774a',
+  err: '#d1243f',
+  warn: '#8a6400',
+  bold: '#11151a',
+  blockBg: '#e9f3f7',  // water's card tint on white, 1.13:1
+  tool: '#c2410c',
+  calloutBar: '#c2410c',
+  verified: '#17774a',
+  issue: '#d1243f',
+  fix: '#0e7490',
+  calloutText: '#2f343b',
+  private: '#8a8a9a',
+  mark: '#8a6400',
+  meta: '#5c5c70',
+  faint: '#8a8a9a',  // 3.4:1
+  rowHover: '#dcebf2',
+  accentUser: '#be185d',
+  codeKw: '#c2410c',
+  codeFn: '#0e7490',
+  codeType: '#be185d',
+  codeStr: '#8a6400',
+  codeNum: '#5b55d6',
+  addBg: '#e9f3f7',
+  delBg: '#f8e8ee',  // a plum step, apart from it by hue
+}
+
 // Every palette spells out every required key: no shared block, so a theme reads whole.
 export const PALETTES: Record<PaletteName, Palette> = {
   tidepool,
@@ -625,6 +734,8 @@ export const PALETTES: Record<PaletteName, Palette> = {
   iris,
   tangerine,
   prism,
+  'prism-light': prismLight,
+  'tangerine-light': tangerineLight,
   // One Dark, filled out by role:
   // cyan for the marks and bars, the gutter greys from the theme's own
   // comment and line-number steps.
@@ -674,9 +785,9 @@ export const PALETTES: Record<PaletteName, Palette> = {
   },
 }
 
-/** the palette's name from the option's value: one of the eleven, tidepool for anything else */
+/** the palette's name from the option's value: one of the thirteen, tidepool for anything else */
 export function paletteNameOf(name: unknown): PaletteName {
-  if (name === 'codex' || name === 'water' || name === 'crimson' || name === 'tarnish' || name === 'overprint' || name === 'ironbow' || name === 'lagoon' || name === 'iris' || name === 'tangerine' || name === 'prism') return name
+  if (name === 'codex' || name === 'water' || name === 'crimson' || name === 'tarnish' || name === 'overprint' || name === 'ironbow' || name === 'lagoon' || name === 'iris' || name === 'tangerine' || name === 'prism' || name === 'prism-light' || name === 'tangerine-light') return name
   return 'tidepool'
 }
 
