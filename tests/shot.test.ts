@@ -1,8 +1,8 @@
 // 0.6.0: an MCP screenshot draws under its row, the picture Claude read.
 import type { On } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
-import { CONVERTIBLE, lastPictureRead, namedIn, pictureOf, pngSize, shotBox, shotFromPng, shotOf } from '../hooks/shot'
+import { CONVERTIBLE, hashOf, lastPictureRead, namedIn, pictureOf, pngSize, shotBox, shotFromPng, shotOf } from '../hooks/shot'
 
 // a PNG header for a picture `w` by `h`: the signature, then IHDR
 function pngHeader(w: number, h: number): string {
@@ -299,35 +299,56 @@ test('0.17.0: a group opens only for a screenshot that draws; one glass cannot d
   await g.unmount()
 })
 
-// sips and the disk, mocked: each converted picture comes back as the PNG
-// its source bytes stand for, so a drawn picture says which bytes it came from
-const mockConvert = (on: On, sizes: number[] = []) => {
+// sips and the disk, mocked: a file exists once written, `mv` moves it, and
+// a converted picture comes back as the PNG its source bytes stand for (`B...`
+// a 2x2 picture, any other 1x1), so a drawn picture says which bytes it came
+// from. `sizes` answers fs.stat of a converted PNG in turn; `slow` yields on
+// every run so overlapping runs would show; `stuck` holds a write forever.
+const DIR = '/tmp/glass-pictures-test'
+const fakeDisk = (on: On, o: { sizes?: number[]; slow?: boolean; stuck?: () => boolean; files?: Record<string, string> } = {}) => {
+  const disk = new Map<string, string>(Object.entries(o.files ?? {}))
   const runs: { argv: readonly string[]; stdin?: string }[] = []
-  const srcOf = new Map<string, string>()
-  on('process.run', ((_: unknown, e: { argv: readonly string[]; init?: { stdin?: string } }) => {
+  let running = 0
+  let most = 0
+  on('process.run', (async (_: unknown, e: { argv: readonly string[]; init?: { stdin?: string } }) => {
     runs.push({ argv: e.argv, ...(e.init?.stdin !== undefined ? { stdin: e.init.stdin } : {}) })
-    if (e.argv[0] === 'sh' && e.argv.length === 3 && /mkdir/.test(e.argv[2]!)) return { value: { exitCode: 0, stdout: '/tmp/glass-pictures-test', stderr: '' } }
-    if (e.argv[0] === 'sh') {
-      srcOf.set(e.argv[3]!.replace(/\.src$/, ''), e.init?.stdin ?? '')
+    running++
+    most = Math.max(most, running)
+    try {
+      if (o.slow) for (let i = 0; i < 5; i++) await Promise.resolve()
+      const [cmd, a1, a2, a3] = e.argv
+      if (cmd === 'sh' && /mkdir/.test(a2 ?? '')) return { value: { exitCode: 0, stdout: DIR, stderr: '' } }
+      if (cmd === 'sh') {
+        if (o.stuck?.()) return await new Promise(() => {})
+        disk.set(a3!, e.init?.stdin ?? '')
+      } else if (cmd === 'sips' && a1 === '-g') {
+        return { value: { exitCode: 0, stdout: `${e.argv[5]}\n  pixelWidth: 1000\n  pixelHeight: 720\n`, stderr: '' } }
+      } else if (cmd === 'sips') {
+        const input = e.argv[e.argv.length - 3]!
+        disk.set(e.argv[e.argv.length - 1]!, disk.get(input) ?? '')
+      } else if (cmd === 'mv') {
+        disk.set(e.argv[3]!, disk.get(e.argv[2]!) ?? '')
+        disk.delete(e.argv[2]!)
+      }
       return { value: { exitCode: 0, stdout: '', stderr: '' } }
+    } finally {
+      running--
     }
-    if (e.argv[0] === 'sips' && e.argv[1] === '-g') return { value: { exitCode: 0, stdout: `${e.argv[5]}\n  pixelWidth: 1000\n  pixelHeight: 720\n`, stderr: '' } }
-    return { value: { exitCode: 0, stdout: '', stderr: '' } }
   }) as never)
-  on('fs.stat', (() => ({ value: { kind: 'file', size: sizes.length ? sizes.shift()! : 100 } })) as never)
-  on('fs.read', ((_: unknown, e: { path: string }) => {
-    const src = srcOf.get(e.path.replace(/\.png$/, '')) ?? ''
-    // the source `B...` stands for a 2x2 picture, any other for 1x1
-    return { value: { base64: src.startsWith('B') ? PNG_2PX : ONE_PX } }
+  on('fs.stat', ((_: unknown, e: { path: string }) => {
+    if (!disk.has(e.path)) return { deny: `no such file: ${e.path}` }
+    const size = e.path.endsWith('.part.png') && o.sizes?.length ? o.sizes.shift()! : 100
+    return { value: { kind: 'file', size } }
   }) as never)
-  return runs
+  on('fs.read', ((_: unknown, e: { path: string }) => ({ value: { base64: (disk.get(e.path) ?? '').startsWith('B') ? PNG_2PX : ONE_PX } })) as never)
+  return { runs, most: () => most, disk }
 }
 const imageOf = async (row: { find: (q: unknown) => Promise<unknown> }) => ((await row.find({ type: 'Image' })) as { props?: { source?: unknown } } | undefined)?.props?.source
 
 test('0.17.0: a file read twice draws what each read saw, converted from the bytes through stdin', async ($, on) => {
   engineBody(on)
   conversation(on, [])
-  const runs = mockConvert(on)
+  const { runs } = fakeDisk(on)
   await useRow($ as never, 'shot-1', '/tmp/shot.jpg')
   await useRow($ as never, 'shot-2', '/tmp/shot.jpg')
   const first = await resultRow($ as never, 'shot-1', 'A1jpegbytes', 'image/jpeg')
@@ -346,11 +367,80 @@ test('0.17.0: a PNG too heavy to draw shrinks from its own size, never past it',
   engineBody(on)
   conversation(on, [])
   // as it is: 3 MB; at three quarters: small enough
-  const runs = mockConvert(on, [3_000_000, 100])
+  const { runs } = fakeDisk(on, { sizes: [3_000_000, 100] })
   await useRow($ as never, 'heavy', '/tmp/noise.webp')
   const row = await resultRow($ as never, 'heavy', 'Aheavywebp', 'image/webp')
   expect(await imageOf(row)).toEqual({ png: ONE_PX })
   await row.unmount()
   const converts = runs.filter(r => r.argv[0] === 'sips' && r.argv[1] === '-s').map(r => r.argv.includes('-Z') ? Number(r.argv[r.argv.indexOf('-Z') + 1]) : 0)
   expect(converts).toEqual([0, 750])
+})
+
+test('0.17.0: a picture an earlier load converted is read back, with no sips', async ($, on) => {
+  engineBody(on)
+  conversation(on, [])
+  const data = 'Bconvertedbefore'
+  const { runs } = fakeDisk(on, { files: { [`${DIR}/${hashOf(data)}.png`]: 'B' } })
+  await useRow($ as never, 'again', '/tmp/again.jpg')
+  const row = await resultRow($ as never, 'again', data, 'image/jpeg')
+  expect(await imageOf(row)).toEqual({ png: PNG_2PX })
+  await row.unmount()
+  expect(runs.filter(r => r.argv[0] === 'sips')).toHaveLength(0)
+})
+
+test('0.17.0: in the transcript view a grouped Read draws its picture once, under its ToolUse row', async ($, on) => {
+  engineBody(on)
+  on('ui.render', { component: 'ToolGroup' }, (engine, e) => engine.ui.resolve(e).Text({ children: ['engine group'] }) as never)
+  conversation(on, [])
+  // the engine unfolded the group: its rows are glass's grouped rows
+  const a = readCall('tv-a', '/tmp/a.png'), b = readCall('tv-b', '/tmp/b.png')
+  const g = await $.ui.mount({ plugin: 'glass', surface: 'terminal', component: 'ToolGroup', props: { calls: [a, b], isActive: false, isExpanded: true } })
+  await g.unmount()
+  let images = 0
+  const bodies: string[] = []
+  for (const c of [a, b]) {
+    const use = await $.ui.mount({ plugin: 'glass', surface: 'terminal', component: 'ToolUse', props: c })
+    images += (await use.findAll({ type: 'Image' })).length
+    await use.unmount()
+    const result = await resultRow($ as never, c.tool_use_id)
+    images += (await result.findAll({ type: 'Image' })).length
+    if (await result.find({ type: 'Text', text: /engine body/ })) bodies.push(c.tool_use_id)
+    await result.unmount()
+  }
+  // b, the group's chosen Read, draws once; a keeps the engine's row
+  expect(images).toBe(1)
+  expect(bodies).toEqual(['tv-a'])
+})
+
+
+test('0.17.0: conversions run one at a time; two rows asking together both draw', async ($, on) => {
+  engineBody(on)
+  conversation(on, [])
+  const { most } = fakeDisk(on, { slow: true })
+  await useRow($ as never, 'q-1', '/tmp/q1.jpg')
+  await useRow($ as never, 'q-2', '/tmp/q2.jpg')
+  const [one, two] = await Promise.all([resultRow($ as never, 'q-1', 'Aqueue1', 'image/jpeg'), resultRow($ as never, 'q-2', 'Bqueue2', 'image/jpeg')])
+  expect(await imageOf(one!)).toEqual({ png: ONE_PX })
+  expect(await imageOf(two!)).toEqual({ png: PNG_2PX })
+  await one!.unmount()
+  await two!.unmount()
+  expect(most()).toBe(1)
+})
+
+test('0.17.0: a conversion that never answers times out, frees the queue, and the next draw tries again', async ($, on) => {
+  engineBody(on)
+  conversation(on, [])
+  const clock = mock.clock(on, { now: 1_000_000 })
+  let stuck = true
+  fakeDisk(on, { stuck: () => stuck })
+  await useRow($ as never, 'hang-1', '/tmp/hang.jpg')
+  const first = resultRow($ as never, 'hang-1', 'Ahangjpeg', 'image/jpeg')
+  await clock.advance(8000)
+  const row = await first
+  expect(await imageOf(row)).toBeUndefined()
+  await row.unmount()
+  stuck = false
+  const again = await resultRow($ as never, 'hang-1', 'Ahangjpeg', 'image/jpeg')
+  expect(await imageOf(again)).toEqual({ png: ONE_PX })
+  await again.unmount()
 })

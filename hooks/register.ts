@@ -256,6 +256,14 @@ async function pictureBody($: EngineInterface, t: Elements['terminal'], p: Palet
 // pictures (a screenshot taken again to the same path).
 const converted = new Map<string, Promise<Shot | null>>()
 const CONVERTED_MAX = 64
+// One conversion at a time: two started together after a reload lost one
+// `$.process.run` result, and that row waited on it for good (live,
+// 2026-10-28). One that has not finished in CONVERT_MS frees the queue and
+// leaves the cache, so the next draw tries again; one that failed stays
+// failed (no sips: Linux).
+let convertQueue: Promise<unknown> = Promise.resolve()
+const CONVERT_MS = 8000
+const TIMED_OUT: unique symbol = Symbol('timed out')
 async function shotFor($: EngineInterface, pic: Picture): Promise<Shot | null> {
   if (pic.mime === 'image/png') {
     const shot = shotFromPng(pic.data)
@@ -265,7 +273,15 @@ async function shotFor($: EngineInterface, pic: Picture): Promise<Shot | null> {
   const key = hashOf(pic.data)
   let job = converted.get(key)
   if (!job) {
-    job = convertPicture($, pic.data, key).catch(() => null)
+    // where the clock cannot sleep (the test kit), nothing times out
+    const timer = $.clock.sleep(CONVERT_MS).then((): typeof TIMED_OUT => TIMED_OUT, () => new Promise<never>(() => {}))
+    const run = convertQueue.then(() => Promise.race([convertPicture($, pic.data, key).catch(() => null), timer]))
+    convertQueue = run.catch(() => undefined)
+    job = run.then(shot => {
+      if (shot !== TIMED_OUT) return shot
+      converted.delete(key)
+      return null
+    })
     converted.set(key, job)
     if (converted.size > CONVERTED_MAX) converted.delete(converted.keys().next().value!)
   }
@@ -290,6 +306,14 @@ const PNG_BYTES_MAX = 2 * 1024 * 1024
 async function convertPicture($: EngineInterface, data: string, name: string): Promise<Shot | null> {
   const dir = await shotDir($)
   if (!dir) return null
+  const out = `${dir}/${name}.png`
+  // converted before, by this load or an earlier one (a resume, a reload):
+  // the name is the bytes' own, so the PNG is the same; read it back
+  if (await $.fs.stat(out).then(s => s.kind === 'file' && s.size <= PNG_BYTES_MAX, () => false)) {
+    const { base64 } = (await $.fs.read(out, { as: 'bytes' })) as { base64: string }
+    const shot = shotFromPng(base64)
+    if (shot) return shot
+  }
   // from the bytes Claude read, never the file on disk, which may have
   // changed since; through stdin, which takes any size (argv stops near 1 MiB)
   const input = `${dir}/${name}.src`
@@ -301,18 +325,22 @@ async function convertPicture($: EngineInterface, data: string, name: string): P
   const sides = [...g.stdout.matchAll(/pixel(?:Width|Height): (\d+)/g)].map(m => Number(m[1]))
   if (g.exitCode !== 0 || sides.length !== 2) return null
   const longest = Math.max(...sides)
-  const out = `${dir}/${name}.png`
+  // written under a part name and moved into place once it draws, so a
+  // read of `out` (another session's) never sees half a PNG
+  const part = `${dir}/${name}.part.png`
   // as it is first, then smaller while the PNG weighs over 2 MiB
   for (const scale of [1, 0.75, 0.5, 0.35]) {
     const side = Math.max(1, Math.round(longest * scale))
-    const r = await $.process.run(['sips', '-s', 'format', 'png', ...(scale < 1 ? ['-Z', String(side)] : []), input, '--out', out])
+    const r = await $.process.run(['sips', '-s', 'format', 'png', ...(scale < 1 ? ['-Z', String(side)] : []), input, '--out', part])
     if (r.exitCode !== 0) return null
     // past the limit the bytes cannot draw: shrink without reading them
-    const size = await $.fs.stat(out).then(s => s.size, () => Infinity)
+    const size = await $.fs.stat(part).then(s => s.size, () => Infinity)
     if (size > PNG_BYTES_MAX) continue
-    const { base64 } = (await $.fs.read(out, { as: 'bytes' })) as { base64: string }
+    const { base64 } = (await $.fs.read(part, { as: 'bytes' })) as { base64: string }
     const shot = shotFromPng(base64)
-    if (shot) return shot
+    if (!shot) return null
+    await $.process.run(['mv', '-f', part, out]).catch(() => undefined)
+    return shot
   }
   return null
 }
@@ -679,6 +707,15 @@ export const register: Register = (on, options) => {
     // and a Read whose file is unknown keeps the engine's row
     const isRead = e.props.tool === 'Read'
     const path = isRead ? mem.readPaths.get(e.props.tool_use_id) ?? ((await loadHistory($, mem)) ? mem.readPaths.get(e.props.tool_use_id) : undefined) : undefined
+    // a grouped call's picture is its ToolUse row's (the transcript view
+    // draws both rows): this row hides where that one drew it, else keeps
+    // the engine's, and never draws it twice
+    if (grouped.has(e.props.tool_use_id) && (isRead || e.props.tool.startsWith('mcp__'))) {
+      const owns = !e.props.isErrored && (!isRead || ((expandAllNow || pictureReads.has(e.props.tool_use_id)) && (await readDraws($, mem, path))))
+      const pic = owns ? pictureOf(e.props.output, path) : null
+      const drawn = pic !== null && shotsOn && !inTmux && (await shotFor($, pic)) !== null
+      return drawn ? $.ui.resolve(e).Box({ display: 'none', children: [] }) : next(e)
+    }
     if ((e.props.tool.startsWith('mcp__') || (isRead && (await readDraws($, mem, path)))) && !e.props.isErrored) {
       const pic = pictureOf(e.props.output, path)
       const body = pic ? await pictureBody($, $.ui.resolve(e), palette, pic, e.viewport?.columns ?? 80, e.viewport?.rows ?? 40) : null
