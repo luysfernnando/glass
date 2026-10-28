@@ -454,6 +454,12 @@ and reply blocks interleaved as the model made them, then the
     `$TMPDIR/glass-pictures-<uid>` (mode 700, files a day old go), kept
     per session keyed by those bytes: a file read twice draws what each
     read saw (0.17.0). No `sips` (Linux): the engine's text row stays.
+    Conversions run one at a time, each with its own 8 s from when it
+    starts (not while it waits its turn); one past that frees the queue
+    and leaves the cache, so the next draw tries again. Each run writes
+    its own scratch files (a random suffix) and removes them; the PNG is
+    moved into place under the bytes' name, where a later load (a resume,
+    a reload) reads it back with no `sips`.
   - A group opens for an MCP screenshot only once it converts and draws;
     one glass cannot draw (`image/bmp`, no `sips`) keeps the group folded
     (0.17.0).
@@ -475,8 +481,10 @@ and reply blocks interleaved as the model made them, then the
     `coordinator`, `observer`, `observer-activity`, `auto-continuation`).
     Up to 4096 prompts, no 48 cap. A Read whose file is unknown, or a
     load whose conversation read failed, keeps the engine's row; a failed
-    read tries again on the next draw. A group with no Read picture never
-    waits on the conversation.
+    read tries again on the next draw. A draw waits on the read 2 s at
+    most (then the engine's row; a later draw finds it done), and once
+    done no draw waits again. Only a Read of an image waits on it: a
+    text Read, and a group with no Read picture, never do.
   - Claude Code draws a finished turn's rows again at commit, and each
     fresh draw sends its picture again (seen live: one Read sent twice).
     Bytes only; the screen shows one picture.

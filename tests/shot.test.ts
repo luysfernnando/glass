@@ -305,7 +305,7 @@ test('0.17.0: a group opens only for a screenshot that draws; one glass cannot d
 // from. `sizes` answers fs.stat of a converted PNG in turn; `slow` yields on
 // every run so overlapping runs would show; `stuck` holds a write forever.
 const DIR = '/tmp/glass-pictures-test'
-const fakeDisk = (on: On, o: { sizes?: number[]; slow?: boolean; stuck?: () => boolean; files?: Record<string, string> } = {}) => {
+const fakeDisk = (on: On, o: { sizes?: number[]; slow?: boolean; stuck?: () => boolean; delay?: () => Promise<void>; files?: Record<string, string> } = {}) => {
   const disk = new Map<string, string>(Object.entries(o.files ?? {}))
   const runs: { argv: readonly string[]; stdin?: string }[] = []
   let running = 0
@@ -320,6 +320,7 @@ const fakeDisk = (on: On, o: { sizes?: number[]; slow?: boolean; stuck?: () => b
       if (cmd === 'sh' && /mkdir/.test(a2 ?? '')) return { value: { exitCode: 0, stdout: DIR, stderr: '' } }
       if (cmd === 'sh') {
         if (o.stuck?.()) return await new Promise(() => {})
+        await o.delay?.()
         disk.set(a3!, e.init?.stdin ?? '')
       } else if (cmd === 'sips' && a1 === '-g') {
         return { value: { exitCode: 0, stdout: `${e.argv[5]}\n  pixelWidth: 1000\n  pixelHeight: 720\n`, stderr: '' } }
@@ -443,4 +444,73 @@ test('0.17.0: a conversion that never answers times out, frees the queue, and th
   const again = await resultRow($ as never, 'hang-1', 'Ahangjpeg', 'image/jpeg')
   expect(await imageOf(again)).toEqual({ png: ONE_PX })
   await again.unmount()
+})
+
+// ---- 0.17.0: the second /rv's findings, one test each --------------------
+test('0.17.0: a text Read never waits on the conversation; a picture Read waits on it at most 2 s', async ($, on) => {
+  engineBody(on)
+  const clock = mock.clock(on, { now: 1_000_000 })
+  let reads = 0
+  // a conversation read that never answers
+  on('session.messages', (() => {
+    reads++
+    return new Promise(() => {})
+  }) as never)
+  const text = await $.ui.mount({
+    plugin: 'glass', surface: 'terminal', component: 'ToolResult',
+    props: { tool_use_id: 'txt-1', tool: 'Read', isErrored: false, isExpanded: false, output: { type: 'text', file: { filePath: '/a.ts', content: 'x' } } },
+  })
+  expect(await text.find({ type: 'Text', text: /engine body/ })).toBeDefined()
+  await text.unmount()
+  expect(reads).toBe(0)
+  // a picture Read: the engine's row after the cap, not a row that never draws
+  const pending = resultRow($ as never, 'pic-wait', ONE_PX)
+  // a second at a time: the draw's timer starts once its hook runs
+  for (let i = 0; i < 3; i++) await clock.advance(1000)
+  const row = await pending
+  expect(await row.find({ type: 'Image' })).toBeUndefined()
+  expect(await row.find({ type: 'Text', text: /engine body/ })).toBeDefined()
+  await row.unmount()
+  expect(reads).toBe(1)
+})
+
+test('0.17.0: a job waiting its turn gets its own 8 s: after one hangs, the next ones still draw', async ($, on) => {
+  engineBody(on)
+  conversation(on, [])
+  const clock = mock.clock(on, { now: 1_000_000 })
+  let writes = 0
+  // the first write never answers; the rest take 100 ms each
+  fakeDisk(on, { stuck: () => ++writes === 1, delay: () => clock.sleep(100) })
+  for (const id of ['wait-1', 'wait-2', 'wait-3']) await useRow($ as never, id, `/tmp/${id}.jpg`)
+  const rows = [resultRow($ as never, 'wait-1', 'Ahang', 'image/jpeg'), resultRow($ as never, 'wait-2', 'Anext', 'image/jpeg'), resultRow($ as never, 'wait-3', 'Blast', 'image/jpeg')]
+  // every job is queued before any time passes
+  for (let i = 0; i < 5; i++) await clock.advance(1)
+  // the hung job's 8 s, then a little: the next two run 100 ms each on their own budget
+  for (let i = 0; i < 90; i++) await clock.advance(100)
+  const [one, two, three] = await Promise.all(rows)
+  expect(await imageOf(one!)).toBeUndefined()
+  expect(await imageOf(two!)).toEqual({ png: ONE_PX })
+  expect(await imageOf(three!)).toEqual({ png: PNG_2PX })
+  for (const r of [one!, two!, three!]) await r.unmount()
+})
+
+test('0.17.0: each conversion run writes its own scratch files and removes them', async ($, on) => {
+  engineBody(on)
+  conversation(on, [])
+  const clock = mock.clock(on, { now: 1_000_000 })
+  let writes = 0
+  const { runs } = fakeDisk(on, { stuck: () => ++writes === 1 })
+  await useRow($ as never, 'same-1', '/tmp/same.jpg')
+  // the first run hangs past its 8 s; the next draw converts the same bytes again
+  const first = resultRow($ as never, 'same-1', 'Asamebytes', 'image/jpeg')
+  await clock.advance(8000)
+  await (await first).unmount()
+  const again = await resultRow($ as never, 'same-1', 'Asamebytes', 'image/jpeg')
+  expect(await imageOf(again)).toEqual({ png: ONE_PX })
+  await again.unmount()
+  const sources = runs.filter(r => r.argv[0] === 'sh' && !/mkdir/.test(r.argv[2] ?? '')).map(r => r.argv[3])
+  expect(sources).toHaveLength(2)
+  expect(sources[0]).not.toBe(sources[1])
+  // the retry's scratch files go once it is done
+  expect(runs.some(r => r.argv[0] === 'rm' && r.argv.includes(sources[1]!))).toBe(true)
 })

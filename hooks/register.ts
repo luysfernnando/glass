@@ -205,8 +205,9 @@ type PictureMemory = {
   // ToolGroup row, or the conversation)
   readPaths: Map<string, string>
   history: Promise<boolean> | null
+  loaded: boolean
 }
-const pictureMemory = (): PictureMemory => ({ prompts: [], readPaths: new Map(), history: null })
+const pictureMemory = (): PictureMemory => ({ prompts: [], readPaths: new Map(), history: null, loaded: false })
 function notePrompt(m: PictureMemory, text: string) {
   m.prompts.push(text)
   if (m.prompts.length > PROMPTS_MAX) m.prompts.shift()
@@ -222,19 +223,26 @@ const isNamed = (m: PictureMemory, path: string) => namedIn(m.prompts, path, hom
 // resumed session's prompts and reads, which no prompt.submit or tool.call
 // of this load saw. Every user message counts as named, a task
 // notification's too: that only keeps a picture back. When the read fails,
-// no Read picture draws, and the next draw reads again.
+// no Read picture draws, and the next draw reads again. A draw waits on the
+// read HISTORY_MS at most: past that its picture keeps the engine's row and
+// a later draw finds the read done.
+const HISTORY_MS = 2000
 function loadHistory($: EngineInterface, m: PictureMemory): Promise<boolean> {
+  if (m.loaded) return Promise.resolve(true)
   m.history ??= Promise.resolve().then(() => $.session.messages()).then(messages => {
     for (const msg of messages) {
       if (msg.role === 'user' && msg.text !== '') notePrompt(m, msg.text)
       for (const u of msg.toolUses) if (u.tool === 'Read') noteRead(m, u.tool_use_id, u.input)
     }
+    m.loaded = true
     return true
   }, () => {
     m.history = null
     return false
   })
-  return m.history
+  // where the clock cannot sleep (the test kit), the draw waits for the read
+  const waited = $.clock.sleep(HISTORY_MS).then(() => false, () => new Promise<never>(() => {}))
+  return Promise.race([m.history, waited])
 }
 // whether a Read's picture may draw: its file is known and the person did
 // not name it
@@ -273,9 +281,12 @@ async function shotFor($: EngineInterface, pic: Picture): Promise<Shot | null> {
   const key = hashOf(pic.data)
   let job = converted.get(key)
   if (!job) {
+    // the budget starts when the job does, not while it waits its turn;
     // where the clock cannot sleep (the test kit), nothing times out
-    const timer = $.clock.sleep(CONVERT_MS).then((): typeof TIMED_OUT => TIMED_OUT, () => new Promise<never>(() => {}))
-    const run = convertQueue.then(() => Promise.race([convertPicture($, pic.data, key).catch(() => null), timer]))
+    const run = convertQueue.then(() => Promise.race([
+      convertPicture($, pic.data, key).catch(() => null),
+      $.clock.sleep(CONVERT_MS).then((): typeof TIMED_OUT => TIMED_OUT, () => new Promise<never>(() => {})),
+    ]))
     convertQueue = run.catch(() => undefined)
     job = run.then(shot => {
       if (shot !== TIMED_OUT) return shot
@@ -314,9 +325,20 @@ async function convertPicture($: EngineInterface, data: string, name: string): P
     const shot = shotFromPng(base64)
     if (shot) return shot
   }
+  // Each run writes its own scratch files: a run that timed out keeps going,
+  // and its retry, or another session converting the same bytes, must not
+  // rewrite the source under its sips (a truncated read draws grey).
+  const run = `${dir}/${name}.${Math.random().toString(36).slice(2, 10)}`
+  try {
+    return await convertRun($, data, `${run}.src`, `${run}.part.png`, out)
+  } finally {
+    await $.process.run(['rm', '-f', `${run}.src`, `${run}.part.png`]).catch(() => undefined)
+  }
+}
+
+async function convertRun($: EngineInterface, data: string, input: string, part: string, out: string): Promise<Shot | null> {
   // from the bytes Claude read, never the file on disk, which may have
   // changed since; through stdin, which takes any size (argv stops near 1 MiB)
-  const input = `${dir}/${name}.src`
   const w = await $.process.run(['sh', '-c', 'base64 -D > "$0"', input], { stdin: data })
   if (w.exitCode !== 0) return null
   // the longest side, so every retry shrinks: `-Z` alone would also blow a
@@ -325,10 +347,9 @@ async function convertPicture($: EngineInterface, data: string, name: string): P
   const sides = [...g.stdout.matchAll(/pixel(?:Width|Height): (\d+)/g)].map(m => Number(m[1]))
   if (g.exitCode !== 0 || sides.length !== 2) return null
   const longest = Math.max(...sides)
-  // written under a part name and moved into place once it draws, so a
-  // read of `out` (another session's) never sees half a PNG
-  const part = `${dir}/${name}.part.png`
-  // as it is first, then smaller while the PNG weighs over 2 MiB
+  // as it is first, then smaller while the PNG weighs over 2 MiB; written
+  // under the part name and moved into place once it draws, so a read of
+  // `out` (another session's) never sees half a PNG
   for (const scale of [1, 0.75, 0.5, 0.35]) {
     const side = Math.max(1, Math.round(longest * scale))
     const r = await $.process.run(['sips', '-s', 'format', 'png', ...(scale < 1 ? ['-Z', String(side)] : []), input, '--out', part])
@@ -611,7 +632,7 @@ export const register: Register = (on, options) => {
     // or every one after /expand (0.8.0)
     if (e.props.tool === 'Read') noteRead(mem, id, e.props.input)
     const pictured = e.props.tool.startsWith('mcp__') ||
-      (e.props.tool === 'Read' && (expandAllNow || pictureReads.has(id)) && grouped.has(id) && (await readDraws($, mem, readPath(e.props.input))))
+      (e.props.tool === 'Read' && (expandAllNow || pictureReads.has(id)) && grouped.has(id) && pictureOf(e.props.output) !== null && (await readDraws($, mem, readPath(e.props.input))))
     if (grouped.has(id) && pictured && !e.props.isRunning && !e.props.isErrored) {
       const pic = pictureOf(e.props.output, e.props.tool === 'Read' ? readPath(e.props.input) : undefined)
       const body = pic ? await pictureBody($, t, palette, pic, e.viewport?.columns ?? 80, e.viewport?.rows ?? 40) : null
@@ -705,18 +726,23 @@ export const register: Register = (on, options) => {
     // its text body (0.6.0; a Read and any format, 0.8.0)
     // the row carries no input: its Read's file is the one recorded for its id,
     // and a Read whose file is unknown keeps the engine's row
-    const isRead = e.props.tool === 'Read'
-    const path = isRead ? mem.readPaths.get(e.props.tool_use_id) ?? ((await loadHistory($, mem)) ? mem.readPaths.get(e.props.tool_use_id) : undefined) : undefined
+    // a Read of an image only: a text Read never waits on the conversation
+    const isRead = e.props.tool === 'Read' && pictureOf(e.props.output) !== null
+    // the conversation read once per draw: its file (a resumed Read's) and
+    // whether the person named it
+    const loaded = isRead && (await loadHistory($, mem))
+    const path = loaded ? mem.readPaths.get(e.props.tool_use_id) : undefined
+    const mayDraw = loaded && path !== undefined && !isNamed(mem, path)
     // a grouped call's picture is its ToolUse row's (the transcript view
     // draws both rows): this row hides where that one drew it, else keeps
     // the engine's, and never draws it twice
     if (grouped.has(e.props.tool_use_id) && (isRead || e.props.tool.startsWith('mcp__'))) {
-      const owns = !e.props.isErrored && (!isRead || ((expandAllNow || pictureReads.has(e.props.tool_use_id)) && (await readDraws($, mem, path))))
+      const owns = !e.props.isErrored && (!isRead || ((expandAllNow || pictureReads.has(e.props.tool_use_id)) && mayDraw))
       const pic = owns ? pictureOf(e.props.output, path) : null
       const drawn = pic !== null && shotsOn && !inTmux && (await shotFor($, pic)) !== null
       return drawn ? $.ui.resolve(e).Box({ display: 'none', children: [] }) : next(e)
     }
-    if ((e.props.tool.startsWith('mcp__') || (isRead && (await readDraws($, mem, path)))) && !e.props.isErrored) {
+    if ((e.props.tool.startsWith('mcp__') || (isRead && mayDraw)) && !e.props.isErrored) {
       const pic = pictureOf(e.props.output, path)
       const body = pic ? await pictureBody($, $.ui.resolve(e), palette, pic, e.viewport?.columns ?? 80, e.viewport?.rows ?? 40) : null
       if (body) return body
