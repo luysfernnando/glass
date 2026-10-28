@@ -176,15 +176,10 @@ function bashBody(t: Elements['terminal'], p: Palette, output: unknown, isErrore
   return renderToolOutput(t, p, lines, { columns: cols, maxLines: MAX_PAINTED_LINES })
 }
 
-// Screenshots draw outside tmux only (0.6.0). Inside it the engine draws no
-// Image (2.1.296: `kittyGraphics=no (env: inside tmux or screen)`); forced on
-// with CLAUDE_CODE_FORCE_TERMINAL_IMAGES the picture still never reached
-// Ghostty, and the engine refuses kitty's placeholder cell (U+10EEEE) in a
-// Text and any non-BMP glyph in a Raster, so a mod cannot draw one there
-// itself (2026-10-12). Inside tmux the engine's text body stays, unless
-// CLAUDE_CODE_FORCE_TERMINAL_IMAGES is set (0.6.1): then the engine draws
-// placeholder cells and claude-hl (CLAUDE_HL_PAINT=0) wraps its kitty codes
-// for tmux's passthrough, so the picture reaches Ghostty.
+// Screenshots draw outside tmux only (0.6.0): inside it the engine's text
+// body stays, unless CLAUDE_CODE_FORCE_TERMINAL_IMAGES vouches that pictures
+// reach the terminal. sluice passes the engine's kitty codes through as they
+// are, so pictures draw there (live, 2026-10-28).
 let inTmux = false
 // the `screenshots` option (0.7.0): off, every screenshot row keeps the
 // engine's text body, in tmux and out; follows /config live
@@ -194,8 +189,58 @@ let shotsOn = true
 // image files it read. `home` and the person's recent prompts tell which
 // files they fed Claude themselves; those are never drawn back.
 let home = ''
-const recentPrompts: string[] = []
-const named = (path: string) => namedIn(recentPrompts, path, home)
+// as many prompts as `$.session.messages()` hands back: a picture named
+// long ago stays the person's
+const PROMPTS_MAX = 4096
+// prompt origins no person typed (PromptOrigin)
+const MACHINE_ORIGINS = new Set(['task-notification', 'peer', 'peer-send-message', 'projects-relay', 'coordinator', 'observer', 'observer-activity', 'auto-continuation'])
+const READ_PATHS_MAX = 8192
+
+// What tells a Read picture the person fed Claude from one Claude found, per
+// load: a reload starts empty and reads the conversation again.
+type PictureMemory = {
+  prompts: string[]
+  // each Read's file, by its tool_use_id: the ToolResult row carries no
+  // input, so the row learns its path here (tool.call, a ToolUse or
+  // ToolGroup row, or the conversation)
+  readPaths: Map<string, string>
+  history: Promise<boolean> | null
+}
+const pictureMemory = (): PictureMemory => ({ prompts: [], readPaths: new Map(), history: null })
+function notePrompt(m: PictureMemory, text: string) {
+  m.prompts.push(text)
+  if (m.prompts.length > PROMPTS_MAX) m.prompts.shift()
+}
+function noteRead(m: PictureMemory, id: unknown, input: unknown) {
+  const path = readPath(input)
+  if (typeof id !== 'string' || path === '') return
+  m.readPaths.set(id, path)
+  if (m.readPaths.size > READ_PATHS_MAX) m.readPaths.delete(m.readPaths.keys().next().value!)
+}
+const isNamed = (m: PictureMemory, path: string) => namedIn(m.prompts, path, home)
+// The conversation so far, read before the first Read picture draws: a
+// resumed session's prompts and reads, which no prompt.submit or tool.call
+// of this load saw. Every user message counts as named, a task
+// notification's too: that only keeps a picture back. When the read fails,
+// no Read picture draws, and the next draw reads again.
+function loadHistory($: EngineInterface, m: PictureMemory): Promise<boolean> {
+  m.history ??= Promise.resolve().then(() => $.session.messages()).then(messages => {
+    for (const msg of messages) {
+      if (msg.role === 'user' && msg.text !== '') notePrompt(m, msg.text)
+      for (const u of msg.toolUses) if (u.tool === 'Read') noteRead(m, u.tool_use_id, u.input)
+    }
+    return true
+  }, () => {
+    m.history = null
+    return false
+  })
+  return m.history
+}
+// whether a Read's picture may draw: its file is known and the person did
+// not name it
+async function readDraws($: EngineInterface, m: PictureMemory, path: string | undefined): Promise<boolean> {
+  return (await loadHistory($, m)) && path !== undefined && path !== '' && !isNamed(m, path)
+}
 
 // A picture's body, or null where the engine's stays.
 async function pictureBody($: EngineInterface, t: Elements['terminal'], p: Palette, pic: Picture, columns: number, rows: number): Promise<RenderElement | null> {
@@ -206,7 +251,9 @@ async function pictureBody($: EngineInterface, t: Elements['terminal'], p: Palet
 
 // A PNG draws as it is; any other picture, or one over 2 MiB, is converted
 // once to a PNG with macOS `sips` and kept for the session's redraws. Where
-// that fails (no sips: Linux) the engine's text row stays.
+// that fails (no sips: Linux) the engine's text row stays. The key is the
+// bytes Claude read, never the file's path: a file read twice may hold two
+// pictures (a screenshot taken again to the same path).
 const converted = new Map<string, Promise<Shot | null>>()
 const CONVERTED_MAX = 64
 async function shotFor($: EngineInterface, pic: Picture): Promise<Shot | null> {
@@ -215,10 +262,10 @@ async function shotFor($: EngineInterface, pic: Picture): Promise<Shot | null> {
     if (shot) return shot
   }
   if (!CONVERTIBLE.test(pic.mime)) return null
-  const key = pic.file ?? `${pic.data.length}:${pic.data.slice(0, 200)}`
+  const key = hashOf(pic.data)
   let job = converted.get(key)
   if (!job) {
-    job = convertPicture($, pic, hashOf(key)).catch(() => null)
+    job = convertPicture($, pic.data, key).catch(() => null)
     converted.set(key, job)
     if (converted.size > CONVERTED_MAX) converted.delete(converted.keys().next().value!)
   }
@@ -238,22 +285,31 @@ function shotDir($: EngineInterface): Promise<string | null> {
   return shotDirJob
 }
 
-async function convertPicture($: EngineInterface, pic: Picture, name: string): Promise<Shot | null> {
+// the most a converted PNG may weigh on disk to draw as bytes
+const PNG_BYTES_MAX = 2 * 1024 * 1024
+async function convertPicture($: EngineInterface, data: string, name: string): Promise<Shot | null> {
   const dir = await shotDir($)
   if (!dir) return null
-  // from the copy on disk when there is one, else the bytes written beside
-  let input = pic.file
-  if (!input || !(await $.fs.stat(input).then(s => s.kind === 'file', () => false))) {
-    input = `${dir}/${name}.src`
-    const w = await $.process.run(['sh', '-c', 'printf "%s" "$1" | base64 -D > "$0"', input, pic.data])
-    if (w.exitCode !== 0) return null
-  }
+  // from the bytes Claude read, never the file on disk, which may have
+  // changed since; through stdin, which takes any size (argv stops near 1 MiB)
+  const input = `${dir}/${name}.src`
+  const w = await $.process.run(['sh', '-c', 'base64 -D > "$0"', input], { stdin: data })
+  if (w.exitCode !== 0) return null
+  // the longest side, so every retry shrinks: `-Z` alone would also blow a
+  // small picture up
+  const g = await $.process.run(['sips', '-g', 'pixelWidth', '-g', 'pixelHeight', input])
+  const sides = [...g.stdout.matchAll(/pixel(?:Width|Height): (\d+)/g)].map(m => Number(m[1]))
+  if (g.exitCode !== 0 || sides.length !== 2) return null
+  const longest = Math.max(...sides)
   const out = `${dir}/${name}.png`
-  // as it is first; smaller only when the PNG is over 2 MiB (-Z alone would
-  // also blow a small picture up)
-  for (const side of [0, 1600, 1000]) {
-    const r = await $.process.run(['sips', '-s', 'format', 'png', ...(side ? ['-Z', String(side)] : []), input, '--out', out])
+  // as it is first, then smaller while the PNG weighs over 2 MiB
+  for (const scale of [1, 0.75, 0.5, 0.35]) {
+    const side = Math.max(1, Math.round(longest * scale))
+    const r = await $.process.run(['sips', '-s', 'format', 'png', ...(scale < 1 ? ['-Z', String(side)] : []), input, '--out', out])
     if (r.exitCode !== 0) return null
+    // past the limit the bytes cannot draw: shrink without reading them
+    const size = await $.fs.stat(out).then(s => s.size, () => Infinity)
+    if (size > PNG_BYTES_MAX) continue
     const { base64 } = (await $.fs.read(out, { as: 'bytes' })) as { base64: string }
     const shot = shotFromPng(base64)
     if (shot) return shot
@@ -301,6 +357,7 @@ export const register: Register = (on, options) => {
   const grouped = new Set<string>()
   // each group's one Read whose picture draws (0.8.0)
   const pictureReads = new Set<string>()
+  const mem = pictureMemory()
   // each turn's main-loop calls in order, and whether Claude wrote text
   // since the call before: the air rule below reads both
   const turnOrder = new Map<string, { id: string; tool: string; afterText: boolean }[]>()
@@ -524,8 +581,9 @@ export const register: Register = (on, options) => {
     // a grouped MCP call's screenshot draws under its row, as the Edit card
     // does; a grouped Read's picture too when it is the group's chosen one,
     // or every one after /expand (0.8.0)
+    if (e.props.tool === 'Read') noteRead(mem, id, e.props.input)
     const pictured = e.props.tool.startsWith('mcp__') ||
-      (e.props.tool === 'Read' && (expandAllNow || pictureReads.has(id)) && !named(readPath(e.props.input)))
+      (e.props.tool === 'Read' && (expandAllNow || pictureReads.has(id)) && grouped.has(id) && (await readDraws($, mem, readPath(e.props.input))))
     if (grouped.has(id) && pictured && !e.props.isRunning && !e.props.isErrored) {
       const pic = pictureOf(e.props.output, e.props.tool === 'Read' ? readPath(e.props.input) : undefined)
       const body = pic ? await pictureBody($, t, palette, pic, e.viewport?.columns ?? 80, e.viewport?.rows ?? 40) : null
@@ -542,7 +600,13 @@ export const register: Register = (on, options) => {
     if (e.surface !== 'terminal') return next(e)
     // the group's one Read picture (0.8.0): drawn under the folded row, or
     // under its own row once the group is open
-    const chosen = shotsOn && !inTmux ? lastPictureRead(e.props.calls, named) : null
+    for (const c of e.props.calls) if (c.tool === 'Read') noteRead(mem, c.tool_use_id, c.input)
+    // a group with no Read picture never waits on the conversation
+    const readPictures = shotsOn && !inTmux && e.props.calls.some((c: { tool: string; output?: unknown }) => c.tool === 'Read' && pictureOf(c.output) !== null)
+    const chosen = readPictures && (await loadHistory($, mem)) ? lastPictureRead(e.props.calls, path => isNamed(mem, path)) : null
+    // one picture per group: a Read chosen while the group was shorter gives
+    // way to the one chosen now
+    for (const c of e.props.calls) if (c.tool === 'Read' && typeof c.tool_use_id === 'string' && c.tool_use_id !== chosen) pictureReads.delete(c.tool_use_id)
     if (chosen) pictureReads.add(chosen)
     if (e.props.isExpanded) {
       remember(grouped, e.props.calls)
@@ -555,8 +619,19 @@ export const register: Register = (on, options) => {
     // open after /expand, or on its own when a call in it failed: a red
     // mark must never hide behind a count
     const failed = e.props.calls.some((c: { isErrored?: boolean; isInterrupted?: boolean }) => c.isErrored || c.isInterrupted)
-    // and when a call returned a screenshot: the picture never hides behind a count (0.6.0)
-    const shot = shotsOn && !inTmux && e.props.calls.some((c: { tool: string; isRunning: boolean; output?: unknown }) => c.tool.startsWith('mcp__') && !c.isRunning && pictureOf(c.output) !== null)
+    // and when a call returned a screenshot that draws: the picture never
+    // hides behind a count (0.6.0); one glass cannot draw keeps the group folded
+    let shot = false
+    if (shotsOn && !inTmux) {
+      for (const c of e.props.calls) {
+        if (!c.tool.startsWith('mcp__') || c.isRunning) continue
+        const pic = pictureOf(c.output)
+        if (pic && (await shotFor($, pic))) {
+          shot = true
+          break
+        }
+      }
+    }
     if (expandAllNow || failed || shot) {
       remember(grouped, e.props.calls)
       return next({ ...e, props: { ...e.props, isExpanded: true } })
@@ -600,9 +675,12 @@ export const register: Register = (on, options) => {
     if (e.props.tool === 'Skill' && !e.props.isErrored) return renderSkillLoad($.ui.resolve(e), palette, e.props.output)
     // an MCP screenshot or a Read image: the picture Claude read, in place of
     // its text body (0.6.0; a Read and any format, 0.8.0)
-    const path = e.props.tool === 'Read' ? readPath((e.props as { input?: unknown }).input) : ''
-    if ((e.props.tool.startsWith('mcp__') || (e.props.tool === 'Read' && !named(path))) && !e.props.isErrored) {
-      const pic = pictureOf(e.props.output, path || undefined)
+    // the row carries no input: its Read's file is the one recorded for its id,
+    // and a Read whose file is unknown keeps the engine's row
+    const isRead = e.props.tool === 'Read'
+    const path = isRead ? mem.readPaths.get(e.props.tool_use_id) ?? ((await loadHistory($, mem)) ? mem.readPaths.get(e.props.tool_use_id) : undefined) : undefined
+    if ((e.props.tool.startsWith('mcp__') || (isRead && (await readDraws($, mem, path)))) && !e.props.isErrored) {
+      const pic = pictureOf(e.props.output, path)
       const body = pic ? await pictureBody($, $.ui.resolve(e), palette, pic, e.viewport?.columns ?? 80, e.viewport?.rows ?? 40) : null
       if (body) return body
     }
@@ -618,8 +696,10 @@ export const register: Register = (on, options) => {
   // ---- the turn's bookkeeping --------------------------------------------
   on('prompt.submit', async ($, e, next) => {
     marks = !writeIntent(e.text)
-    recentPrompts.push(e.text)
-    if (recentPrompts.length > HISTORY) recentPrompts.shift()
+    // a prompt names its pictures unless a machine wrote it: a task
+    // notification or another agent's message does not; an origin the engine
+    // cannot attest still counts, which only keeps a picture back
+    if (!MACHINE_ORIGINS.has(e.origin?.kind ?? '')) notePrompt(mem, e.text)
     const now = await $.clock.now()
     await update($, prompts, ps => [...(ps ?? []), { text: e.text, submittedAt: now, startedAt: null, turnId: null }].slice(-HISTORY))
     return next(e)
@@ -672,6 +752,7 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const main = !e.agentId
     const id = e.tool_use_id ?? ''
+    if (e.tool === 'Read') noteRead(mem, id, e)
     const turnId = live.turnId
     if (main) {
       live.tools += 1

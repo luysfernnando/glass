@@ -433,15 +433,13 @@ and reply blocks interleaved as the model made them, then the
   placeholder cell U+10EEEE in a Text, and a Raster takes BMP glyphs
   only), so inside tmux the engine's text body stays and the group stays
   folded (2026-10-12). **(0.6.1)** Unless `CLAUDE_CODE_FORCE_TERMINAL_IMAGES`
-  is set: the person vouches that pictures get through, as they do when
-  claude-hl 0.9.0 runs Claude with `CLAUDE_HL_PAINT=0` and wraps the
-  engine's kitty codes for tmux's passthrough (`allow-passthrough all`).
+  is set: the person vouches that pictures get through. **(0.17.0)**
+  sluice passes the engine's kitty codes through as they are, so pictures
+  draw there with no switch (live, Ghostty 1.4, engine 2.1.312).
   **(0.7.0)** `userConfig.screenshots` (boolean, default true; owner's
   request 2026-10-12) turns all of it off: every screenshot row keeps the
   engine's text body, in tmux and out, and a group no longer opens for
-  one. It follows `/config` live. The owner's shell reads the same option
-  (`pluginConfigs["glass@glass"].options.screenshots` in settings.json) to
-  skip claude-hl in tmux, so one switch covers both. Shape proved live with a probe mod
+  one. It follows `/config` live. Shape proved live with a probe mod
   2026-10-12.
   **(0.8.0)** Every picture Claude looked at, owner's pick 2026-10-12 after
   30 days of transcripts showed 119 of 411 screenshots were JPEG (drawn as
@@ -449,16 +447,36 @@ and reply blocks interleaved as the model made them, then the
   project files, 6 the owner's own):
   - Any format the model reads: PNG within 2 MiB draws as bytes; JPEG,
     WebP, GIF or a bigger PNG is converted once with macOS `sips` to a PNG
-    (as it is, then at most 1600, then 1000 px a side, until it fits),
-    from the copy on disk (the engine's stored copy, or the file read)
-    else the bytes, into a private `$TMPDIR/glass-pictures-<uid>` (mode
-    700, files a day old go), kept per session. No `sips` (Linux): the
-    engine's text row stays.
+    (as it is, then 75%, 50%, 35% of its own longest side, until it
+    weighs 2 MiB or less; never larger than it came), from the bytes
+    Claude read (written through stdin, never argv, never the file on
+    disk, which may have changed), into a private
+    `$TMPDIR/glass-pictures-<uid>` (mode 700, files a day old go), kept
+    per session keyed by those bytes: a file read twice draws what each
+    read saw (0.17.0). No `sips` (Linux): the engine's text row stays.
+  - A group opens for an MCP screenshot only once it converts and draws;
+    one glass cannot draw (`image/bmp`, no `sips`) keeps the group folded
+    (0.17.0).
   - A Read of an image file draws too, but only one per group: the last
     image read the person did not name in one of their own prompts (as
     written or under `~`; a picture they fed Claude is never drawn back).
     A folded group draws it under the group row and stays folded; an open
-    group under that Read's row; `/expand` draws every image read.
+    group under that Read's row, and only that one: a Read chosen while the
+    group was shorter gives way (0.17.0); `/expand` draws every image read.
+  - Which files the person named, and each Read's file (0.17.0): a
+    `ToolResult` row carries no input, so each Read's `file_path` is kept
+    by `tool_use_id` from `tool.call`, the ToolUse and ToolGroup rows, and
+    the conversation. Before its first Read picture a load reads the
+    conversation once (`$.session.messages()`): a resumed session's
+    prompts and reads count. Every user message there counts as named
+    (a task notification's too, which only keeps a picture back); from
+    `prompt.submit` every prompt counts but those a machine wrote
+    (`task-notification`, `peer`, `peer-send-message`, `projects-relay`,
+    `coordinator`, `observer`, `observer-activity`, `auto-continuation`).
+    Up to 4096 prompts, no 48 cap. A Read whose file is unknown, or a
+    load whose conversation read failed, keeps the engine's row; a failed
+    read tries again on the next draw. A group with no Read picture never
+    waits on the conversation.
   - Claude Code draws a finished turn's rows again at commit, and each
     fresh draw sends its picture again (seen live: one Read sent twice).
     Bytes only; the screen shows one picture.

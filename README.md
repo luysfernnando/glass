@@ -81,12 +81,10 @@ The same turn under each palette: pick one with `/config` under Glass.
   so you see what Claude saw; so does an image file Claude reads, one per
   run of reads (the last; `/expand` shows them all), never one you named in
   your own prompt. JPEG, WebP and GIF are converted to PNG with macOS
-  `sips`. Ghostty or kitty. Inside tmux Claude Code
-  draws no pictures, so the row keeps its text; run Claude through
-  [claude-hl](https://github.com/rashedInt32/claude-hl) with
-  `CLAUDE_HL_PAINT=0 CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1` and
-  `allow-passthrough all` in tmux to get them there too. Off with the
-  `screenshots` option under Glass in `/config`.
+  `sips`. Ghostty or kitty, plain or inside [sluice](https://github.com/rashedInt32/sluice).
+  Inside tmux the row keeps its text, unless `CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1`
+  says the pictures reach the terminal. Off with the `screenshots` option
+  under Glass in `/config`.
 - **Headings, lists, quotes, tables.** Bold colored headings with no rules,
   `•` `◦` `☐` `☑` markers, a quote bar, borderless tables with aligned
   columns and right-aligned numbers. A table a little too wide squeezes

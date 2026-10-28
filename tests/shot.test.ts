@@ -1,4 +1,5 @@
 // 0.6.0: an MCP screenshot draws under its row, the picture Claude read.
+import type { On } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 
 import { CONVERTIBLE, lastPictureRead, namedIn, pictureOf, pngSize, shotBox, shotFromPng, shotOf } from '../hooks/shot'
@@ -137,6 +138,10 @@ test('mounted: a group with a screenshot opens, and the row draws the picture', 
 
 
 // ---- 0.8.0: any picture Claude looked at ------------------------------------
+// the session's conversation as `$.session.messages()` hands it back: a Read
+// picture draws only once glass has read it (0.17.0)
+const conversation = (on: On, messages: unknown[]) =>
+  on('session.messages', (() => ({ value: messages })) as never)
 const readCall = (id: string, path: string, data = ONE_PX, mime = 'image/png') => ({
   tool_use_id: id, tool: 'Read', input: { file_path: path }, isRunning: false, isErrored: false, isInterrupted: false,
   output: { type: 'image', file: { base64: data, type: mime, originalSize: 70 } },
@@ -178,6 +183,7 @@ test('a group draws one Read picture: the last the person did not name', () => {
 
 test('mounted: two image reads in a folded group draw exactly one Image', async ($, on) => {
   on('ui.render', { component: 'ToolGroup' }, (engine, e) => engine.ui.resolve(e).Text({ children: [e.props.isExpanded ? 'opened' : 'folded'] }) as never)
+  conversation(on, [])
   const group = await $.ui.mount({
     plugin: 'glass',
     surface: 'terminal',
@@ -198,4 +204,153 @@ test('mounted: screenshots off, a folded run of image reads draws none', { optio
   })
   expect(await group.findAll({ type: 'Image' })).toHaveLength(0)
   await group.unmount()
+})
+
+// ---- 0.17.0: the /rv findings on the 0.8.0 code, one test each -------------
+// a whole 2x2 PNG, a picture other than ONE_PX
+const PNG_2PX = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII='
+const MINE = '/Users/me/Desktop/mine.png'
+const engineBody = (on: On) => on('ui.render', { component: 'ToolResult' }, (engine, e) => engine.ui.resolve(e).Text({ children: ['engine body'] }) as never)
+const submitted = (on: On) => on('prompt.submit', ((_: unknown, e: { text: string }) => ({ text: e.text })) as never)
+// a ToolResult row as the engine builds it: no input
+const resultRow = ($: Parameters<Parameters<typeof test>[1] & (($: never, on: never) => unknown)>[0], id: string, data = ONE_PX, mime = 'image/png') =>
+  ($ as { ui: { mount: (a: unknown) => Promise<{ find: (q: unknown) => Promise<unknown>; findAll: (q: unknown) => Promise<unknown[]>; unmount: () => Promise<void> }> } }).ui.mount({
+    plugin: 'glass', surface: 'terminal', component: 'ToolResult',
+    props: { tool_use_id: id, tool: 'Read', isErrored: false, isExpanded: false, output: { type: 'image', file: { base64: data, type: mime } } },
+  })
+const useRow = ($: { ui: { mount: (a: unknown) => Promise<{ unmount: () => Promise<void> }> } }, id: string, path: string) =>
+  $.ui.mount({ plugin: 'glass', surface: 'terminal', component: 'ToolUse', props: { ...readCall(id, path), isRunning: true, output: undefined } }).then(r => r.unmount())
+
+test('0.17.0: a group that grew draws one picture when it opens, not one per Read it ever chose', async ($, on) => {
+  on('ui.render', { component: 'ToolGroup' }, (engine, e) => engine.ui.resolve(e).Text({ children: [e.props.isExpanded ? 'opened' : 'folded'] }) as never)
+  conversation(on, [])
+  const a = readCall('grow-a', '/tmp/a.png'), b = readCall('grow-b', '/tmp/b.png')
+  const failed = { tool_use_id: 'grow-f', tool: 'Read', input: { file_path: '/tmp/gone.png' }, isRunning: false, isErrored: true, isInterrupted: false, output: 'File does not exist.' }
+  for (const calls of [[a], [a, b], [a, b, failed]]) {
+    const g = await $.ui.mount({ plugin: 'glass', surface: 'terminal', component: 'ToolGroup', props: { calls, isActive: true, isExpanded: false } })
+    await g.unmount()
+  }
+  let images = 0
+  for (const c of [a, b]) {
+    const row = await $.ui.mount({ plugin: 'glass', surface: 'terminal', component: 'ToolUse', props: c })
+    images += (await row.findAll({ type: 'Image' })).length
+    await row.unmount()
+  }
+  expect(images).toBe(1)
+})
+
+test('0.17.0: a standalone Read row knows its file: the person\'s own picture stays text, Claude\'s draws', async ($, on) => {
+  engineBody(on)
+  submitted(on)
+  conversation(on, [])
+  await $.prompt.submit({ text: `look at ${MINE}`, wait: false, origin: { kind: 'composer' } } as never)
+  // tool.call or the ToolUse row records each Read's file; the ToolResult row has no input
+  await useRow($ as never, 'own', MINE)
+  await useRow($ as never, 'found', '/tmp/qa/after.png')
+  const own = await resultRow($ as never, 'own')
+  expect(await own.find({ type: 'Image' })).toBeUndefined()
+  await own.unmount()
+  const found = await resultRow($ as never, 'found')
+  expect(await found.find({ type: 'Image' })).toBeDefined()
+  await found.unmount()
+  // a Read whose file glass never learned keeps the engine's row
+  const unknown = await resultRow($ as never, 'never-seen')
+  expect(await unknown.find({ type: 'Image' })).toBeUndefined()
+  await unknown.unmount()
+})
+
+test('0.17.0: a resumed session reads the conversation: a picture named before the resume stays text', async ($, on) => {
+  engineBody(on)
+  conversation(on, [
+    { role: 'user', text: `look at ${MINE}`, toolUses: [] },
+    { role: 'assistant', text: '', toolUses: [{ tool_use_id: 'old-own', tool: 'Read', input: { file_path: MINE } }, { tool_use_id: 'old-found', tool: 'Read', input: { file_path: '/tmp/qa/before.png' } }] },
+  ])
+  const own = await resultRow($ as never, 'old-own')
+  expect(await own.find({ type: 'Image' })).toBeUndefined()
+  await own.unmount()
+  const found = await resultRow($ as never, 'old-found')
+  expect(await found.find({ type: 'Image' })).toBeDefined()
+  await found.unmount()
+})
+
+test('0.17.0: a named picture stays the person\'s past 48 prompts; a task notification names none', async ($, on) => {
+  engineBody(on)
+  submitted(on)
+  conversation(on, [])
+  await $.prompt.submit({ text: `look at ${MINE}`, wait: false, origin: { kind: 'composer' } } as never)
+  for (let i = 0; i < 60; i++) await $.prompt.submit({ text: `p${i}`, wait: false, origin: { kind: 'composer' } } as never)
+  await $.prompt.submit({ text: '<task-notification>agent saved /tmp/qa/agent.png</task-notification>', wait: false, origin: { kind: 'task-notification' } } as never)
+  await useRow($ as never, 'late-own', MINE)
+  await useRow($ as never, 'agent', '/tmp/qa/agent.png')
+  const own = await resultRow($ as never, 'late-own')
+  expect(await own.find({ type: 'Image' })).toBeUndefined()
+  await own.unmount()
+  const agent = await resultRow($ as never, 'agent')
+  expect(await agent.find({ type: 'Image' })).toBeDefined()
+  await agent.unmount()
+})
+
+test('0.17.0: a group opens only for a screenshot that draws; one glass cannot draw keeps it folded', async ($, on) => {
+  on('ui.render', { component: 'ToolGroup' }, (engine, e) => engine.ui.resolve(e).Text({ children: [e.props.isExpanded ? 'opened' : 'folded'] }) as never)
+  const page = { tool_use_id: 'bmp-1', tool: 'mcp__plugin_jev-reach_chrome-devtools__new_page', input: {}, isRunning: false, isErrored: false, isInterrupted: false, output: [{ type: 'text', text: 'ok' }] }
+  const bmp = { tool_use_id: 'bmp-2', tool: 'mcp__plugin_jev-reach_chrome-devtools__take_screenshot', input: {}, isRunning: false, isErrored: false, isInterrupted: false, output: engineResult('Qk0AAAAA', 'image/bmp', null) }
+  const g = await $.ui.mount({ plugin: 'glass', surface: 'terminal', component: 'ToolGroup', props: { calls: [page, bmp], isActive: false, isExpanded: false } })
+  expect(await g.find({ type: 'Text', text: /opened/ })).toBeUndefined()
+  await g.unmount()
+})
+
+// sips and the disk, mocked: each converted picture comes back as the PNG
+// its source bytes stand for, so a drawn picture says which bytes it came from
+const mockConvert = (on: On, sizes: number[] = []) => {
+  const runs: { argv: readonly string[]; stdin?: string }[] = []
+  const srcOf = new Map<string, string>()
+  on('process.run', ((_: unknown, e: { argv: readonly string[]; init?: { stdin?: string } }) => {
+    runs.push({ argv: e.argv, ...(e.init?.stdin !== undefined ? { stdin: e.init.stdin } : {}) })
+    if (e.argv[0] === 'sh' && e.argv.length === 3 && /mkdir/.test(e.argv[2]!)) return { value: { exitCode: 0, stdout: '/tmp/glass-pictures-test', stderr: '' } }
+    if (e.argv[0] === 'sh') {
+      srcOf.set(e.argv[3]!.replace(/\.src$/, ''), e.init?.stdin ?? '')
+      return { value: { exitCode: 0, stdout: '', stderr: '' } }
+    }
+    if (e.argv[0] === 'sips' && e.argv[1] === '-g') return { value: { exitCode: 0, stdout: `${e.argv[5]}\n  pixelWidth: 1000\n  pixelHeight: 720\n`, stderr: '' } }
+    return { value: { exitCode: 0, stdout: '', stderr: '' } }
+  }) as never)
+  on('fs.stat', (() => ({ value: { kind: 'file', size: sizes.length ? sizes.shift()! : 100 } })) as never)
+  on('fs.read', ((_: unknown, e: { path: string }) => {
+    const src = srcOf.get(e.path.replace(/\.png$/, '')) ?? ''
+    // the source `B...` stands for a 2x2 picture, any other for 1x1
+    return { value: { base64: src.startsWith('B') ? PNG_2PX : ONE_PX } }
+  }) as never)
+  return runs
+}
+const imageOf = async (row: { find: (q: unknown) => Promise<unknown> }) => ((await row.find({ type: 'Image' })) as { props?: { source?: unknown } } | undefined)?.props?.source
+
+test('0.17.0: a file read twice draws what each read saw, converted from the bytes through stdin', async ($, on) => {
+  engineBody(on)
+  conversation(on, [])
+  const runs = mockConvert(on)
+  await useRow($ as never, 'shot-1', '/tmp/shot.jpg')
+  await useRow($ as never, 'shot-2', '/tmp/shot.jpg')
+  const first = await resultRow($ as never, 'shot-1', 'A1jpegbytes', 'image/jpeg')
+  expect(await imageOf(first)).toEqual({ png: ONE_PX })
+  await first.unmount()
+  const second = await resultRow($ as never, 'shot-2', 'B2jpegbytes', 'image/jpeg')
+  expect(await imageOf(second)).toEqual({ png: PNG_2PX })
+  await second.unmount()
+  // the bytes went through stdin, never argv
+  const writes = runs.filter(r => r.argv[0] === 'sh' && !/mkdir/.test(r.argv[2] ?? ''))
+  expect(writes.map(r => r.stdin)).toEqual(['A1jpegbytes', 'B2jpegbytes'])
+  expect(writes.every(r => r.argv.every(a => !a.includes('jpegbytes')))).toBe(true)
+})
+
+test('0.17.0: a PNG too heavy to draw shrinks from its own size, never past it', async ($, on) => {
+  engineBody(on)
+  conversation(on, [])
+  // as it is: 3 MB; at three quarters: small enough
+  const runs = mockConvert(on, [3_000_000, 100])
+  await useRow($ as never, 'heavy', '/tmp/noise.webp')
+  const row = await resultRow($ as never, 'heavy', 'Aheavywebp', 'image/webp')
+  expect(await imageOf(row)).toEqual({ png: ONE_PX })
+  await row.unmount()
+  const converts = runs.filter(r => r.argv[0] === 'sips' && r.argv[1] === '-s').map(r => r.argv.includes('-Z') ? Number(r.argv[r.argv.indexOf('-Z') + 1]) : 0)
+  expect(converts).toEqual([0, 750])
 })
