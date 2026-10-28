@@ -945,3 +945,14 @@ test('0.15.3: a URL in backticks is one Link, the whole span its label; anything
   expect(links('Not `https://x.com/a b` here.').length).toBe(0)
   expect(links('Not `curl https://x.com` here.').length).toBe(0)
 })
+
+test('0.16.1: safeText never cuts an emoji in half', () => {
+  const lone = (s: string) => /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(s)
+  // the pair straddles the cut: it goes whole, one character short
+  const straddle = safeText('a'.repeat(1998) + '\u{1F600}tail', 2000)
+  expect(lone(straddle)).toBe(false)
+  expect(straddle).toBe('a'.repeat(1998) + G.ellipsis)
+  // the pair fits right before the cut: it stays
+  expect(safeText('a'.repeat(1997) + '\u{1F600}tail', 2000)).toBe('a'.repeat(1997) + '\u{1F600}' + G.ellipsis)
+  expect(safeText('short \u{1F600}', 2000)).toBe('short \u{1F600}')
+})

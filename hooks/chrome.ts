@@ -62,10 +62,15 @@ export function fmtCost(usd: number): string {
   return `$${usd.toFixed(2)}`
 }
 
-// a Text string the API accepts: tab and newline are the only controls
+// a Text string the API accepts: tab and newline are the only controls.
+// The cut never splits a surrogate pair.
 export function safeText(s: string, max = MAX_TEXT): string {
   const clean = s.replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
-  return clean.length > max ? clean.slice(0, max - 1) + G.ellipsis : clean
+  if (clean.length <= max) return clean
+  let end = max - 1
+  const last = clean.charCodeAt(end - 1)
+  if (last >= 0xd800 && last <= 0xdbff) end--
+  return clean.slice(0, end) + G.ellipsis
 }
 
 // cut to `n` cells with an ellipsis

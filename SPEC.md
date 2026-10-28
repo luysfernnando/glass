@@ -94,7 +94,9 @@ docs/shots/        (0.10.0) one demo turn per palette, 100 columns on the owner'
   renderer, so: reply text is normalized on entry (CRLF to LF, C0 controls
   other than tab and newline removed); Text and Code strings stay under
   10000 characters (a longer run goes as several strings in one Text);
-  `Link` only gets `https:` or `http://localhost` hrefs. Known limit: a
+  a cut, whether a split or `safeText`'s ellipsis, never splits a
+  surrogate pair (0.16.1; the engine fixed the same in its tool output
+  previews in 2.1.309); `Link` only gets `https:` or `http://localhost` hrefs. Known limit: a
   reply tree past the engine's 100,000 serialized characters is refused
   whole and drawn by the engine.
 - Render hooks for tree rows (`ToolUse`, `ToolResult`, `ToolGroup`) read no
