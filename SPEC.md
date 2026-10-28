@@ -107,6 +107,14 @@ docs/shots/        (0.10.0) one demo turn per palette, 100 columns on the owner'
   `/unfold`, `/expand`, `/collapse` call `$.ui.invalidate('ui.render')`. A
   hot reload empties the records until the next turn. The user row's dots
   line and the `TurnDuration` row subscribe (one row each per turn).
+- A reply streams with no `ui.render` dispatch: the engine draws the
+  streamed text, and glass's `AssistantMessage` hook runs once, as the
+  reply ends. On the main screen (tmux by default, `isFullscreen: false`)
+  a reply taller than the screen then prints twice, the engine's streamed
+  copy left in scrollback above glass's (2026-10-12, 2.1.296, `--debug`
+  run). `CLAUDE_CODE_NO_FLICKER=1` puts tmux on the fullscreen layout and
+  the duplicate goes (live, 2026-10-12). Handing tall replies back to the
+  engine on the main screen was not taken: it drops the styling.
 - A finished reply's parse is kept (the newest 64 by text), so `/fold`,
   resizes and palette changes do not parse every reply again. Links, URLs
   and code words are matched in place.
@@ -407,6 +415,53 @@ and reply blocks interleaved as the model made them, then the
   the trunk, the rest a `faint` `… +N lines`, in place of the engine's
   `Error editing file` and its corner bracket. The `[Image #N]` row under
   an image prompt is still the engine's.
+- **(0.6.0)** An MCP result carrying a PNG (chrome-devtools
+  `take_screenshot`, a Figma screenshot) draws the picture on the trunk in
+  place of the engine's text body, so the person sees what Claude read:
+  an `Image` of the base64 bytes (at most 2 MiB), else the stored copy the
+  engine names in its `[Image: source: <path>, ...]` block. Bytes first: a
+  file source drew its alt in Ghostty under tmux (live, 2026-10-12), and
+  the engine draws a file source only once the terminal says it reads this
+  machine's files. Aspect kept, at most 100 columns and 24 rows (or 60% of the
+  screen's rows), alt `screenshot WxH`. A JPEG or WebP keeps the engine's
+  body: `Image` takes PNG or raw pixels only. A grouped row draws it under
+  its `ToolUse` row, as the diff card does. Needs Ghostty or kitty,
+  outside tmux: inside it the engine draws no Image (2.1.296,
+  `kittyGraphics=no (env: inside tmux or screen)`; forced on with
+  `CLAUDE_CODE_FORCE_TERMINAL_IMAGES` the picture still never reached
+  Ghostty), and a mod cannot draw one itself (the engine refuses kitty's
+  placeholder cell U+10EEEE in a Text, and a Raster takes BMP glyphs
+  only), so inside tmux the engine's text body stays and the group stays
+  folded (2026-10-12). **(0.6.1)** Unless `CLAUDE_CODE_FORCE_TERMINAL_IMAGES`
+  is set: the person vouches that pictures get through, as they do when
+  claude-hl 0.9.0 runs Claude with `CLAUDE_HL_PAINT=0` and wraps the
+  engine's kitty codes for tmux's passthrough (`allow-passthrough all`).
+  **(0.7.0)** `userConfig.screenshots` (boolean, default true; owner's
+  request 2026-10-12) turns all of it off: every screenshot row keeps the
+  engine's text body, in tmux and out, and a group no longer opens for
+  one. It follows `/config` live. The owner's shell reads the same option
+  (`pluginConfigs["glass@glass"].options.screenshots` in settings.json) to
+  skip claude-hl in tmux, so one switch covers both. Shape proved live with a probe mod
+  2026-10-12.
+  **(0.8.0)** Every picture Claude looked at, owner's pick 2026-10-12 after
+  30 days of transcripts showed 119 of 411 screenshots were JPEG (drawn as
+  text until now) and 329 image Reads (180 temp files Claude made, 143
+  project files, 6 the owner's own):
+  - Any format the model reads: PNG within 2 MiB draws as bytes; JPEG,
+    WebP, GIF or a bigger PNG is converted once with macOS `sips` to a PNG
+    (as it is, then at most 1600, then 1000 px a side, until it fits),
+    from the copy on disk (the engine's stored copy, or the file read)
+    else the bytes, into a private `$TMPDIR/glass-pictures-<uid>` (mode
+    700, files a day old go), kept per session. No `sips` (Linux): the
+    engine's text row stays.
+  - A Read of an image file draws too, but only one per group: the last
+    image read the person did not name in one of their own prompts (as
+    written or under `~`; a picture they fed Claude is never drawn back).
+    A folded group draws it under the group row and stays folded; an open
+    group under that Read's row; `/expand` draws every image read.
+  - Claude Code draws a finished turn's rows again at commit, and each
+    fresh draw sends its picture again (seen live: one Read sent twice).
+    Bytes only; the screen shows one picture.
 - A backgrounded Agent's or Bash command's result is one trunked `faint`
   line, `running in the background · ↓ to manage`.
 - A loaded skill's result is one trunked `faint` line, `skill loaded`,
@@ -468,7 +523,9 @@ and reply blocks interleaved as the model made them, then the
   own under one hover, named once at its head, the built-in tools on a
   line of their own, first-seen order; a live group's `N running...` sits
   on the lines with a running call, and the row ends in `…`. A group with
-  any errored call opens on its own and adds `· N failed` in `err`; a
+  any errored call opens on its own and adds `· N failed` in `err`;
+  **(0.6.0)** a group with a finished MCP call that returned a PNG opens
+  on its own too, so the picture never hides behind a count; a
   group with edits adds `· N edits` in `faint` (0.5.2; `[1 edit]` was the
   one bracketed count in the chrome). `/expand` opens every group, `/collapse` folds them again. No per-group
   button (the density pass, 2026-10-03; the press retest of 0.5.0 does not
@@ -892,10 +949,6 @@ Only glyphs the mod draws live here.
   unverified. Try after 0.5.0 ships; drop if it flickers.
 - Tool-result bodies in a theme color: the engine draws them stock gray
   wherever glass does not draw the body.
-- Pictures inline (MCP screenshots, image Reads): built in 0.6.0 to 0.8.0,
-  removed in 0.9.0 by the owner's choice, 2026-10-12. A picture scrolled
-  back up came back as an empty gap, and a long session that drew pictures
-  lost glass entirely (cause not logged). The engine's text row stays.
 
 ## Open live checks
 
