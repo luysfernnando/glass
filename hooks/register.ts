@@ -407,6 +407,8 @@ export const register: Register = (on, options) => {
   // the call before (a run of calls ends there), and what each call did
   const turnOrder = new Map<string, { id: string; tool: string; afterText: boolean; subject: string }[]>()
   const failedCalls = new Set<string>()
+  // each subagent's `textSinceCall`: whether it wrote text since its last call
+  const agentText = new Map<string, boolean>()
   // calls that launched a background task or agent, until its notification
   // or its turn.complete says it ended; keyed back from the task's id
   const backgroundCalls = new Set<string>()
@@ -1039,6 +1041,15 @@ export const register: Register = (on, options) => {
       if (id) liveCalls.set(id, { tool: e.tool, t0: await $.clock.now() })
       if (!ticker) ticker = $.clock.every(TICK_MS, () => void tick($, palette))
     }
+    // a subagent's calls run as the main loop's do, in a turn of its own
+    // (owner's request, 2026-10-28: its edits drew one row each)
+    const agentTurn = main ? '' : `agent:${e.agentId}`
+    if (!main && id) {
+      callTurn.set(id, agentTurn)
+      recordCall(agentTurn, { id, tool: e.tool, afterText: agentText.get(e.agentId!) ?? false, subject: callSubject(e) })
+      agentText.set(e.agentId!, false)
+      if (callRun(turnOrder.get(agentTurn)!, id).length > 1) $.ui.invalidate('ui.render')
+    }
     if (isEditTool(e.tool)) live.edits += 1
     const t0 = await $.clock.now()
     let r
@@ -1046,6 +1057,13 @@ export const register: Register = (on, options) => {
       r = await next(e)
     } finally {
       if (main && id) liveCalls.delete(id)
+    }
+    if (!main && id) {
+      callMs.set(id, (await $.clock.now()) - t0)
+      if (r.isError && !isDeclined(r.result)) failedCalls.add(id)
+      const made = editsMade(id, e, r)
+      if (made.length > 0) turnEdits.set(agentTurn, [...(turnEdits.get(agentTurn) ?? []), ...made])
+      if (callRun(turnOrder.get(agentTurn) ?? [], id).length > 1) $.ui.invalidate('ui.render')
     }
     if (main) {
       const ms = (await $.clock.now()) - t0
@@ -1069,17 +1087,7 @@ export const register: Register = (on, options) => {
       if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: failed ? 'failed' : 'ok', ms })
       // the run's row turns its mark
       if (id && turnId && callRun(turnOrder.get(turnId) ?? [], id).length > 1) $.ui.invalidate('ui.render')
-      const args = e as unknown as Record<string, unknown>
-      // the edits this call made: an Edit's or a Write's file, or each file
-      // a Bash command rewrote (sed, a script), keyed by call and file
-      const made: EditDone[] = []
-      if (id && !r.isError && (e.tool === 'Edit' || e.tool === 'Write') && typeof args.file_path === 'string') {
-        made.push({ id, key: id, file: args.file_path, output: r.result, input: { file_path: args.file_path } })
-      } else if (id && !r.isError && e.tool === 'Bash') {
-        for (const f of bashResult(r.result)?.files ?? []) {
-          if (f.hunks.length > 0) made.push(bashEditDone(id, f))
-        }
-      }
+      const made = id ? editsMade(id, e, r) : []
       if (turnId && made.length > 0) {
         const before = turnEdits.get(turnId) ?? []
         turnEdits.set(turnId, [...before, ...made])
@@ -1122,6 +1130,7 @@ export const register: Register = (on, options) => {
           }
         }
       }
+      if (chunk.kind === 'text' && e.agentId) agentText.set(e.agentId, true)
       if (chunk.kind === 'text' && !e.agentId) {
         // the first text after a call: the run above turns back to a tee
         if (!textSinceCall) $.ui.invalidate('ui.render')
@@ -1470,6 +1479,18 @@ type EditDone = { id: string; key: string; file: string; output: unknown; input:
 
 /** The turn's edits of an edit's file; `key`, `id`, the edit's own output. */
 type RunOf = (key: string, id: string, output: unknown) => EditDone[] | null
+
+/**
+ * The edits a call made: an Edit's or a Write's file, or each file a Bash
+ * command rewrote (sed, a script), keyed by call and file.
+ */
+function editsMade(id: string, call: { tool: string }, r: { isError?: boolean; result?: unknown }): EditDone[] {
+  if (r.isError) return []
+  const file = (call as unknown as Record<string, unknown>).file_path
+  if ((call.tool === 'Edit' || call.tool === 'Write') && typeof file === 'string') return [{ id, key: id, file, output: r.result, input: { file_path: file } }]
+  if (call.tool !== 'Bash') return []
+  return (bashResult(r.result)?.files ?? []).filter(f => f.hunks.length > 0).map(f => bashEditDone(id, f))
+}
 
 /** One file a Bash command rewrote, as an edit of its run. */
 function bashEditDone(id: string, f: ChangedFile): EditDone {
