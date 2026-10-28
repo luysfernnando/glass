@@ -117,12 +117,23 @@ export function hashOf(text: string): string {
 }
 
 // Whether the person named this file in one of their own prompts: a picture
-// they fed Claude is never drawn back (owner's rule, 2026-10-12). The path
-// as Claude read it, or the same under `~`.
+// they fed Claude is never drawn back (owner's rule, 2026-10-12). Claude
+// reads the real, full path, which is rarely what the person typed (live,
+// 2026-10-28: `/tmp/x.png` read as `/private/tmp/x.png`, `x.png in this
+// folder` read with its folder), so any of these counts: the path, the same
+// under `~`, the other side of macOS's `/private` links (`/tmp`, `/var`,
+// `/etc`), or the file's name on its own (a word of the prompt: `a.png`
+// names `/p/a.png`, not `/p/data.png`). A name another file shares keeps
+// that one back too, which only keeps a picture back.
 export function namedIn(prompts: readonly string[], path: string, home: string): boolean {
   if (path === '') return false
-  const tilde = home !== '' && path.startsWith(home + '/') ? '~' + path.slice(home.length) : null
-  return prompts.some(t => t.includes(path) || (tilde !== null && t.includes(tilde)))
+  const forms = new Set([path])
+  const alias = /^\/private\/(tmp|var|etc)\//.test(path) ? path.slice('/private'.length) : /^\/(tmp|var|etc)\//.test(path) ? '/private' + path : null
+  if (alias) forms.add(alias)
+  for (const f of [...forms]) if (home !== '' && f.startsWith(home + '/')) forms.add('~' + f.slice(home.length))
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  const word = name === '' ? null : new RegExp(`(^|[\\s'"\`(\\[<{/:=])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s'"\`)\\]>},;:!?]|\\.(?!\\w))`)
+  return prompts.some(t => [...forms].some(f => t.includes(f)) || (word !== null && word.test(t)))
 }
 
 type Call = { tool_use_id?: string; tool: string; input?: unknown; output?: unknown; isRunning?: boolean; isErrored?: boolean }
@@ -131,17 +142,20 @@ export const readPath = (input: unknown) => {
   return typeof p === 'string' ? p : ''
 }
 
-// The one Read in a group whose picture draws: the last that returned an
-// image the person did not name. A run of reads draws one picture, not one
-// each; /expand draws them all.
-export function lastPictureRead(calls: readonly Call[], named: (path: string) => boolean): string | null {
+// The Reads in a group whose picture may draw, newest first: each returned
+// an image the person did not name. The group draws the first of them that
+// can draw (a JPEG with no sips cannot), one picture, not one each; /expand
+// draws them all.
+export function pictureReadOrder(calls: readonly Call[], named: (path: string) => boolean): string[] {
+  const order: string[] = []
   for (let i = calls.length - 1; i >= 0; i--) {
     const c = calls[i]!
     if (c.tool !== 'Read' || c.isRunning || c.isErrored || typeof c.tool_use_id !== 'string') continue
-    if (pictureOf(c.output) !== null && !named(readPath(c.input))) return c.tool_use_id
+    if (pictureOf(c.output) !== null && !named(readPath(c.input))) order.push(c.tool_use_id)
   }
-  return null
+  return order
 }
+export const lastPictureRead = (calls: readonly Call[], named: (path: string) => boolean): string | null => pictureReadOrder(calls, named)[0] ?? null
 
 // The picture's box in cells, aspect kept: a cell is about twice as tall
 // as it is wide. Never wider than `maxCols`, never taller than `maxRows`.

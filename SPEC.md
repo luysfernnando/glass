@@ -463,9 +463,14 @@ and reply blocks interleaved as the model made them, then the
   - A group opens for an MCP screenshot only once it converts and draws;
     one glass cannot draw (`image/bmp`, no `sips`) keeps the group folded
     (0.17.0).
-  - A Read of an image file draws too, but only one per group: the last
-    image read the person did not name in one of their own prompts (as
-    written or under `~`; a picture they fed Claude is never drawn back).
+  - A Read of an image file draws too, but only one per group: the newest
+    image read the person did not name in one of their own prompts and
+    that can draw (a JPEG with no `sips` gives way to an older PNG, 0.17.0;
+    a picture they fed Claude is never drawn back). Named means the prompt
+    holds the path, the same under `~`, the other side of macOS's
+    `/private` links (`/tmp`, `/var`, `/etc`), or the file's name as a word
+    of its own (0.17.0: Claude reads `/tmp/x.png` as `/private/tmp/x.png`
+    and `x.png in this folder` with its folder, live 2026-10-28).
     A folded group draws it under the group row and stays folded; an open
     group under that Read's row, and only that one: a Read chosen while the
     group was shorter gives way (0.17.0); `/expand` draws every image read.

@@ -12,7 +12,7 @@ import type { Palette, PaletteName } from './palette'
 import { themeFileName, themeFor, themeJson, themeSetting } from './theme'
 import { writeIntent } from './prose'
 import { renderReply } from './render'
-import { CONVERTIBLE, hashOf, lastPictureRead, namedIn, pictureOf, readPath, shotFromPng } from './shot'
+import { CONVERTIBLE, hashOf, namedIn, pictureOf, pictureReadOrder, readPath, shotFromPng } from './shot'
 import type { Picture, Shot } from './shot'
 
 // The turns this session, newest last. A user row finds its own turn in
@@ -652,7 +652,19 @@ export const register: Register = (on, options) => {
     for (const c of e.props.calls) if (c.tool === 'Read') noteRead(mem, c.tool_use_id, c.input)
     // a group with no Read picture never waits on the conversation
     const readPictures = shotsOn && !inTmux && e.props.calls.some((c: { tool: string; output?: unknown }) => c.tool === 'Read' && pictureOf(c.output) !== null)
-    const chosen = readPictures && (await loadHistory($, mem)) ? lastPictureRead(e.props.calls, path => isNamed(mem, path)) : null
+    // the newest Read picture that draws: a JPEG with no sips gives way to
+    // an older PNG rather than leave the group with none
+    let chosen: string | null = null
+    if (readPictures && (await loadHistory($, mem))) {
+      for (const id of pictureReadOrder(e.props.calls, path => isNamed(mem, path))) {
+        const c = e.props.calls.find((call: { tool_use_id?: string }) => call.tool_use_id === id)
+        const pic = c ? pictureOf(c.output, readPath(c.input)) : null
+        if (pic && (await shotFor($, pic))) {
+          chosen = id
+          break
+        }
+      }
+    }
     // one picture per group: a Read chosen while the group was shorter gives
     // way to the one chosen now
     for (const c of e.props.calls) if (c.tool === 'Read' && typeof c.tool_use_id === 'string' && c.tool_use_id !== chosen) pictureReads.delete(c.tool_use_id)

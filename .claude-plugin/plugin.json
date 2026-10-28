@@ -26,7 +26,7 @@
     "screenshots": {
       "type": "boolean",
       "title": "Screenshots",
-      "description": "Draw the screenshots MCP tools return (chrome-devtools, Figma) under their row; off keeps the text row, in tmux too",
+      "description": "Draw the pictures Claude looks at under their row: screenshots MCP tools return (chrome-devtools, Figma) and images it reads, never one you named. Off keeps the text row",
       "default": true
     }
   }

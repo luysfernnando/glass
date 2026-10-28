@@ -514,3 +514,39 @@ test('0.17.0: each conversion run writes its own scratch files and removes them'
   // the retry's scratch files go once it is done
   expect(runs.some(r => r.argv[0] === 'rm' && r.argv.includes(sources[1]!))).toBe(true)
 })
+
+// ---- 0.17.0: the live long run's findings ---------------------------------
+test('0.17.0: a file the person named counts however Claude spells its path', () => {
+  const H = '/Users/me'
+  // Claude reads the real path behind /tmp, and the full path of a bare name
+  expect(namedIn(['Use the Read tool on /tmp/qa/pic-20.png.'], '/private/tmp/qa/pic-20.png', H)).toBe(true)
+  expect(namedIn(['open /private/var/x/b.png'], '/var/x/b.png', H)).toBe(true)
+  expect(namedIn(['Use the Read tool on pic-21.png in this folder.'], '/private/tmp/qa/pic-21.png', H)).toBe(true)
+  expect(namedIn(['see `shots/a.png`', '(c(1).png)'], '/Users/me/p/shots/a.png', H)).toBe(true)
+  expect(namedIn(['(c(1).png)'], '/p/c(1).png', H)).toBe(true)
+  expect(namedIn(['look at a.png.'], '/p/a.png', H)).toBe(true)
+  // a name inside another word, or with more after it, is another file
+  expect(namedIn(['the file data.png is fine'], '/p/a.png', H)).toBe(false)
+  expect(namedIn(['look at a.png.bak'], '/p/a.png', H)).toBe(false)
+  expect(namedIn(['look at mya.png'], '/p/a.png', H)).toBe(false)
+})
+
+test('0.17.0: a group whose newest picture cannot draw shows an older one that can', async ($, on) => {
+  on('ui.render', { component: 'ToolGroup' }, (engine, e) => engine.ui.resolve(e).Text({ children: [e.props.isExpanded ? 'opened' : 'folded'] }) as never)
+  conversation(on, [])
+  // no sips: every conversion fails
+  on('process.run', ((_: unknown, e: { argv: readonly string[] }) => {
+    if (e.argv[0] === 'sh' && /mkdir/.test(e.argv[2] ?? '')) return { value: { exitCode: 0, stdout: DIR, stderr: '' } }
+    if (e.argv[0] === 'sips') return { value: { exitCode: 127, stdout: '', stderr: 'sips: command not found' } }
+    return { value: { exitCode: 0, stdout: '', stderr: '' } }
+  }) as never)
+  on('fs.stat', ((_: unknown, e: { path: string }) => ({ deny: `no such file: ${e.path}` })) as never)
+  const png = readCall('mix-png', '/tmp/mix/16.png', PNG_2PX)
+  const jpeg = readCall('mix-jpg', '/tmp/mix/15.jpg', 'A15jpeg', 'image/jpeg')
+  const g = await $.ui.mount({ plugin: 'glass', surface: 'terminal', component: 'ToolGroup', props: { calls: [png, jpeg], isActive: false, isExpanded: false } })
+  const images = await g.findAll({ type: 'Image' })
+  expect(images).toHaveLength(1)
+  expect((images[0] as { props?: { source?: unknown } }).props?.source).toEqual({ png: PNG_2PX })
+  expect(await g.find({ type: 'Text', text: /opened/ })).toBeUndefined()
+  await g.unmount()
+})
