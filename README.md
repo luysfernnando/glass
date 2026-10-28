@@ -76,6 +76,15 @@ The same turn under each palette: pick one with `/config` under Glass.
   card with the file in its top border, `╭─ SPEC.md +1 -1 ───╮`: one
   number column, `+` and `-` rows on a quiet tint, one context line each
   side, the code painted the same way, the frame on the tree trunk.
+- **Pictures inline.** A screenshot an MCP tool returns (chrome-devtools
+  `take_screenshot`, a Figma screenshot) draws on the trunk under its row,
+  so you see what Claude saw; so does an image file Claude reads, one per
+  run of reads (the last; `/expand` shows them all), never one you named in
+  your own prompt. JPEG, WebP and GIF are converted to PNG with macOS
+  `sips`. Ghostty or kitty, plain or inside [sluice](https://github.com/rashedInt32/sluice).
+  Inside tmux the row keeps its text, unless `CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1`
+  says the pictures reach the terminal. Off with the `screenshots` option
+  under Glass in `/config`.
 - **Headings, lists, quotes, tables.** Bold colored headings with no rules,
   `•` `◦` `☐` `☑` markers, a quote bar, borderless tables with aligned
   columns and right-aligned numbers. A table a little too wide squeezes
@@ -144,6 +153,13 @@ Claude Code 2.1.295 or newer. On an older engine glass still loads: the
 notification falls back to a toast, summary and server tool rows need
 props that older engines do not send, and the rest is unchanged.
 
+Inside tmux, set `CLAUDE_CODE_NO_FLICKER=1` (in `env` of
+`~/.claude/settings.json`). Claude Code draws on tmux's main screen by
+default, and there a reply taller than the screen is printed twice: the
+engine draws the streamed text, glass redraws the finished reply, and the
+engine cannot reach rows already in scrollback. The fullscreen layout has
+no scrollback to strand them in.
+
 Restart Claude Code. Pick a palette with `/config` under Glass: `tidepool`
 (default), `tarnish`, `overprint`, `ironbow`, `lagoon`, `iris`, `tangerine` and `prism` (glass's own), `prism-light` and `tangerine-light` (glass's own, for a light terminal), `water` (Empryo's own proxysoul-water tokens), `crimson` (Empryo's crimson
 world, "the heart", from empryo.com's own CSS) or `codex`.
@@ -186,6 +202,9 @@ paints the fixtures before and after in the terminal, and `bun
 scripts/readme-shots.ts` shoots the palette screenshots above with
 headless Chrome; both draw through `scripts/paint.ts`. CI runs it on every push and pull request, without tsc:
 the types only exist once the engine has loaded the plugin.
+`scripts/plain-ghostty.sh` opens a Ghostty window outside tmux running
+Claude with this checkout (the installed glass off), to see screenshots as
+plain Ghostty draws them; `GLASS_DEBUG=<file>` adds a debug log.
 
 Every non-ASCII glyph is built from a code point in `hooks/glyphs.ts`.
 Literals outside ASCII are forbidden in `hooks/`: the tool path that

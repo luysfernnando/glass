@@ -14,6 +14,8 @@ import { paintLine } from './output'
 import type { Palette } from './palette'
 import { measure } from './render'
 import { shellSpans } from './shell'
+import { shotBox } from './shot'
+import type { Shot } from './shot'
 import { THEME } from './theme'
 import { cellWidth, clipPath } from './width'
 
@@ -62,10 +64,15 @@ export function fmtCost(usd: number): string {
   return `$${usd.toFixed(2)}`
 }
 
-// a Text string the API accepts: tab and newline are the only controls
+// a Text string the API accepts: tab and newline are the only controls.
+// The cut never splits a surrogate pair.
 export function safeText(s: string, max = MAX_TEXT): string {
   const clean = s.replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
-  return clean.length > max ? clean.slice(0, max - 1) + G.ellipsis : clean
+  if (clean.length <= max) return clean
+  let end = max - 1
+  const last = clean.charCodeAt(end - 1)
+  if (last >= 0xd800 && last <= 0xdbff) end--
+  return clean.slice(0, end) + G.ellipsis
 }
 
 // cut to `n` cells with an ellipsis
@@ -1083,6 +1090,25 @@ export function renderSkillLoad(t: Table, p: Palette, output: unknown): RenderEl
   if (Array.isArray(o.allowedTools) && o.allowedTools.length > 0) parts.push(`${plural(o.allowedTools.length, 'tool')} allowed`)
   if (typeof o.model === 'string' && o.model !== '') parts.push(safeText(o.model, 80))
   return trunked(t, p, 1, [t.Text({ color: p.faint, wrap: 'truncate-end', children: [parts.join(sep)] })])
+}
+
+// rows a screenshot takes at most: enough to read a page, short enough to
+// keep the turn's tree on one screen
+const SHOT_ROWS_MAX = 24
+// columns a screenshot takes at most, so a wide terminal does not blow it up
+const SHOT_COLS_MAX = 100
+
+// The cells an MCP screenshot takes under its row: aspect kept, at most
+// SHOT_COLS_MAX wide and SHOT_ROWS_MAX (or 60% of the screen) tall.
+export function shotCells(shot: Shot, columns: number, rows: number): { columns: number; rows: number } {
+  const room = Math.max(10, Math.min(SHOT_COLS_MAX, columns - 2 * TREE_INSET - TRUNK))
+  return shotBox(shot.width, shot.height, room, Math.max(6, Math.min(SHOT_ROWS_MAX, Math.floor(rows * 0.6))))
+}
+
+// An MCP screenshot, in place of the engine's text body: the picture on the
+// trunk (0.6.0), the engine's Image, whose `alt` shows where it cannot draw.
+export function renderShot(t: Table, p: Palette, shot: Shot, box: { columns: number; rows: number }): RenderElement {
+  return trunked(t, p, box.rows, [t.Image({ source: shot.source, columns: box.columns, rows: box.rows, alt: `screenshot ${shot.width}x${shot.height}` })])
 }
 
 // A failed non-Bash call's error, in place of the engine's body (its corner

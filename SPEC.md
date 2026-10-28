@@ -94,7 +94,9 @@ docs/shots/        (0.10.0) one demo turn per palette, 100 columns on the owner'
   renderer, so: reply text is normalized on entry (CRLF to LF, C0 controls
   other than tab and newline removed); Text and Code strings stay under
   10000 characters (a longer run goes as several strings in one Text);
-  `Link` only gets `https:` or `http://localhost` hrefs. Known limit: a
+  a cut, whether a split or `safeText`'s ellipsis, never splits a
+  surrogate pair (0.16.1; the engine fixed the same in its tool output
+  previews in 2.1.309); `Link` only gets `https:` or `http://localhost` hrefs. Known limit: a
   reply tree past the engine's 100,000 serialized characters is refused
   whole and drawn by the engine.
 - Render hooks for tree rows (`ToolUse`, `ToolResult`, `ToolGroup`) read no
@@ -105,6 +107,14 @@ docs/shots/        (0.10.0) one demo turn per palette, 100 columns on the owner'
   `/unfold`, `/expand`, `/collapse` call `$.ui.invalidate('ui.render')`. A
   hot reload empties the records until the next turn. The user row's dots
   line and the `TurnDuration` row subscribe (one row each per turn).
+- A reply streams with no `ui.render` dispatch: the engine draws the
+  streamed text, and glass's `AssistantMessage` hook runs once, as the
+  reply ends. On the main screen (tmux by default, `isFullscreen: false`)
+  a reply taller than the screen then prints twice, the engine's streamed
+  copy left in scrollback above glass's (2026-10-12, 2.1.296, `--debug`
+  run). `CLAUDE_CODE_NO_FLICKER=1` puts tmux on the fullscreen layout and
+  the duplicate goes (live, 2026-10-12). Handing tall replies back to the
+  engine on the main screen was not taken: it drops the styling.
 - A finished reply's parse is kept (the newest 64 by text), so `/fold`,
   resizes and palette changes do not parse every reply again. Links, URLs
   and code words are matched in place.
@@ -405,6 +415,84 @@ and reply blocks interleaved as the model made them, then the
   the trunk, the rest a `faint` `… +N lines`, in place of the engine's
   `Error editing file` and its corner bracket. The `[Image #N]` row under
   an image prompt is still the engine's.
+- **(0.6.0)** An MCP result carrying a PNG (chrome-devtools
+  `take_screenshot`, a Figma screenshot) draws the picture on the trunk in
+  place of the engine's text body, so the person sees what Claude read:
+  an `Image` of the base64 bytes (at most 2 MiB), else the stored copy the
+  engine names in its `[Image: source: <path>, ...]` block. Bytes first: a
+  file source drew its alt in Ghostty under tmux (live, 2026-10-12), and
+  the engine draws a file source only once the terminal says it reads this
+  machine's files. Aspect kept, at most 100 columns and 24 rows (or 60% of the
+  screen's rows), alt `screenshot WxH`. A JPEG or WebP keeps the engine's
+  body: `Image` takes PNG or raw pixels only. A grouped row draws it under
+  its `ToolUse` row, as the diff card does. Needs Ghostty or kitty,
+  outside tmux: inside it the engine draws no Image (2.1.296,
+  `kittyGraphics=no (env: inside tmux or screen)`; forced on with
+  `CLAUDE_CODE_FORCE_TERMINAL_IMAGES` the picture still never reached
+  Ghostty), and a mod cannot draw one itself (the engine refuses kitty's
+  placeholder cell U+10EEEE in a Text, and a Raster takes BMP glyphs
+  only), so inside tmux the engine's text body stays and the group stays
+  folded (2026-10-12). **(0.6.1)** Unless `CLAUDE_CODE_FORCE_TERMINAL_IMAGES`
+  is set: the person vouches that pictures get through. **(0.17.0)**
+  sluice passes the engine's kitty codes through as they are, so pictures
+  draw there with no switch (live, Ghostty 1.4, engine 2.1.312).
+  **(0.7.0)** `userConfig.screenshots` (boolean, default true; owner's
+  request 2026-10-12) turns all of it off: every screenshot row keeps the
+  engine's text body, in tmux and out, and a group no longer opens for
+  one. It follows `/config` live. Shape proved live with a probe mod
+  2026-10-12.
+  **(0.8.0)** Every picture Claude looked at, owner's pick 2026-10-12 after
+  30 days of transcripts showed 119 of 411 screenshots were JPEG (drawn as
+  text until now) and 329 image Reads (180 temp files Claude made, 143
+  project files, 6 the owner's own):
+  - Any format the model reads: PNG within 2 MiB draws as bytes; JPEG,
+    WebP, GIF or a bigger PNG is converted once with macOS `sips` to a PNG
+    (as it is, then 75%, 50%, 35% of its own longest side, until it
+    weighs 2 MiB or less; never larger than it came), from the bytes
+    Claude read (written through stdin, never argv, never the file on
+    disk, which may have changed), into a private
+    `$TMPDIR/glass-pictures-<uid>` (mode 700, files a day old go), kept
+    per session keyed by those bytes: a file read twice draws what each
+    read saw (0.17.0). No `sips` (Linux): the engine's text row stays.
+    Conversions run one at a time, each with its own 8 s from when it
+    starts (not while it waits its turn); one past that frees the queue
+    and leaves the cache, so the next draw tries again. Each run writes
+    its own scratch files (a random suffix) and removes them; the PNG is
+    moved into place under the bytes' name, where a later load (a resume,
+    a reload) reads it back with no `sips`.
+  - A group opens for an MCP screenshot only once it converts and draws;
+    one glass cannot draw (`image/bmp`, no `sips`) keeps the group folded
+    (0.17.0).
+  - A Read of an image file draws too, but only one per group: the newest
+    image read the person did not name in one of their own prompts and
+    that can draw (a JPEG with no `sips` gives way to an older PNG, 0.17.0;
+    a picture they fed Claude is never drawn back). Named means the prompt
+    holds the path, the same under `~`, the other side of macOS's
+    `/private` links (`/tmp`, `/var`, `/etc`), or the file's name as a word
+    of its own (0.17.0: Claude reads `/tmp/x.png` as `/private/tmp/x.png`
+    and `x.png in this folder` with its folder, live 2026-10-28).
+    A folded group draws it under the group row and stays folded; an open
+    group under that Read's row, and only that one: a Read chosen while the
+    group was shorter gives way (0.17.0); `/expand` draws every image read.
+  - Which files the person named, and each Read's file (0.17.0): a
+    `ToolResult` row carries no input, so each Read's `file_path` is kept
+    by `tool_use_id` from `tool.call`, the ToolUse and ToolGroup rows, and
+    the conversation. Before its first Read picture a load reads the
+    conversation once (`$.session.messages()`): a resumed session's
+    prompts and reads count. Every user message there counts as named
+    (a task notification's too, which only keeps a picture back); from
+    `prompt.submit` every prompt counts but those a machine wrote
+    (`task-notification`, `peer`, `peer-send-message`, `projects-relay`,
+    `coordinator`, `observer`, `observer-activity`, `auto-continuation`).
+    Up to 4096 prompts, no 48 cap. A Read whose file is unknown, or a
+    load whose conversation read failed, keeps the engine's row; a failed
+    read tries again on the next draw. A draw waits on the read 2 s at
+    most (then the engine's row; a later draw finds it done), and once
+    done no draw waits again. Only a Read of an image waits on it: a
+    text Read, and a group with no Read picture, never do.
+  - Claude Code draws a finished turn's rows again at commit, and each
+    fresh draw sends its picture again (seen live: one Read sent twice).
+    Bytes only; the screen shows one picture.
 - A backgrounded Agent's or Bash command's result is one trunked `faint`
   line, `running in the background · ↓ to manage`.
 - A loaded skill's result is one trunked `faint` line, `skill loaded`,
@@ -471,7 +559,9 @@ and reply blocks interleaved as the model made them, then the
   own under one hover, named once at its head, the built-in tools on a
   line of their own, first-seen order; a live group's `N running...` sits
   on the lines with a running call, and the row ends in `…`. A group with
-  any errored call opens on its own and adds `· N failed` in `err`; a
+  any errored call opens on its own and adds `· N failed` in `err`;
+  **(0.6.0)** a group with a finished MCP call that returned a PNG opens
+  on its own too, so the picture never hides behind a count; a
   group with edits adds `· N edits` in `faint` (0.5.2; `[1 edit]` was the
   one bracketed count in the chrome). `/expand` opens every group, `/collapse` folds them again. No per-group
   button (the density pass, 2026-10-03; the press retest of 0.5.0 does not
@@ -896,10 +986,6 @@ Only glyphs the mod draws live here.
   unverified. Try after 0.5.0 ships; drop if it flickers.
 - Tool-result bodies in a theme color: the engine draws them stock gray
   wherever glass does not draw the body.
-- Pictures inline (MCP screenshots, image Reads): built in 0.6.0 to 0.8.0,
-  removed in 0.9.0 by the owner's choice, 2026-10-12. A picture scrolled
-  back up came back as an empty gap, and a long session that drew pictures
-  lost glass entirely (cause not logged). The engine's text row stays.
 
 ## Open live checks
 
