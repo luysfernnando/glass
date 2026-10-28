@@ -550,3 +550,18 @@ test('0.17.0: a group whose newest picture cannot draw shows an older one that c
   expect(await g.find({ type: 'Text', text: /opened/ })).toBeUndefined()
   await g.unmount()
 })
+
+test('0.17.0: an open group that picks its picture after the Read\'s row drew redraws that row with it', async ($, on) => {
+  on('ui.render', { component: 'ToolGroup' }, (engine, e) => engine.ui.resolve(e).Text({ children: ['engine group'] }) as never)
+  conversation(on, [])
+  const glob = { tool_use_id: 'late-g', tool: 'Glob', input: {}, isRunning: false, isErrored: true, isInterrupted: false, output: 'No such tool available: Glob' }
+  const read = readCall('late-r', '/tmp/late/zeta.png')
+  // the Read's row draws first, before the group has chosen anything
+  const row = await $.ui.mount({ plugin: 'glass', surface: 'terminal', component: 'ToolUse', props: read })
+  expect(await row.find({ type: 'Image' })).toBeUndefined()
+  // the failed Glob opens the group, which now chooses the Read
+  const g = await $.ui.mount({ plugin: 'glass', surface: 'terminal', component: 'ToolGroup', props: { calls: [glob, read], isActive: true, isExpanded: false } })
+  await g.unmount()
+  expect(await row.find({ type: 'Image' })).toBeDefined()
+  await row.unmount()
+})

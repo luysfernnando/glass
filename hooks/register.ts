@@ -668,9 +668,13 @@ export const register: Register = (on, options) => {
     // one picture per group: a Read chosen while the group was shorter gives
     // way to the one chosen now
     for (const c of e.props.calls) if (c.tool === 'Read' && typeof c.tool_use_id === 'string' && c.tool_use_id !== chosen) pictureReads.delete(c.tool_use_id)
+    // a choice made after the chosen Read's own row drew (an open group's
+    // rows draw as each call ends): redraw once so that row takes the picture
+    const fresh = chosen !== null && !pictureReads.has(chosen)
     if (chosen) pictureReads.add(chosen)
     if (e.props.isExpanded) {
       remember(grouped, e.props.calls)
+      if (fresh) $.ui.invalidate('ui.render')
       return next(e)
     }
     const first = e.props.calls.find((c: { tool_use_id?: string }) => typeof c.tool_use_id === 'string')
@@ -695,6 +699,7 @@ export const register: Register = (on, options) => {
     }
     if (expandAllNow || failed || shot) {
       remember(grouped, e.props.calls)
+      if (fresh) $.ui.invalidate('ui.render')
       return next({ ...e, props: { ...e.props, isExpanded: true } })
     }
     const t = $.ui.resolve(e)
