@@ -485,11 +485,19 @@ export const register: Register = (on, options) => {
   let expandAllNow = false
   // the module records keep the turns the atoms keep: past HISTORY turns
   // the oldest turn's calls go, so a long session does not grow them forever
+  // the main loop's turns and the subagents' (`agent:<id>`) each keep
+  // HISTORY: a session of many agents never pushes the main turns out
   const forgetOldTurns = () => {
-    for (const [old, list] of turnOrder) {
-      if (turnOrder.size <= HISTORY) break
-      turnOrder.delete(old)
-      foldedTurns.delete(old)
+    const keys = [...turnOrder.keys()]
+    const agents = keys.filter(isAgentTurn)
+    const mains = keys.filter(k => !isAgentTurn(k))
+    const old = [...mains.slice(0, Math.max(0, mains.length - HISTORY)), ...agents.slice(0, Math.max(0, agents.length - HISTORY))]
+    for (const k of old) {
+      const list = turnOrder.get(k) ?? []
+      turnOrder.delete(k)
+      turnEdits.delete(k)
+      foldedTurns.delete(k)
+      if (isAgentTurn(k)) agentText.delete(k.slice('agent:'.length))
       for (const c of list) {
         callTurn.delete(c.id)
         callMs.delete(c.id)
@@ -1045,9 +1053,11 @@ export const register: Register = (on, options) => {
     // (owner's request, 2026-10-28: its edits drew one row each)
     const agentTurn = main ? '' : `agent:${e.agentId}`
     if (!main && id) {
+      const isNew = !turnOrder.has(agentTurn)
       callTurn.set(id, agentTurn)
       recordCall(agentTurn, { id, tool: e.tool, afterText: agentText.get(e.agentId!) ?? false, subject: callSubject(e) })
       agentText.set(e.agentId!, false)
+      if (isNew) forgetOldTurns()
       if (callRun(turnOrder.get(agentTurn)!, id).length > 1) $.ui.invalidate('ui.render')
     }
     if (isEditTool(e.tool)) live.edits += 1
@@ -1091,7 +1101,6 @@ export const register: Register = (on, options) => {
       if (turnId && made.length > 0) {
         const before = turnEdits.get(turnId) ?? []
         turnEdits.set(turnId, [...before, ...made])
-        if (turnEdits.size > HISTORY) turnEdits.delete(turnEdits.keys().next().value!)
         // the run's first row counts this edit now: rows read module
         // records, not an atom, so they redraw only when asked
         if (before.length > 0) $.ui.invalidate('ui.render')
@@ -1490,6 +1499,11 @@ function editsMade(id: string, call: { tool: string }, r: { isError?: boolean; r
   if ((call.tool === 'Edit' || call.tool === 'Write') && typeof file === 'string') return [{ id, key: id, file, output: r.result, input: { file_path: file } }]
   if (call.tool !== 'Bash') return []
   return (bashResult(r.result)?.files ?? []).filter(f => f.hunks.length > 0).map(f => bashEditDone(id, f))
+}
+
+/** A subagent's turn key (`agent:<agentId>`), not a main-loop turn's id. */
+function isAgentTurn(key: string): boolean {
+  return key.startsWith('agent:')
 }
 
 /** One file a Bash command rewrote, as an edit of its run. */
