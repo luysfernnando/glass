@@ -277,6 +277,17 @@ docs/shots/        (0.10.0) one demo turn per palette, 100 columns on the owner'
   sized to its longest row (floor 60, cap M); a `calloutBar` `▎` on every
   row. Compact: no padding rows, no blank rows (both tried, too bulky).
   Labels padded to 8 then two spaces; row text in `calloutText`.
+- **(0.18.0)** Prompt tip card: a quote whose first line is
+  `**<glyph> Prompt tip:** reason` (glyph optional, colon in or out of the
+  bold) is drawn as the Bottom line card, not a quote. The reason is the
+  `Why` row; every later line, joined, is the `Try` row (the rewritten
+  prompt). Title `✎ Prompt tip`; title, bar and `Why` in `mark` so it never
+  reads as a Bottom line; `Try` label and text in `ok`, the text
+  italic, so the rewrite reads as the better version (0.18.1; 0.18.0 used
+  `accentUser`, which in prism is coral beside the error red and read as a
+  failure). Labels padded to
+  3. Monotonic like the Bottom line: the head line alone is a card. Any
+  other quote stays a quote. Approved by screenshot 2026-10-29.
 - Rule: `─` repeated to min(M, 60) in `rule`.
 - Raw html: the engine's `Markdown`.
 - **(0.5.0)** Summary reply: an `AssistantMessage` whose props carry
@@ -436,10 +447,12 @@ and reply blocks interleaved as the model made them, then the
   is set: the person vouches that pictures get through. **(0.17.0)**
   sluice passes the engine's kitty codes through as they are, so pictures
   draw there with no switch (live, Ghostty 1.4, engine 2.1.312).
-  **(0.7.0)** `userConfig.screenshots` (boolean, default true; owner's
-  request 2026-10-12) turns all of it off: every screenshot row keeps the
+  **(0.7.0)** `userConfig.screenshots` (boolean; owner's request
+  2026-10-12) turns all of it off: every screenshot row keeps the
   engine's text body, in tmux and out, and a group no longer opens for
-  one. It follows `/config` live. Shape proved live with a probe mod
+  one. It follows `/config` live. **(0.17.1)** Off by default (owner's
+  pick 2026-10-28: a devtools run takes a screenshot each step, and drawn
+  they buried the turn's result); only `true` (or `"true"`) turns it on. Shape proved live with a probe mod
   2026-10-12.
   **(0.8.0)** Every picture Claude looked at, owner's pick 2026-10-12 after
   30 days of transcripts showed 119 of 411 screenshots were JPEG (drawn as
