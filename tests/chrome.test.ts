@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { CLOCK_CELLS, callRun, callScope, renderActivityRow, activitySummary, promptWidth, renderPromptBubble, renderReplyBubble, renderCallRow, renderCallCard, outputPreview, CARD_LINES, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderPluginRow, renderToolOutput, rel, safeText, setCwd, setHome, shortPath, clip, fmtDuration, renderServerToolRows, renderSkillLoad, toolLabel } from '../hooks/chrome'
+import { CLOCK_CELLS, callRun, callScope, renderActivityRow, activitySummary, promptWidth, renderPromptBubble, renderReplyBubble, CLAUDE_ORANGE, renderCallRow, renderCallCard, outputPreview, CARD_LINES, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderPluginRow, renderToolOutput, rel, safeText, setCwd, setHome, shortPath, clip, fmtDuration, renderServerToolRows, renderSkillLoad, toolLabel } from '../hooks/chrome'
 import type { RunCall } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { codeColor, highlight, highlightLine, langOf } from '../hooks/highlight'
@@ -808,7 +808,7 @@ test('prompt bubble: a small label over a right-aligned round box, width capped 
   expect(flat(bubble)).not.toContain(G.rule)
 })
 
-test('reply bubble: a full-accent round frame; the Claude label on the first bubble only', () => {
+test('reply bubble: an orange round frame; the Claude label on the first bubble only', () => {
   const body = [t.Text({ children: ['answer'] })] as RenderElement[]
   const first = renderReplyBubble(t, p, body, true)
   const next = renderReplyBubble(t, p, body, false)
@@ -816,7 +816,7 @@ test('reply bubble: a full-accent round frame; the Claude label on the first bub
   expect(flat(next)).toBe('answer')
   const frame = elements(first).find(n => n.props.borderStyle === 'round')
   expect(frame?.props.borderDimColor).toBeUndefined()
-  expect(frame?.props.borderColor).toBe(p.accent)
+  expect(frame?.props.borderColor).toBe(CLAUDE_ORANGE)
   expect(flat(renderReplyBubble(t, p, body, false, [t.Text({ children: ['extra'] })] as RenderElement[]))).toBe('answerextra')
 })
 

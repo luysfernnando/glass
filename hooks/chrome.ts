@@ -217,18 +217,21 @@ export function renderPromptBubble(t: Table, p: Palette, content: RenderNode[], 
   })
 }
 
-/** a reply's dim round frame; `first` adds the `<disc> Claude` label above it */
+/** Claude Code's own brand orange (theme `claude`, rgb 215 119 87): the reply bubble's color in every palette */
+export const CLAUDE_ORANGE = '#d77757'
+
+/** a reply's orange round frame; `first` adds the `<disc> Claude` label above it */
 export function renderReplyBubble(t: Table, p: Palette, body: RenderElement[], first: boolean, extra: RenderElement[] = []): RenderElement {
   return t.Box({
     key: 'reply',
     flexDirection: 'column',
     children: [
-      ...(first ? [t.Text({ color: p.accent, weight: 'bold', children: [G.disc + ' Claude'] })] : []),
+      ...(first ? [t.Text({ color: CLAUDE_ORANGE, weight: 'bold', children: [G.disc + ' Claude'] })] : []),
       t.Box({
         flexDirection: 'column',
         borderStyle: 'round',
-        borderColor: p.accent,
-        backgroundColor: blend(p.blockBg, p.accent, 0.06),
+        borderColor: CLAUDE_ORANGE,
+        backgroundColor: blend(p.blockBg, CLAUDE_ORANGE, 0.06),
         paddingX: 1,
         children: [...body, ...extra],
       }),
