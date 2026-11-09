@@ -350,7 +350,13 @@ Ported from prismantis 0.40.0 (MIT; THIRD_PARTY.md) with its defaults:
   key (its first 40 non-space characters). Then:
   - claimed span (a reply follows): its head row and ToolGroup draw
     nothing; the reply's `AssistantMessage` draws the line inside its
-    bubble, under the text, through `renderReplyBubble`'s `extra`. Several
+    bubble, under the text, through `renderReplyBubble`'s `extra`.
+    Opened, its cards follow the line inside the same bubble (owner's
+    request 2026-11-09: cards above the bubble read out of order); the
+    `ToolUse`, `ToolGroup` and `ToolResult` rows of a claimed span draw
+    nothing, and the cards draw from the props those rows last saw
+    (`callProps`), a change redrawing the bubble. A picture of a claimed
+    span does not draw in the bubble. Several
     text and tool segments give one bubble per text, each with the line of
     the calls before it; no orphan rows;
   - unclaimed span of a turn (calls, no text yet): the head row draws the
@@ -361,8 +367,7 @@ Ported from prismantis 0.40.0 (MIT; THIRD_PARTY.md) with its defaults:
     tracked span.
   - Limits: the bubble ends when the reply streams (the engine draws
     streamed text itself; glass's `AssistantMessage` runs when it ends);
-    the opened cards still draw where the calls are, above the bubble
-    (only the line is inside); replies that open with the same 40
+    replies that open with the same 40
     characters in different turns can swap claims.
 
 - There is no tool tree. A span is the run of calls between two reply
