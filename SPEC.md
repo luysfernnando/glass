@@ -17,7 +17,7 @@ Glass is a Claude Code mod (function-hooks plugin) that redraws the
 terminal transcript the way a desktop client draws a chat: colored shell
 commands in prose, a Bottom line card, content-fit code cards, borderless
 tables, gutter marks beside paragraphs that need the reader, prompt and reply bubbles with a hover copy control, one
-activity line under each reply that opens into cards, a background
+activity line inside each reply bubble that opens into cards, a background
 band for live subagents. The owner is its first user; anyone on a dark terminal is its
 audience. Engine floor: Claude Code 2.1.295 (0.5.0 reads APIs that arrived
 in 2.1.288 to 2.1.295; see Engine floor under 0.5.0).
@@ -340,7 +340,30 @@ Ported from prismantis 0.40.0 (MIT; THIRD_PARTY.md) with its defaults:
   keeps head and body, a fence its language, inline marks their tags.
   Not ported: image copy (PNG) of prismantis.
 
-### The activity line (under each reply bubble)
+### The activity line (inside each reply bubble, 0.21.0)
+
+- Where the line sits (0.21.0). The engine renders `ToolUse` and
+  `ToolGroup` rows in transcript order and an `AssistantMessage` render
+  sees only its text, so a row cannot draw into the bubble below it. The
+  line moves by claim: `turn.step` notes the span a reply follows (the head
+  of the last call run before its first text chunk) and the reply's text
+  key (its first 40 non-space characters). Then:
+  - claimed span (a reply follows): its head row and ToolGroup draw
+    nothing; the reply's `AssistantMessage` draws the line inside its
+    bubble, under the text, through `renderReplyBubble`'s `extra`. Several
+    text and tool segments give one bubble per text, each with the line of
+    the calls before it; no orphan rows;
+  - unclaimed span of a turn (calls, no text yet): the head row draws the
+    line inside a Claude bubble (label on the turn's first bubble only,
+    orange round frame), spinner and current action live;
+  - span outside the turn record (a subagent's view, history after a
+    reload): no claim exists; the bare line draws, or the bubble for a
+    tracked span.
+  - Limits: the bubble ends when the reply streams (the engine draws
+    streamed text itself; glass's `AssistantMessage` runs when it ends);
+    the opened cards still draw where the calls are, above the bubble
+    (only the line is inside); replies that open with the same 40
+    characters in different turns can swap claims.
 
 - There is no tool tree. A span is the run of calls between two reply
   bubbles (`callRun` over the turn's call order); activity between two
@@ -505,8 +528,9 @@ Ported from prismantis 0.40.0 (MIT; THIRD_PARTY.md) with its defaults:
 ### Group rows (`ToolGroup`)
 
 - The engine's folded run of reads and searches is part of the span: its
-  calls count in the activity line, the group's row is the line when it
-  heads the span and `display: none` otherwise. Open, the group is passed
+  calls count in the activity line, the group's row is the live bubble
+  when it heads an unclaimed span, nothing when a reply claimed the span,
+  and `display: none` for the rest. Open, the group is passed
   to the engine as expanded and its calls draw as cards. No per-group
   button, and a group no longer opens by itself for an error or a picture.
 
@@ -861,6 +885,8 @@ Only glyphs the mod draws live here.
 
 - `tests/parse.test.ts`: the parser's edge cases, streaming callout,
   tables, fences under list items, the width ruler against Bun's drift.
+- `tests/bubble.test.ts` (0.21.0): a turn streamed through `turn.step`;
+  the live bubble, the line moving under the reply, several segments.
 - `tests/chrome.test.ts`: mounted renders (prompt and reply bubbles, the
   activity line collapsed, running, done, failed and open, call cards, an event row, the band with
   six agents, a running row with its Raster clock and three ticks), the

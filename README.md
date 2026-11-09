@@ -94,7 +94,7 @@ The same turn under each palette: pick one with `/config` under Glass.
   box tinted with the palette's color; Claude's reply is a round dim frame
   with a small `● Claude` label on the first bubble of a turn. No header
   rules, no clock.
-- **One activity line.** Under each reply bubble, one line says what the
+- **One activity line.** While Claude works it sits in a Claude bubble (spinner, current action); when the reply lands it moves inside the reply bubble, under the text. One line says what the
   turn did: a spinner and the current action while it runs, then `5
   actions · 2 edits · 1 failed` (the failure in red) with the time at the
   right. No tool output draws in the transcript by default: Bash output,

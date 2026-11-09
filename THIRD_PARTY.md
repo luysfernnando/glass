@@ -1,6 +1,6 @@
 # Third-party notices
 
-Glass 0.20.0 ports rendering features from two MIT-licensed projects.
+Glass 0.21.0 ports rendering features from two MIT-licensed projects.
 
 ## prismantis 0.40.0
 
