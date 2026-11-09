@@ -14,16 +14,21 @@ const tool = (id: string) => ({
 }) as never
 const reply = (text: string) => ({ plugin: 'glass', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } }) as never
 
-test('live: a call with no reply yet draws its activity line in a Claude bubble', async ($, on) => {
+test('live: the agent-hud spinner lists the running span; once the turn ends unclaimed, its line draws in a Claude bubble', async ($, on) => {
   mock.clock(on, { now: 1_000_000 })
   const chunks: Chunk[] = [{ kind: 'tool', id: 'a1', name: 'Bash' }]
   on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
+  on('turn.complete', async () => ({ text: '' }) as never)
   on('turn.step', async function* (_$, e) {
     let index = 0
     for (const c of chunks) yield { ...c, index: index++ } as never
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null } as never
   })
   await runTurn($, 'T1')
+  const running = await $.ui.mount(tool('a1'))
+  expect(await running.find({ type: 'Text', text: /Bash/ })).toBeUndefined()
+  await running.unmount()
+  await $.turn.complete({ turnId: 'T1', reason: 'answer', answer: '', durationMs: 10 } as never)
   const row = await $.ui.mount(tool('a1'))
   expect(await row.find({ type: 'Text', text: /Claude/ })).toBeDefined()
   expect(await row.find({ type: 'Text', text: /Bash/ })).toBeDefined()
@@ -34,18 +39,39 @@ test('done: the line moves under the reply, its head row draws nothing', async (
   mock.clock(on, { now: 1_000_000 })
   const chunks: Chunk[] = [{ kind: 'tool', id: 'b1', name: 'Bash' }, { kind: 'text', text: 'Listed the folder for you.' }]
   on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
+  on('turn.complete', async () => ({ text: '' }) as never)
   on('turn.step', async function* (_$, e) {
     let index = 0
     for (const c of chunks) yield { ...c, index: index++ } as never
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null } as never
   })
   await runTurn($, 'T2')
+  // while the turn runs the text draws nothing and claims nothing
+  const hidden = await $.ui.mount(reply('Listed the folder for you.'))
+  expect(await hidden.find({ type: 'Text', text: /Listed the folder/ })).toBeUndefined()
+  await hidden.unmount()
+  // an empty row and a partial one hide too (no bare engine marker)
+  for (const part of ['', ' ', 'Listed the']) {
+    const m = await $.ui.mount(reply(part))
+    expect(await m.find({ type: 'Text', text: /\S/ })).toBeUndefined()
+    await m.unmount()
+  }
+  // agent-hud's spinner bubble lists the span
+  const live = await $.ui.mount(tool('b1'))
+  expect(await live.find({ type: 'Text', text: /Bash/ })).toBeUndefined()
+  await live.unmount()
+  await $.turn.complete({ turnId: 'T2', reason: 'answer', answer: '', durationMs: 10 } as never)
+  // the reply's first draw claims the span (and asks the redraw that
+  // moves the line into it)
+  const first = await $.ui.mount(reply('Listed the folder for you.'))
+  expect(await first.find({ type: 'Text', text: /Listed the folder/ })).toBeDefined()
+  await first.unmount()
+  // the redraw: the line under the reply, the head row empty
   const head = await $.ui.mount(tool('b1'))
   expect(await head.find({ type: 'Text', text: /Bash/ })).toBeUndefined()
   expect(await head.find({ type: 'Text', text: /Claude/ })).toBeUndefined()
   await head.unmount()
   const msg = await $.ui.mount(reply('Listed the folder for you.'))
-  expect(await msg.find({ type: 'Text', text: /Listed the folder/ })).toBeDefined()
   expect(await msg.find({ type: 'Text', text: /Bash/ })).toBeDefined()
   await msg.unmount()
 })
@@ -59,12 +85,16 @@ test('several segments: one line per reply bubble, no orphan rows', async ($, on
     { kind: 'text', text: 'Second finding.' },
   ]
   on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
+  on('turn.complete', async () => ({ text: '' }) as never)
   on('turn.step', async function* (_$, e) {
     let index = 0
     for (const c of chunks) yield { ...c, index: index++ } as never
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null } as never
   })
   await runTurn($, 'T3')
+  await $.turn.complete({ turnId: 'T3', reason: 'answer', answer: '', durationMs: 10 } as never)
+  // each reply's first draw claims its span
+  for (const text of ['First finding.', 'Second finding.']) await (await $.ui.mount(reply(text))).unmount()
   for (const id of ['c1', 'c2']) {
     const r = await $.ui.mount(tool(id))
     expect(await r.find({ type: 'Text', text: /Bash/ })).toBeUndefined()
@@ -81,12 +111,14 @@ test('a reply with no calls before it draws no activity line', async ($, on) => 
   mock.clock(on, { now: 1_000_000 })
   const chunks: Chunk[] = [{ kind: 'text', text: 'Just words, no tools.' }]
   on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
+  on('turn.complete', async () => ({ text: '' }) as never)
   on('turn.step', async function* (_$, e) {
     let index = 0
     for (const c of chunks) yield { ...c, index: index++ } as never
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null } as never
   })
   await runTurn($, 'T4')
+  await $.turn.complete({ turnId: 'T4', reason: 'answer', answer: '', durationMs: 10 } as never)
   const m = await $.ui.mount(reply('Just words, no tools.'))
   expect(await m.find({ type: 'Text', text: /Bash/ })).toBeUndefined()
   await m.unmount()

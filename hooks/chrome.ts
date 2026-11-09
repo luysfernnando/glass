@@ -772,8 +772,17 @@ export function renderActivityRow(t: Table, p: Palette, calls: ReadonlyArray<Run
       ...(failed > 0 ? [sep, t.Text({ color: p.err, children: [`${failed} failed`] })] : []),
     ]
   } else {
-    body = [t.Text({ color: p.meta, children: activitySummary(t, p, calls) })]
+    body = activitySummary(t, p, calls)
   }
+  // one Button per piece, all the same toggle: a Button of several Text
+  // pieces took a press on its first piece only, the chevron (live,
+  // 2026-11-09, inside the reply bubble), nested in one Text or not
+  const pieces = [chevron, ...body].map(n => (typeof n === 'string' ? t.Text({ color: p.meta, children: [n] }) : n))
+  const press = (key: string, n: RenderNode) => t.Button({ key, plain: true, onPress: o.onToggle, hover: { inverse: false, dimColor: false }, children: [n] })
+  const buttons = pieces.map((n, i) => press(i === 0 ? o.key : `${o.key}:${i}`, n))
+  // the blank cells after the text press too: a Button of spaces, cut to
+  // whatever width the line has left
+  const fill = t.Box({ width: 0, height: 1, flexGrow: 1, flexShrink: 0, overflow: 'hidden', children: [press(`${o.key}:fill`, t.Text({ wrap: 'truncate-end', children: [' '.repeat(400)] }))] })
   const spinner = running && o.spin && 'Raster' in t ? [t.Box({ flexShrink: 0, marginRight: 1, children: [t.Raster({ key: 'spin', columns: 1, rows: 1, cells: o.spin })] })] : []
   const right = running || o.durationMs === null || o.durationMs < 100 ? '' : fmtToolTime(o.durationMs)
   return spaced(t, t.Box({
@@ -786,7 +795,8 @@ export function renderActivityRow(t: Table, p: Palette, calls: ReadonlyArray<Run
         flexGrow: 1,
         flexShrink: 1,
         overflow: 'hidden',
-        children: [t.Button({ key: o.key, plain: true, onPress: o.onToggle, hover: { inverse: false, dimColor: false }, children: [chevron, ...body] })],
+        flexDirection: 'row',
+        children: [...buttons, fill],
       }),
       ...(right ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.faint, children: [right] })] })] : []),
     ],
@@ -892,6 +902,49 @@ export function renderPluginRow(t: Table, p: Palette, id: string, name: string, 
   const shown = extra > 0 ? [...rest.slice(0, PLUGIN_LINES), `${G.ellipsis} +${extra}${sep}ctrl+o`] : rest
   const body = shown.map(l => t.Text({ wrap: 'truncate-end', color: p.meta, children: [l] }))
   return t.Box({ flexDirection: 'column', children: [row, indented(t, body)] })
+}
+
+/** lines of the main agent's brief a folded bubble shows */
+export const BRIEF_LINES = 2
+
+/** the folded brief: its first BRIEF_LINES lines, `…` closing the last when more follow */
+export function briefHead(text: string): { lines: string[]; more: boolean } {
+  const all = text.split('\n').filter(l => l.trim() !== '').map(l => safeText(l, 400))
+  const lines = all.slice(0, BRIEF_LINES)
+  const more = all.length > BRIEF_LINES
+  if (more) lines[lines.length - 1] += G.ellipsis
+  return { lines, more }
+}
+
+/**
+ * The first message a subagent gets from the main agent, in a subagent's
+ * view: `<disc> main -> agent` over a round box in the user's color, two
+ * lines folded, the whole text open. Every line is a Button with the same
+ * toggle (a press lands on one piece only, see renderActivityRow).
+ */
+export function renderAgentBrief(t: Table, p: Palette, key: string, text: string, isOpen: boolean, onToggle: () => void): RenderElement {
+  const color = p.promptBorder ?? p.accentUser
+  const head = briefHead(text)
+  const lines = isOpen ? text.split('\n').map(l => safeText(l, 2000)) : head.lines
+  const press = (k: string, n: RenderNode) => t.Button({ key: k, plain: true, onPress: onToggle, hover: { inverse: false, dimColor: false }, children: [n] })
+  const body = lines.map((l, i) => press(`${key}:${i}`, t.Text({ wrap: isOpen ? 'wrap' : 'truncate-end', children: [l === '' ? ' ' : l] })))
+  const hint = head.more || isOpen ? [press(`${key}:chev`, t.Text({ color: p.faint, children: [(isOpen ? G.down : G.right) + (isOpen ? ' collapse' : ' expand')] }))] : []
+  return t.Box({
+    key,
+    flexDirection: 'column',
+    marginTop: 1,
+    children: [
+      press(`${key}:label`, t.Text({ color, weight: 'bold', children: [G.disc + ' main → agente'] })),
+      t.Box({
+        borderStyle: 'round',
+        borderColor: color,
+        backgroundColor: blend(p.blockBg, color, 0.12),
+        paddingX: 1,
+        flexDirection: 'column',
+        children: [...body, ...hint],
+      }),
+    ],
+  })
 }
 
 export function shortModel(model: string): string {

@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassServerTool, GlassTurn } from '../types'
-import { safeText, shortModel, MAX_PAINTED_LINES, toolText, callRun, renderActivityRow, spinCells, clockCells, fmtToolTime, isEditTool, setCwd, setHome, shortPath, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderNoOutput, renderPluginRow, renderPromptBubble, renderReplyBubble, promptWidth, renderServerToolRows, renderShot, renderSkillLoad, shotCells, renderToolError, renderToolOutput, isDeclined, renderDeclined, renderCallRow, renderCallCard, outputPreview, CARD_LINES } from './chrome'
+import { safeText, shortModel, MAX_PAINTED_LINES, toolText, callRun, renderActivityRow, spinCells, clockCells, fmtToolTime, isEditTool, setCwd, setHome, shortPath, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderNoOutput, renderPluginRow, renderAgentBrief, renderPromptBubble, renderReplyBubble, promptWidth, renderServerToolRows, renderShot, renderSkillLoad, shotCells, renderToolError, renderToolOutput, isDeclined, renderDeclined, renderCallRow, renderCallCard, outputPreview, CARD_LINES } from './chrome'
 import type { CallRow, ChangedFile, Hunk, RunCall } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -58,6 +58,25 @@ const spinRows = new Set<string>()
 const textKey = (text: string): string => text.replace(/\s+/g, '').slice(0, 40)
 // a tick each spinner frame; the clocks read whole seconds
 const TICK_MS = 100
+// TEMP trace (2026-11-09, blink hunt): render decisions to /tmp/glass-trace.log
+const traceLines: string[] = []
+let traceDue = false
+function trace($: EngineInterface, msg: string): void {
+  void $.clock.now().then(ms => {
+    traceLines.push(`${ms} ${msg}`)
+    if (traceLines.length > 4000) traceLines.splice(0, 1000)
+    if (traceDue) return
+    traceDue = true
+    setTraceFlush($)
+  }).catch(() => undefined)
+}
+function setTraceFlush($: EngineInterface): void {
+  const h = $.clock.every(250, () => {
+    h.cancel()
+    traceDue = false
+    void $.fs.write('/tmp/glass-trace.log', traceLines.join('\n') + '\n').catch(() => undefined)
+  })
+}
 let ticker: { cancel: () => void } | null = null
 
 async function tick($: EngineInterface, p: Palette): Promise<void> {
@@ -370,6 +389,7 @@ async function setCall($: EngineInterface, turnId: string, call: GlassCall) {
     const record = { ...(r ?? {}) }
     const list = record[turnId] ?? []
     const i = list.findIndex(c => c.id === call.id)
+    for (const k of Object.keys(record).slice(0, Math.max(0, Object.keys(record).length - HISTORY))) if (k !== turnId) delete record[k]
     record[turnId] = i < 0 ? [...list, call] : [...list.slice(0, i), call, ...list.slice(i + 1)]
     return record
   })
@@ -447,9 +467,24 @@ export const register: Register = (on, options) => {
   const claimByKey = new Map<string, string>()
   const claimedHeads = new Set<string>()
   let seg: { head: string; text: string; key: string } | null = null
+  // The running turn's streamed texts, by key (one per text segment): their
+  // AssistantMessage rows draw nothing while the turn runs, agent-hud's
+  // bubble shows the text (owner's decision, 2026-11-09). A row's text is
+  // a prefix of the segment while it streams, so keys match by prefix.
+  const liveKeys: string[] = []
+  let liveSeg = -1
+  const isLiveText = (text: string): boolean => {
+    if (!live.active || live.turnId === '') return false
+    const k = text.replace(/\s+/g, '')
+    return k !== '' && liveKeys.some(x => x.startsWith(k))
+  }
   // what each call's row (or its engine group) last drew with: a claimed
   // span's cards draw inside the reply's bubble from these, under its line,
   // never above the bubble (owner's request 2026-11-09)
+  // The running turn's unclaimed span: agent-hud's spinner bubble lists its
+  // calls (owner's request, 2026-11-09), so the transcript draws none of it
+  // until a reply claims it or the turn ends.
+  const isLiveSpan = (run: Run) => live.active && run.turnId !== '' && run.turnId === live.turnId && !claimedHeads.has(run.head)
   const callProps = new Map<string, CallRow>()
   // records a call's props; true when a claimed open span should redraw its
   // bubble with them (new to it, or its output changed)
@@ -599,12 +634,41 @@ export const register: Register = (on, options) => {
     return { text: 'Activity lines fold again.' }
   })
 
+  // Rows of the running turn hide at once: decided before any await, so a
+  // view switch back to the main loop never paints one frame of them before
+  // the async path answers (owner's screencast, 2026-11-09). Neither
+  // `live` nor `liveKeys` is touched by a view change.
+  const liveCall = (id: unknown): boolean => live.active && typeof id === 'string' && live.turnId !== '' && callTurn.get(id) === live.turnId && !claimedHeads.has(id)
+  // an empty or partial row of the running turn would draw the engine's bare
+  // `●` before the first chunk is known: empty hides with the turn
+  const hiddenText = (e: any): boolean => (e.props.text.trim() === '' ? live.active && live.turnId !== '' : isLiveText(e.props.text))
+  const hiddenCall = (e: any): boolean => {
+    const hit = liveCall(e.props.tool_use_id)
+    if (hit) callProps.set(e.props.tool_use_id, e.props)
+    return hit
+  }
+  const hiddenGroup = (e: any): boolean => {
+    const ids = e.props.calls.map((c: { tool_use_id?: string }) => c.tool_use_id).filter((x: unknown): x is string => typeof x === 'string')
+    if (ids.length === 0 || !liveCall(ids[0])) return false
+    for (const c of e.props.calls) {
+      if (typeof c.tool_use_id !== 'string') continue
+      if (c.tool === 'Read') noteRead(mem, c.tool_use_id, c.input)
+      callProps.set(c.tool_use_id, { ...c, tool_use_id: c.tool_use_id })
+    }
+    return true
+  }
+
   // ---- reply bubble ------------------------------------------------------
-  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+  on('ui.render', { component: 'AssistantMessage' }, ($, e, next) => {
+    if (e.surface === 'terminal' && hiddenText(e)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
+    return (async () => {
     if (e.surface !== 'terminal') return next(e)
     const text = e.props.text
     if (text.trim() === '') return next(e)
     const t = $.ui.resolve(e)
+    // the running turn's text lives in agent-hud's bubble until the turn ends;
+    // no claim either, so the span stays listed there
+    if (isLiveText(text)) return t.Box({ display: 'none', children: [] })
     const columns = e.viewport?.columns ?? 80
     const blocks = parse(text)
     const onCopy = (what: Copyable, format: CopyFormat, press: { surface: 'terminal' | 'desktop' | 'vscode' | 'mobile' }) => void copyAs($, what, format, press)
@@ -620,7 +684,16 @@ export const register: Register = (on, options) => {
     const whole: Copyable = { md: text, html: () => blocksHtml(blocks), text: () => blocksText(blocks) }
     // the activity of the calls before this text, under it inside the bubble
     const head = claimByKey.get(textKey(text))
-    const run = head ? await findRun($, runCtx(), head) : null
+    // the first draw of this bubble claims the span: the span's own bubble
+    // hides on the redraw this asks for, when this one takes the line, so
+    // the line is never drawn twice nor missing in between
+    const isNewClaim = head !== undefined && !claimedHeads.has(head)
+    if (isNewClaim) {
+      claimedHeads.add(head)
+      void Promise.resolve().then(() => $.ui.invalidate('ui.render')).catch(() => undefined)
+    }
+    const run = head && !isNewClaim ? await findRun($, runCtx(), head) : null
+    trace($, `Assistant key=${textKey(text).slice(0, 16)} head=${head?.slice(-6) ?? '-'} newClaim=${isNewClaim}`)
     // opened, the span's cards follow the line inside the bubble
     const cards = run?.isOpen
       ? run.calls.flatMap(c => {
@@ -630,6 +703,15 @@ export const register: Register = (on, options) => {
       : []
     const line = run ? [t.Box({ marginTop: 1, flexDirection: 'column', children: [await drawRun($, runCtx(), t, run, e.requestId), ...cards] })] : []
     return renderReplyBubble(t, palette, [reply], e.props.isFirstOfReply, [...line, ...copyControl({ t, p: palette, copy: onCopy }, whole, 'low')])
+    })()
+  })
+
+  // ---- compaction ----------------------------------------------------------
+  // /compact's row printed the summary hint and every PreCompact hook's output
+  // (owner's request, 2026-11-09: one clean row); ctrl+o keeps the summary.
+  on('ui.render', { component: 'CommandOutput' }, async ($, e, next) => {
+    if (e.surface !== 'terminal' || e.props.command !== 'compact' || e.props.isErrored) return next(e)
+    return renderPluginRow($.ui.resolve(e), palette, e.requestId, 'compact', 'ok contexto compactado')
   })
 
   // ---- prompt bubble -----------------------------------------------------
@@ -661,8 +743,16 @@ export const register: Register = (on, options) => {
     // any other row (another agent's message, a scheduled trigger, a
     // bridge): one muted row; ctrl+o keeps the engine's body
     if (kind !== 'composer' && !asUser) {
-      if (e.props.isExpanded) return next(e)
       const from = e.props.from?.name
+      // no sender (a subagent's own opening prompt, kind `unclassified`):
+      // the main agent's brief, a bubble that opens on a press (same
+      // `expanded` atom as the activity lines) or on ctrl+o
+      if (!from && e.props.text.trim() !== '') {
+        const key = `brief:${e.requestId}`
+        const open = e.props.isExpanded || ((await read($, expanded)) ?? []).includes(key)
+        return renderAgentBrief(t, palette, key, e.props.text, open, () => void update($, expanded, xs => ((xs ?? []).includes(key) ? (xs ?? []).filter(x => x !== key) : [...(xs ?? []), key].slice(-HISTORY))))
+      }
+      if (e.props.isExpanded) return next(e)
       // no sender (a subagent's own opening prompt, kind `unclassified`):
       // its text, framed as a plugin's, since `Message from @unclassified`
       // hid the brief the agent was given
@@ -677,7 +767,9 @@ export const register: Register = (on, options) => {
   })
 
   // ---- activity line and call rows ---------------------------------------
-  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+  on('ui.render', { component: 'ToolUse' }, ($, e, next) => {
+    if (e.surface === 'terminal' && hiddenCall(e)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
+    return (async () => {
     if (e.surface !== 'terminal') return next(e)
     const id = e.props.tool_use_id
     const t = $.ui.resolve(e)
@@ -687,8 +779,9 @@ export const register: Register = (on, options) => {
     // draws it, the others nothing until it opens
     const run = await findRun($, runCtx(), id, [soloCall(e.props)])
     if (noteProps(e.props, run)) $.ui.invalidate('ui.render')
+    trace($, `ToolUse ${id.slice(-6)} ${e.props.tool} run=${run ? run.head.slice(-6) + (run.turnId ? '' : ':solo') : '-'} head=${run?.head === id} claimed=${run ? claimedHeads.has(run.head) : '-'} open=${run?.isOpen} running=${e.props.isRunning} out=${e.props.output !== undefined}`)
     // a span a reply follows: its line and cards live in that reply's bubble
-    if (run && claimedHeads.has(run.head)) return t.Box({ display: 'none', children: [] })
+    if (run && (claimedHeads.has(run.head) || isLiveSpan(run))) return t.Box({ display: 'none', children: [] })
     if (run && !run.isOpen) return (run.head === id ? await headLine($, runCtx(), claimedHeads, t, run, e.requestId) : null) ?? t.Box({ display: 'none', children: [] })
     const wrap = async (el: RenderElement) => {
       if (!run || run.head !== id) return el
@@ -715,11 +808,14 @@ export const register: Register = (on, options) => {
     }
     // its row, then the diff (an edit, always open) or what it printed
     return wrap(callCard(t, row, isStreaming ? { ...e.props, isRunning: true } : e.props, cols))
+    })()
   })
 
   // the engine's folded run of reads and searches: part of the span's one
   // activity line; opening the line opens the group
-  on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
+  on('ui.render', { component: 'ToolGroup' }, ($, e, next) => {
+    if (e.surface === 'terminal' && hiddenGroup(e)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
+    return (async () => {
     if (e.surface !== 'terminal') return next(e)
     // the group's one Read picture (0.8.0): drawn under the folded row, or
     // under its own row once the group is open
@@ -749,6 +845,7 @@ export const register: Register = (on, options) => {
     // the span's calls; a group outside the turn record is a span of its own
     const first = e.props.calls.find((c: { tool_use_id?: string }) => typeof c.tool_use_id === 'string')
     const run = first?.tool_use_id ? await findRun($, runCtx(), first.tool_use_id, e.props.calls.filter((c: { tool_use_id?: string }) => typeof c.tool_use_id === 'string').map(soloCall)) : null
+    trace($, `ToolGroup ${e.props.calls.map((c: { tool_use_id?: string }) => (c.tool_use_id ?? '?').slice(-6)).join(',')} run=${run ? run.head.slice(-6) : '-'} claimed=${run ? claimedHeads.has(run.head) : '-'}`)
     if (!run) return next(e)
     const t = $.ui.resolve(e)
     // a span a reply follows draws its cards in that bubble: the group's
@@ -756,7 +853,7 @@ export const register: Register = (on, options) => {
     let stale = false
     for (const c of e.props.calls) if (typeof c.tool_use_id === 'string' && noteProps({ ...c, tool_use_id: c.tool_use_id }, run)) stale = true
     if (stale) $.ui.invalidate('ui.render')
-    if (run.isOpen && claimedHeads.has(run.head)) return t.Box({ display: 'none', children: [] })
+    if ((run.isOpen && claimedHeads.has(run.head)) || isLiveSpan(run)) return t.Box({ display: 'none', children: [] })
     if (run.isOpen) {
       remember(grouped, e.props.calls)
       if (fresh) $.ui.invalidate('ui.render')
@@ -772,6 +869,7 @@ export const register: Register = (on, options) => {
     const picture = pic ? await pictureBody($, t, palette, pic, e.viewport?.columns ?? 80, e.viewport?.rows ?? 40) : null
     if (line === null) return picture ?? t.Box({ display: 'none', children: [] })
     return picture ? t.Box({ flexDirection: 'column', children: [line, picture] }) : line
+    })()
   })
 
   // Tool results: nothing draws inline. A call's output lives in its card once
@@ -846,7 +944,9 @@ export const register: Register = (on, options) => {
     }
     live.turnId = e.turnId
     live.active = true
-    await update($, liveTurn, () => e.turnId)
+    liveKeys.length = 0
+    liveSeg = -1
+    trace($, `turn.start ${e.turnId.slice(-6)}`)
     live.startedAt = await $.clock.now()
     live.tools = 0
     live.edits = 0
@@ -860,11 +960,11 @@ export const register: Register = (on, options) => {
     } catch {
       live.costStart = null
     }
-    const { turnId } = live
-    await update($, calls, r => {
-      const entries = Object.entries(r ?? {}).filter(([k]) => k !== turnId).slice(-(HISTORY - 1))
-      return Object.fromEntries([...entries, [turnId, []]])
-    })
+    // `calls` is only written, never read back to draw: its per-turn reset
+    // is left to the first setCall (which keeps the last HISTORY turns), so
+    // turn.start makes one state write, after the in-memory state is whole,
+    // not three while the rows redraw half set
+    if (((await read($, liveTurn)) ?? null) !== e.turnId) await update($, liveTurn, () => e.turnId)
     forgetOldTurns()
     return next(e)
   })
@@ -878,15 +978,16 @@ export const register: Register = (on, options) => {
       live.tools += 1
       if (id) live.lastToolId = id
       if (id && turnId) callTurn.set(id, turnId)
+      const known = id && turnId ? (turnOrder.get(turnId) ?? []).find(c => c.id === id) : undefined
       if (id && turnId) {
         // a call the stream announced keeps its place and its afterText
-        const known = (turnOrder.get(turnId) ?? []).find(c => c.id === id)
         recordCall(turnId, { id, tool: e.tool, afterText: known ? known.afterText : textSinceCall, subject: callSubject(e) })
       }
       if (streaming?.id === id) streaming = null
       textSinceCall = false
-      // the run's row counts this call now
-      if (id && turnId) $.ui.invalidate('ui.render')
+      // the run's row counts this call now; one the stream announced is
+      // counted already
+      if (id && turnId && !known) $.ui.invalidate('ui.render')
       if (id && turnId) await setCall($, turnId, { id, tool: e.tool, status: 'running', ms: null })
       if (id) liveCalls.set(id, { tool: e.tool, t0: await $.clock.now() })
       if (!ticker) ticker = $.clock.every(TICK_MS, () => void tick($, palette))
@@ -945,11 +1046,13 @@ export const register: Register = (on, options) => {
   // generator relaying every chunk.
   on('turn.step', async function* ($, e, next) {
     const stream = next(e)
+    let segText = ''
     let step = await stream.next()
     while (!step.done) {
       const chunk = step.value
       if (!e.agentId && live.turnId && (chunk.kind === 'tool' || chunk.kind === 'input')) {
         if (chunk.kind === 'tool') {
+          trace($, `step tool ${chunk.id.slice(-6)} ${chunk.name}`)
           streaming = { id: chunk.id, tool: chunk.name, json: '', subject: '' }
           callTurn.set(chunk.id, live.turnId)
           recordCall(live.turnId, { id: chunk.id, tool: chunk.name, afterText: textSinceCall, subject: '' })
@@ -957,7 +1060,11 @@ export const register: Register = (on, options) => {
           seg = null
           liveCalls.set(chunk.id, { tool: chunk.name, t0: await $.clock.now() })
           if (!ticker) ticker = $.clock.every(TICK_MS, () => void tick($, palette))
-          $.ui.invalidate('ui.render')
+          // a call that opens a span mounts its own row: a redraw of the whole
+          // transcript first held that row on the engine's own drawing for
+          // ~50 ms, the blink after Enter (trace, 2026-11-09). Only a call
+          // joining a span redraws, for the head's count.
+          if (callRun(turnOrder.get(live.turnId) ?? [], chunk.id).length > 1) $.ui.invalidate('ui.render')
         } else if (streaming && streaming.json.length < INPUT_HEAD) {
           streaming.json += chunk.json
           const subject = callSubject(streamedArgs(streaming.tool, streaming.json))
@@ -973,14 +1080,20 @@ export const register: Register = (on, options) => {
         // the first text after a call closes the span above it: its line moves
         // into the reply bubble
         if (!textSinceCall) {
+          trace($, 'step text-start')
           const order = turnOrder.get(live.turnId ?? '') ?? []
           const last = order[order.length - 1]
           const head = last ? callRun(order, last.id)[0]?.id : undefined
+          // claimed only once the reply's own bubble draws (AssistantMessage):
+          // claimed here, the span's bubble went blank while the engine
+          // streamed the text bare, then came back under it (2026-11-09)
           seg = head ? { head, text: '', key: '' } : null
-          if (head) claimedHeads.add(head)
-          $.ui.invalidate('ui.render')
+          liveSeg = liveKeys.push('') - 1
+          segText = ''
         }
         textSinceCall = true
+        segText += chunk.text
+        if (liveSeg >= 0) liveKeys[liveSeg] = segText.replace(/\s+/g, '').slice(0, ANSWER_MAX)
         if (seg) {
           seg.text += chunk.text
           const key = textKey(seg.text)
@@ -1078,8 +1191,11 @@ export const register: Register = (on, options) => {
       ...(live.serverTools.length ? { serverTools: [...live.serverTools] } : {}),
     }
     await update($, turns, h => [...(h ?? []), turn].slice(-HISTORY))
-    $.ui.invalidate('ui.render')
+    // a span no reply claimed comes back into the transcript
     live.active = false
+    liveKeys.length = 0
+    liveSeg = -1
+    $.ui.invalidate('ui.render')
     await update($, liveTurn, () => null)
     // a turn that ended with failed calls: the engine's idle notification
     // does not say so (0.5.0)

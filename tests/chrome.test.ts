@@ -228,6 +228,27 @@ test('mounted: a user row, a call and a group fold to one activity line; they va
   await plugin.unmount()
 })
 
+test('a subagent view: the main agent brief draws in a labelled bubble, folded to two lines', async $ => {
+  const brief = await $.ui.mount({
+    plugin: 'glass',
+    surface: 'terminal',
+    component: 'UserMessage',
+    props: { text: 'line one\nline two\nline three\nline four', origin: { kind: 'unclassified' }, isExpanded: false },
+  })
+  expect(await brief.find({ type: 'Text', text: /main \u2192 agente/ })).toBeDefined()
+  expect(await brief.find({ type: 'Text', text: /line two/ })).toBeDefined()
+  expect(await brief.find({ type: 'Text', text: /line three/ })).toBeUndefined()
+  await brief.unmount()
+  const open = await $.ui.mount({
+    plugin: 'glass',
+    surface: 'terminal',
+    component: 'UserMessage',
+    props: { text: 'line one\nline two\nline three\nline four', origin: { kind: 'unclassified' }, isExpanded: true },
+  })
+  expect(await open.find({ type: 'Text', text: /line four/ })).toBeDefined()
+  await open.unmount()
+})
+
 test('an Edit diff: one number column, a plus row and a minus row in the theme diff slots, code painted', async () => {
   const hunks = [
     { oldStart: 268, newStart: 274, lines: ['  const right = x', '-  return t.Box({', '+  return spaced(t, p, t.Box({', '   key: 1'] },
@@ -755,10 +776,11 @@ test('the activity line, done: counts, edits, failures in err, the time at the r
   expect(text.endsWith('1.2s')).toBe(true)
   const failed = elements(row).find(n => n.type === 'Text' && flat(n as unknown as RenderNode) === '1 failed')
   expect(failed?.props.color).toBe(p.err)
-  // one press target for the whole line
+  // every piece of the line is a press target, the chevron keyed as the span
   const buttons = elements(row).filter(n => n.type === 'Button')
-  expect(buttons.length).toBe(1)
+  expect(buttons.length).toBeGreaterThan(1)
   expect(buttons[0]!.props.key).toBe('run:a')
+  expect(new Set(buttons.map(b => b.props.onPress)).size).toBe(1)
   // clean span: no failed word
   expect(flat(renderActivityRow(t, p, spanCalls.slice(0, 2), { key: 'k', isOpen: false, durationMs: null, onToggle: () => {} }))).not.toContain('failed')
 })

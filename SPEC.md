@@ -359,9 +359,22 @@ Ported from prismantis 0.40.0 (MIT; THIRD_PARTY.md) with its defaults:
     span does not draw in the bubble. Several
     text and tool segments give one bubble per text, each with the line of
     the calls before it; no orphan rows;
-  - unclaimed span of a turn (calls, no text yet): the head row draws the
-    line inside a Claude bubble (label on the turn's first bubble only,
-    orange round frame), spinner and current action live;
+  - unclaimed span of the running turn (calls, no text yet): draws nothing
+    (`isLiveSpan`); agent-hud's Spinner draws it as a Claude bubble, its
+    status line then the last 5 calls with `+ N earlier`;
+  - text of the running turn: its `AssistantMessage` row draws
+    `display: none`, no bubble and no claim (owner's decision, 2026-11-09:
+    nothing Claude writes shows in the transcript until the turn ends;
+    agent-hud's bubble streams it). The row is matched by `textKey` prefix
+    against the keys of the segments `turn.step` streamed (`liveKeys`), only
+    while `live.active`; subagent views and earlier turns draw as usual.
+    The hide is decided synchronously (the hook is a plain function that
+    answers `display: none` before any await; `ToolUse`/`ToolGroup` by
+    `callTurn`, `AssistantMessage` by `liveKeys`), so a view switch back to
+    the main loop paints no frame of them; a view change resets nothing.
+    At `turn.complete` all appears at once: reply bubbles claim their spans;
+  - unclaimed span once its turn ended: the head row draws the line inside a
+    Claude bubble (label on the turn's first bubble only, orange round frame);
   - span outside the turn record (a subagent's view, history after a
     reload): no claim exists; the bare line draws, or the bubble for a
     tracked span.
@@ -373,8 +386,10 @@ Ported from prismantis 0.40.0 (MIT; THIRD_PARTY.md) with its defaults:
 - There is no tool tree. A span is the run of calls between two reply
   bubbles (`callRun` over the turn's call order); activity between two
   bubbles belongs under the preceding one. The span's head call draws ONE
-  line, a single `Button` (so the whole line is the press target) with
-  `Text` children for color, indented to the bubble:
+  line, one `Button` per piece (chevron, each count), all running the same
+  toggle, so the whole line is the press target: a single `Button` of
+  several `Text` pieces took a press on its first piece only (live,
+  2026-11-09). Indented to the bubble:
   - running: chevron, a spinner `Raster` and the running call's subject;
   - done: `N actions · M edits · K failed` in `meta`, the failure count in
     `err`, `N in background` when calls detached, the span's time at the
