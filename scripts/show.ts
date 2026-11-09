@@ -140,6 +140,42 @@ const LISTS = [
 
 // 0.5.3: quoted prose in meta; fences by language (Rust lifetimes, JSON and
 // YAML keys, Python's range as a call)
+// 0.19.0: alerts, mermaid, figure and a fence with its copy button
+const EXTRAS = [
+  '> [!NOTE]',
+  '> Useful context the reader should know.',
+  '',
+  '> [!WARNING]',
+  '> This one can lose data.',
+  '',
+  '```mermaid',
+  'graph TD',
+  '  A[Start] --> B{Ok?}',
+  '  B -->|yes| C[Ship]',
+  '  B -->|no| D[Fix]',
+  '```',
+  '',
+  '```mermaid',
+  'xychart-beta',
+  '  x-axis [a, b, c]',
+  '  bar [3, 7, 5]',
+  '```',
+  '',
+  '```mermaid',
+  'pie',
+  '  "x" : 3',
+  '  "y" : 1',
+  '```',
+  '',
+  '```figure',
+  '{accent:Plan}  {ok:done} {warn:risky} {dim:later} {strong:now}',
+  '```',
+  '',
+  '```sh',
+  'git status --short',
+  '```',
+].join('\n')
+
 const QUOTE_AND_FENCES = [
   'A quote, then fences:',
   '',
@@ -193,6 +229,7 @@ function fixtures(m: Mods, paletteName = PALETTE): Record<string, () => Node | n
     reply: () => m.render.renderReply(...([t, m.markdown.parseMarkdown(REPLY), p, { first: true, columns, marks: true }] as never[])),
     lists: () => m.render.renderReply(...([t, m.markdown.parseMarkdown(LISTS), p, { first: true, columns, marks: false }] as never[])),
     tip: () => m.render.renderReply(...([t, m.markdown.parseMarkdown(TIP), p, { first: true, columns, marks: false }] as never[])),
+    extras: () => m.render.renderReply(...([t, m.markdown.parseMarkdown(EXTRAS), p, { first: true, columns, marks: false, onCopy: () => undefined }] as never[])),
     'quote-fences': () => m.render.renderReply(...([t, m.markdown.parseMarkdown(QUOTE_AND_FENCES), p, { first: true, columns, marks: false }] as never[])),
     // a Bash body shown whole against one that folds (the count only on the second)
     'bash-bodies': () =>
