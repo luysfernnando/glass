@@ -54,6 +54,8 @@ const liveCalls = new Map<string, { tool: string; t0: number }>()
 // rows drawing a running span (renderActivityRow), by request id: the ticker
 // blits their spinner's next frame
 const spinRows = new Set<string>()
+// the key a reply is known by: the start of its text, spaces out
+const textKey = (text: string): string => text.replace(/\s+/g, '').slice(0, 40)
 // a tick each spinner frame; the clocks read whole seconds
 const TICK_MS = 100
 let ticker: { cancel: () => void } | null = null
@@ -438,6 +440,13 @@ export const register: Register = (on, options) => {
   const pictureReads = new Set<string>()
   const mem = pictureMemory()
   let textSinceCall = false
+  // The span above each reply: when text follows calls, the reply bubble
+  // carries that span's activity line, so the span's head row draws no line
+  // of its own. A reply is found by the start of its text (the render event
+  // carries no turn or order); `seg` is the text being streamed now.
+  const claimByKey = new Map<string, string>()
+  const claimedHeads = new Set<string>()
+  let seg: { head: string; text: string; key: string } | null = null
   let hasCwd = false
   let expandAllNow = false
   // the module records keep the turns the atoms keep: past HISTORY turns
@@ -565,7 +574,7 @@ export const register: Register = (on, options) => {
   })
 
   // ---- reply bubble ------------------------------------------------------
-  on('ui.render', { component: 'AssistantMessage' }, ($, e, next) => {
+  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
     const text = e.props.text
     if (text.trim() === '') return next(e)
@@ -583,7 +592,11 @@ export const register: Register = (on, options) => {
       summary: (e.props as { isSummary?: unknown }).isSummary === true,
     })
     const whole: Copyable = { md: text, html: () => blocksHtml(blocks), text: () => blocksText(blocks) }
-    return renderReplyBubble(t, palette, [reply], e.props.isFirstOfReply, copyControl({ t, p: palette, copy: onCopy }, whole, 'low'))
+    // the activity of the calls before this text, under it inside the bubble
+    const head = claimByKey.get(textKey(text))
+    const run = head ? await findRun($, runCtx(), head) : null
+    const line = run ? [t.Box({ marginTop: 1, flexDirection: 'column', children: [await drawRun($, runCtx(), t, run, e.requestId)] })] : []
+    return renderReplyBubble(t, palette, [reply], e.props.isFirstOfReply, [...line, ...copyControl({ t, p: palette, copy: onCopy }, whole, 'low')])
   })
 
   // ---- prompt bubble -----------------------------------------------------
@@ -640,8 +653,12 @@ export const register: Register = (on, options) => {
     // a span of calls under one reply is one line: its first call's row
     // draws it, the others nothing until it opens
     const run = await findRun($, runCtx(), id, [soloCall(e.props)])
-    if (run && !run.isOpen) return run.head === id ? drawRun($, runCtx(), t, run, e.requestId) : t.Box({ display: 'none', children: [] })
-    const wrap = (el: RenderElement) => underRunRow($, runCtx(), t, run, run?.head === id, e.requestId, el)
+    if (run && !run.isOpen) return (run.head === id ? await headLine($, runCtx(), claimedHeads, t, run, e.requestId) : null) ?? t.Box({ display: 'none', children: [] })
+    const wrap = async (el: RenderElement) => {
+      if (!run || run.head !== id) return el
+      const line = await headLine($, runCtx(), claimedHeads, t, run, e.requestId)
+      return line === null ? el : t.Box({ flexDirection: 'column', children: [line, el] })
+    }
     const cols = e.viewport?.columns ?? 80
     // the card an open call draws: its header row, then what it printed
     const card = (row: RenderElement, body: RenderElement[]) => wrap(renderCallCard(t, palette, row, body))
@@ -718,11 +735,12 @@ export const register: Register = (on, options) => {
     }
     const isHead = e.props.calls.some((c: { tool_use_id?: string }) => c.tool_use_id === run.head)
     if (!isHead) return t.Box({ display: 'none', children: [] })
-    const line = await drawRun($, runCtx(), t, run, e.requestId)
+    const line = await headLine($, runCtx(), claimedHeads, t, run, e.requestId)
     // the group's chosen Read picture draws under the line
     const chosenRead = chosen ? e.props.calls.find((c: { tool_use_id?: string }) => c.tool_use_id === chosen) : undefined
     const pic = chosenRead ? pictureOf(chosenRead.output, readPath(chosenRead.input)) : null
     const picture = pic ? await pictureBody($, t, palette, pic, e.viewport?.columns ?? 80, e.viewport?.rows ?? 40) : null
+    if (line === null) return picture ?? t.Box({ display: 'none', children: [] })
     return picture ? t.Box({ flexDirection: 'column', children: [line, picture] }) : line
   })
 
@@ -905,6 +923,7 @@ export const register: Register = (on, options) => {
           callTurn.set(chunk.id, live.turnId)
           recordCall(live.turnId, { id: chunk.id, tool: chunk.name, afterText: textSinceCall, subject: '' })
           textSinceCall = false
+          seg = null
           liveCalls.set(chunk.id, { tool: chunk.name, t0: await $.clock.now() })
           if (!ticker) ticker = $.clock.every(TICK_MS, () => void tick($, palette))
           $.ui.invalidate('ui.render')
@@ -920,9 +939,28 @@ export const register: Register = (on, options) => {
       }
       if (chunk.kind === 'text' && e.agentId) agentText.set(e.agentId, true)
       if (chunk.kind === 'text' && !e.agentId) {
-        // the first text after a call closes the span above it
-        if (!textSinceCall) $.ui.invalidate('ui.render')
+        // the first text after a call closes the span above it: its line moves
+        // into the reply bubble
+        if (!textSinceCall) {
+          const order = turnOrder.get(live.turnId ?? '') ?? []
+          const last = order[order.length - 1]
+          const head = last ? callRun(order, last.id)[0]?.id : undefined
+          seg = head ? { head, text: '', key: '' } : null
+          if (head) claimedHeads.add(head)
+          $.ui.invalidate('ui.render')
+        }
         textSinceCall = true
+        if (seg) {
+          seg.text += chunk.text
+          const key = textKey(seg.text)
+          if (key !== seg.key) {
+            claimByKey.delete(seg.key)
+            seg.key = key
+          }
+          claimByKey.set(key, seg.head)
+          if (claimByKey.size > 400) claimByKey.delete(claimByKey.keys().next().value as string)
+          if (claimedHeads.size > 800) claimedHeads.clear()
+        }
       }
       yield chunk
       step = await stream.next()
@@ -1142,9 +1180,18 @@ async function drawRun($: EngineInterface, c: RunCtx, t: Elements['terminal'], r
   })
 }
 
-/** `el` under its run's row when the call heads an open run. */
-async function underRunRow($: EngineInterface, c: RunCtx, t: Elements['terminal'], run: Run | null, isHead: boolean, requestId: string, el: RenderElement): Promise<RenderElement> {
-  return run && isHead ? t.Box({ flexDirection: 'column', children: [await drawRun($, c, t, run, requestId), el] }) : el
+/**
+ * What a span's head row draws. A span a reply follows draws nothing (its
+ * line sits in that reply's bubble); one with no reply yet draws its line in
+ * a Claude bubble, as agent-hud's band shows live work; a span outside the
+ * turn record (a subagent's view) draws the bare line.
+ */
+async function headLine($: EngineInterface, c: RunCtx, claimed: Set<string>, t: Elements['terminal'], run: Run, requestId: string): Promise<RenderElement | null> {
+  if (claimed.has(run.head)) return null
+  const line = await drawRun($, c, t, run, requestId)
+  if (run.turnId === '') return line
+  const order = c.turnOrder.get(run.turnId) ?? []
+  return renderReplyBubble(t, c.palette, [line], order[0]?.id === run.head && !order[0].afterText)
 }
 
 /**
