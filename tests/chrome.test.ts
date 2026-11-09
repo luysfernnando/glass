@@ -808,14 +808,14 @@ test('prompt bubble: a small label over a right-aligned round box, width capped 
   expect(flat(bubble)).not.toContain(G.rule)
 })
 
-test('reply bubble: a dim round frame; the Claude label on the first bubble only', () => {
+test('reply bubble: a full-accent round frame; the Claude label on the first bubble only', () => {
   const body = [t.Text({ children: ['answer'] })] as RenderElement[]
   const first = renderReplyBubble(t, p, body, true)
   const next = renderReplyBubble(t, p, body, false)
   expect(flat(first)).toBe(G.disc + ' Claudeanswer')
   expect(flat(next)).toBe('answer')
   const frame = elements(first).find(n => n.props.borderStyle === 'round')
-  expect(frame?.props.borderDimColor).toBe(true)
+  expect(frame?.props.borderDimColor).toBeUndefined()
   expect(frame?.props.borderColor).toBe(p.accent)
   expect(flat(renderReplyBubble(t, p, body, false, [t.Text({ children: ['extra'] })] as RenderElement[]))).toBe('answerextra')
 })
