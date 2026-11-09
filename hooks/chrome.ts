@@ -228,7 +228,6 @@ export function renderReplyBubble(t: Table, p: Palette, body: RenderElement[], f
         flexDirection: 'column',
         borderStyle: 'round',
         borderColor: p.accent,
-        borderDimColor: true,
         backgroundColor: blend(p.blockBg, p.accent, 0.06),
         paddingX: 1,
         children: [...body, ...extra],
