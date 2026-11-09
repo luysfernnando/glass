@@ -9,7 +9,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { renderDiff, renderGroupRow, renderHint, renderServerToolRows, renderTreeRow, renderUserRow } from '../hooks/chrome'
+import { renderActivityRow, renderCallRow, renderDiff, renderHint, renderPromptBubble, renderReplyBubble, renderServerToolRows } from '../hooks/chrome'
 import { parseMarkdown } from '../hooks/markdown'
 import { PALETTES } from '../hooks/palette'
 import { renderReply } from '../hooks/render'
@@ -30,7 +30,7 @@ function rows(node: RenderNode): string[] {
   if (typeof node === 'string') return [node]
   const n = node as unknown as Node
   if (n.props.display === 'none') return ['(display: none)']
-  if (n.type === 'Button') return [`[${String(n.props.label ?? '')}]`]
+  if (n.type === 'Button') return [n.props.children ? `[${(n.props.children as RenderNode[]).flatMap(rows).join('')}]` : `[${String(n.props.label ?? '')}]`]
   if (n.type === 'Raster') return [`<raster ${String(n.props.columns)} cells>`]
   const kids = n.props.children ?? []
   if (n.type === 'Box' && n.props.flexDirection !== 'row') {
@@ -73,7 +73,7 @@ function dump(name: string, tree: RenderElement): [string, string[]] {
   return [name, [...body, '', '-- colors --', ...colors(tree)]]
 }
 
-const call = (id: string, tool: string, status: 'ok' | 'failed' | 'running', ms: number | null) => ({ id, tool, status, ms })
+const call = (id: string, tool: string, status: 'ok' | 'failed' | 'running', ms: number | null) => ({ id, tool, status, ms, subject: id })
 const turn = {
   turnId: 'demo', durationMs: 146_000, tools: 4, edits: 1, failed: 1, inTokens: 1_800_000, cacheTokens: 1_620_000, outTokens: 5300,
   costUsd: 0.58, lastToolId: 't4', answer: 'done', startedAt: 0, finishedAt: 146_000,
@@ -100,27 +100,18 @@ const reply = [
 test('demo dumps: every fixture produces rows', async () => {
   const row = (tool: string, input: unknown, failed = false, id = 't1') => ({ tool_use_id: id, tool, input, isRunning: false, isErrored: failed, isInterrupted: false })
   const fixtures: [string, string[]][] = [
-    dump('reply', renderReply(t, parseMarkdown(reply), p, { first: true, columns: 100, marks: true })),
+    dump('reply', renderReply(t, parseMarkdown(reply), p, { columns: 100, marks: true })),
     // a compaction summary: 0.4.25 ignored the flag, 0.5.0 adds a trailer row
-    dump('summary', renderReply(t, parseMarkdown('Summary of the session so far: three files changed.'), p, { first: true, columns: 100, marks: true, summary: true })),
-    dump('dots-line', renderUserRow(t, p, {
-      text: 'add the notify option',
-      submittedAt: 1_000_000,
-      startedAt: 1_000_500,
-      turn: { turnId: 'demo', calls: [call('t1', 'Read', 'ok', 300), call('t2', 'Bash', 'ok', 800), call('t3', 'Edit', 'failed', 120), call('t4', 'Bash', 'ok', 1200)], done: turn },
-      columns: 100,
-      // 0.5.0: the chevron and Copy at the right end (drawn as [label])
-      folded: false,
-      onFold: () => undefined,
-      onCopy: () => undefined,
-    })),
-    dump('tree-rows', t.Box({
+    dump('summary', renderReply(t, parseMarkdown('Summary of the session so far: three files changed.'), p, { columns: 100, marks: true, summary: true })),
+    dump('prompt-bubble', renderPromptBubble(t, p, ['add the notify option'], 30)),
+    dump('reply-bubble', renderReplyBubble(t, p, [t.Text({ children: ['Done, the option is wired.'] })], true)),
+    dump('activity-done', renderActivityRow(t, p, [call('t1', 'Read', 'ok', 300), call('t2', 'Bash', 'ok', 800), call('t3', 'Edit', 'failed', 120)], { key: 'run:t1', isOpen: false, durationMs: 1200, onToggle: () => undefined })),
+    dump('call-rows', t.Box({
       flexDirection: 'column',
       children: [
-        renderTreeRow(t, p, row('Read', { file_path: 'hooks/register.ts' }), { last: false, durationMs: 300 }),
-        renderTreeRow(t, p, row('Bash', { command: 'git log --oneline -1' }, false, 't2'), { last: false, durationMs: 800 }),
-        renderTreeRow(t, p, row('Edit', { file_path: 'hooks/chrome.ts' }, true, 't3'), { last: false, durationMs: 120 }),
-        renderGroupRow(t, p, [{ tool: 'Read', input: { file_path: 'a.ts' }, isRunning: false, isErrored: false, isInterrupted: false }, { tool: 'Grep', input: { pattern: 'x' }, isRunning: false, isErrored: false, isInterrupted: false }], { isActive: false, key: 'g1', onExpand: null }),
+        renderCallRow(t, p, row('Read', { file_path: 'hooks/register.ts' }), { durationMs: 300 }),
+        renderCallRow(t, p, row('Bash', { command: 'git log --oneline -1' }, false, 't2'), { durationMs: 800 }),
+        renderCallRow(t, p, row('Edit', { file_path: 'hooks/chrome.ts' }, true, 't3'), { durationMs: 120 }),
       ],
     })),
     dump('diff-card', renderDiff(t, p, [
@@ -136,8 +127,8 @@ test('demo dumps: every fixture produces rows', async () => {
       ],
     })),
     // 0.10.0: the crimson palette beside water, the Empryo world it joins
-    dump('reply-crimson', renderReply(t, parseMarkdown(reply), crimson, { first: true, columns: 100, marks: true })),
-    dump('reply-water', renderReply(t, parseMarkdown(reply), water, { first: true, columns: 100, marks: true })),
+    dump('reply-crimson', renderReply(t, parseMarkdown(reply), crimson, { columns: 100, marks: true })),
+    dump('reply-water', renderReply(t, parseMarkdown(reply), water, { columns: 100, marks: true })),
     dump('palette-crimson', swatches(crimson)),
     dump('palette-water', swatches(water)),
     // 0.4.25 drew nothing after the reply (the before dump is the hidden
@@ -153,5 +144,5 @@ test('demo dumps: every fixture produces rows', async () => {
     console.log('@@END')
     expect(lines.length > 0).toBe(true)
   }
-  expect(fixtures.length).toBe(11)
+  expect(fixtures.length).toBe(13)
 })

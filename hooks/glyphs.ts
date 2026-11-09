@@ -20,16 +20,13 @@ export const G = {
   /** HORIZONTAL ELLIPSIS, U+2026 */
   ellipsis: cp(0x2026),
   /** tree connectors: BOX DRAWINGS LIGHT VERTICAL AND RIGHT U+251C, VERTICAL U+2502 */
-  tee: cp(0x251c),
   pipe: cp(0x2502),
   /** status marks: CHECK MARK U+2713, BALLOT X U+2717, WHITE CIRCLE U+25CB */
   tick: cp(0x2713),
   cross: cp(0x2717),
   hollow: cp(0x25cb),
   /** FISHEYE U+25C9: the assistant header mark and a folded group */
-  fisheye: cp(0x25c9),
   /** BLACK DIAMOND U+25C6: the user row */
-  diamond: cp(0x25c6),
   /** BLACK SMALL SQUARE U+25AA: the footer */
   square: cp(0x25aa),
   /** fold chevrons, Nerd Font nf-fa-chevron_right U+F054 and chevron_down U+F078: the small triangles U+25B8/U+25BE read as specks (owner's request, 2026-10-05) */

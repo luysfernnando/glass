@@ -72,7 +72,7 @@ test('mounted: a screenshot result draws an Image on the trunk', { options: { sc
   expect(await row.find({ type: 'Image' })).toBeDefined()
   await row.unmount()
 
-  // a text-only MCP result keeps the engine's body
+  // a text-only MCP result draws nothing inline: its output lives in the card
   const plain = await $.ui.mount({
     plugin: 'glass',
     surface: 'terminal',
@@ -80,7 +80,7 @@ test('mounted: a screenshot result draws an Image on the trunk', { options: { sc
     props: { tool_use_id: 'toolu_s2', tool: 'mcp__plugin_jev-reach_chrome-devtools__navigate_page', isErrored: false, output: [{ type: 'text', text: 'Navigated.' }] },
   })
   expect(await plain.find({ type: 'Image' })).toBeUndefined()
-  expect(await plain.find({ type: 'Text', text: /engine body/ })).toBeDefined()
+  expect(await plain.find({ type: 'Text', text: /engine body/ })).toBeUndefined()
   await plain.unmount()
 })
 
@@ -116,6 +116,7 @@ test('mounted: a group with a screenshot opens, and the row draws the picture', 
   // the engine's group, beneath glass: it says whether glass opened it
   on('ui.render', { component: 'ToolGroup' }, (engine, e) => engine.ui.resolve(e).Text({ children: [e.props.isExpanded ? 'opened' : 'folded'] }) as never)
   const shot = { tool_use_id: 'toolu_g2', tool: 'mcp__plugin_jev-reach_chrome-devtools__take_screenshot', input: {}, isRunning: false, isErrored: false, isInterrupted: false, output: engineResult(ONE_PX, 'image/png', null) }
+  await openAll($)
   const group = await $.ui.mount({
     plugin: 'glass',
     surface: 'terminal',
@@ -213,13 +214,19 @@ const MINE = '/Users/me/Desktop/mine.png'
 const engineBody = (on: On) => on('ui.render', { component: 'ToolResult' }, (engine, e) => engine.ui.resolve(e).Text({ children: ['engine body'] }) as never)
 const submitted = (on: On) => on('prompt.submit', ((_: unknown, e: { text: string }) => ({ text: e.text })) as never)
 // a ToolResult row as the engine builds it: no input
-const resultRow = ($: Parameters<Parameters<typeof test>[1] & (($: never, on: never) => unknown)>[0], id: string, data = ONE_PX, mime = 'image/png') =>
-  ($ as { ui: { mount: (a: unknown) => Promise<{ find: (q: unknown) => Promise<unknown>; findAll: (q: unknown) => Promise<unknown[]>; unmount: () => Promise<void> }> } }).ui.mount({
+// the line under a reply folds a call's output away; /expand opens every span
+const openAll = ($: unknown) => ($ as { command: { run: (i: object) => Promise<unknown> } }).command.run({ command: 'expand' })
+const resultRow = async ($: Parameters<Parameters<typeof test>[1] & (($: never, on: never) => unknown)>[0], id: string, data = ONE_PX, mime = 'image/png') => {
+  await openAll($)
+  return ($ as { ui: { mount: (a: unknown) => Promise<{ find: (q: unknown) => Promise<unknown>; findAll: (q: unknown) => Promise<unknown[]>; unmount: () => Promise<void> }> } }).ui.mount({
     plugin: 'glass', surface: 'terminal', component: 'ToolResult',
     props: { tool_use_id: id, tool: 'Read', isErrored: false, isExpanded: false, output: { type: 'image', file: { base64: data, type: mime } } },
   })
-const useRow = ($: { ui: { mount: (a: unknown) => Promise<{ unmount: () => Promise<void> }> } }, id: string, path: string) =>
-  $.ui.mount({ plugin: 'glass', surface: 'terminal', component: 'ToolUse', props: { ...readCall(id, path), isRunning: true, output: undefined } }).then(r => r.unmount())
+}
+const useRow = async ($: { ui: { mount: (a: unknown) => Promise<{ unmount: () => Promise<void> }> } }, id: string, path: string) => {
+  await openAll($)
+  return $.ui.mount({ plugin: 'glass', surface: 'terminal', component: 'ToolUse', props: { ...readCall(id, path), isRunning: true, output: undefined } }).then(r => r.unmount())
+}
 
 test('0.17.0: a group that grew draws one picture when it opens, not one per Read it ever chose', { options: { screenshots: true } }, async ($, on) => {
   on('ui.render', { component: 'ToolGroup' }, (engine, e) => engine.ui.resolve(e).Text({ children: [e.props.isExpanded ? 'opened' : 'folded'] }) as never)
@@ -391,7 +398,7 @@ test('0.17.0: a picture an earlier load converted is read back, with no sips', {
   expect(runs.filter(r => r.argv[0] === 'sips')).toHaveLength(0)
 })
 
-test('0.17.0: in the transcript view a grouped Read draws its picture once, under its ToolUse row', { options: { screenshots: true } }, async ($, on) => {
+test('0.17.0: in the transcript view a grouped Read draws its picture once, under its ToolUse row (opened)', { options: { screenshots: true } }, async ($, on) => {
   engineBody(on)
   on('ui.render', { component: 'ToolGroup' }, (engine, e) => engine.ui.resolve(e).Text({ children: ['engine group'] }) as never)
   conversation(on, [])
@@ -410,9 +417,9 @@ test('0.17.0: in the transcript view a grouped Read draws its picture once, unde
     if (await result.find({ type: 'Text', text: /engine body/ })) bodies.push(c.tool_use_id)
     await result.unmount()
   }
-  // b, the group's chosen Read, draws once; a keeps the engine's row
-  expect(images).toBe(1)
-  expect(bodies).toEqual(['tv-a'])
+  // opened (/expand), each grouped Read draws once, under its own ToolUse row
+  expect(images).toBe(2)
+  expect(bodies).toEqual([])
 })
 
 

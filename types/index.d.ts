@@ -40,22 +40,13 @@ export type GlassServerTool = {
   endedAt?: number
 }
 
-/** one main-loop tool call, as the dots line and the tree draw it */
+/** one main-loop tool call, as the activity line counts it */
 export type GlassCall = {
   id: string
   tool: string
   status: 'running' | 'ok' | 'failed'
   /** wall time once known */
   ms: number | null
-}
-
-/** one prompt the person submitted: the user row finds its turn by text */
-export type GlassPrompt = {
-  text: string
-  submittedAt: number
-  /** when the turn for it began; null until it does */
-  startedAt: number | null
-  turnId: string | null
 }
 
 /** one subagent still running, for its model on the hint line */
@@ -72,10 +63,9 @@ declare module 'claude-code' {
   interface PluginState {
     glass: {
       turns: GlassTurn[]
-      prompts: GlassPrompt[]
       /** the main-loop calls of each turn, by turn id, in call order */
       calls: Record<string, GlassCall[]>
-      /** request ids of the engine's folded groups the person opened */
+      /** activity lines the person opened (`run:<head call id>`) */
       expanded: string[]
       agents: GlassAgent[]
       /** the main-loop turn now running, null between turns; kept by the host across a reload (0.5.1) */

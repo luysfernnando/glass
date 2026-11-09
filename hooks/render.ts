@@ -7,6 +7,7 @@ import { G } from './glyphs'
 import { codeColor, highlight } from './highlight'
 import { figureArt, mermaidArt, slotColor } from './diagram'
 import type { Art } from './diagram'
+import { blocksHtml } from './html'
 import { inlineText } from './markdown'
 import type { Align, AlertLevel, Block, CalloutRow, Inline, ListItem } from './markdown'
 import type { Palette } from './palette'
@@ -25,20 +26,25 @@ type Ctx = {
   m: number
   /** a color for plain prose, when the block mutes it (a quote's `meta`) */
   tone?: string
-  /** copies a fenced block's text; absent, a fence draws no copy button */
-  copy?: (text: string, press: { surface: 'terminal' | 'desktop' | 'vscode' | 'mobile' }) => void
+  /** copies a fenced block in a format; absent, a fence draws no copy control */
+  copy?: CopyFn
 }
 
+export type CopyFormat = 'md' | 'html' | 'text'
+export type Press = { surface: 'terminal' | 'desktop' | 'vscode' | 'mobile' }
+/** what a copy control can hand over: the markdown source, the rest built on demand */
+export type Copyable = { md: string; html: () => string; text: () => string }
+export type CopyFn = (what: Copyable, format: CopyFormat, press: Press) => void
+const FORMAT_LABEL: Record<CopyFormat, string> = { md: 'markdown', html: 'html', text: 'text' }
+
 export type RenderOptions = {
-  /** the first text block of a reply: keeps a blank row above */
-  first?: boolean
   columns: number
   /** gutter marks beside paragraphs that need the reader; off when the prompt asked for writing */
   marks: boolean
   /** a compaction summary (0.5.0): one faint ` . summary` row closes the reply, as the engine's own mark reads */
   summary?: boolean
-  /** copies a fenced block's text (the per-block copy button) */
-  onCopy?: Ctx['copy']
+  /** copies a fenced block (the per-block hover control) */
+  onCopy?: CopyFn
 }
 
 const LABEL_WIDTH = 8
@@ -86,7 +92,7 @@ const NUMERIC_RE = new RegExp(
 const PLACEHOLDER_RE = new RegExp('^(?:-|' + String.fromCodePoint(0x2013) + '|' + String.fromCodePoint(0x2014) + '|n/a|N/A|\\?|' + String.fromCodePoint(0x2026) + ')$')
 
 // a color `k` of the way from `a` to `b`; a non-hex color stays `a`
-function blend(a: string, b: string, k: number): string {
+export function blend(a: string, b: string, k: number): string {
   const hex = /^#[0-9a-f]{6}$/i
   if (!hex.test(a) || !hex.test(b)) return a
   const ch = (s: string, i: number) => parseInt(s.slice(1 + 2 * i, 3 + 2 * i), 16)
@@ -135,13 +141,11 @@ export function renderReply(t: Table, blocks: Block[], p: Palette, o: RenderOpti
   blocks.forEach((b, i) => {
     const el = renderBlock(c, b)
     // one rhythm rule: a blank above every block except the first and any
-    // text block right under a heading; the reply's first block keeps a
-    // blank, so it never sits glued to the tool rows above. No bullet: the
-    // assistant header under the user row carries it. A card, a table or a
+    // text block right under a heading. A card, a table or a
     // Bottom line keeps its blank under a heading: a tint or a second bold
     // row glued to the heading read as one crowded block.
     const tight = prev === 'heading' && b.kind !== 'code' && b.kind !== 'table' && b.kind !== 'callout'
-    const marginTop = i === 0 ? (o.first ? 1 : 0) : tight ? 0 : 1
+    const marginTop = i === 0 ? 0 : tight ? 0 : 1
     // a paragraph that asks something of the reader gets a gutter mark in
     // the two cells every other block leaves blank
     const marked = o.marks && b.kind === 'paragraph' && !isPrivateNote(inlineText(b.inlines)) && needsAttention(proseText(b.inlines))
@@ -317,7 +321,7 @@ function renderFence(c: Ctx, lang: string, source: string): RenderElement {
           t.Text({ color: p.faint, children: [lang ? lang.toUpperCase() : ''] }),
           t.Box({ flexGrow: 1, children: [] }),
           t.Text({ color: p.faint, children: [`${lines} lines`] }),
-          ...copyButton(c, code, 'row'),
+          ...copyControl(c, fenceCopy(lang, code), 'row'),
         ],
       }),
     )
@@ -344,7 +348,7 @@ function renderFence(c: Ctx, lang: string, source: string): RenderElement {
         : body,
     )
   })
-  if (!gutter) children.push(...copyButton(c, code, 'corner'))
+  if (!gutter) children.push(...copyControl(c, fenceCopy(lang, code), 'corner'))
   return t.Box({
     flexDirection: 'column',
     width,
@@ -355,22 +359,42 @@ function renderFence(c: Ctx, lang: string, source: string): RenderElement {
   })
 }
 
-// The per-block copy button (after prismantis, MIT): glass's own copy glyph
-// and the reply Copy's $.ui.copy route. A long fence carries it in its header
-// row; a short one pins it to the card's top right corner, in the padding
-// column, so no row or width changes.
-function copyButton(c: Ctx, text: string, place: 'row' | 'corner'): RenderElement[] {
+const fenceCopy = (lang: string, code: string): Copyable => ({
+  md: '```' + lang + '\n' + code + '\n```',
+  html: () => blocksHtml([{ kind: 'code', lang, source: code }]),
+  text: () => code,
+})
+
+// The hover copy control (after prismantis, MIT): a dim glyph marks the spot;
+// while the pointer is over it, the formats appear in its place (a Box drawn
+// `display: none` that the shared hover scope turns on). A long fence carries
+// the glyph in its header row; a short one pins it to the card's top right
+// corner, in the padding column, so no row or width changes.
+export function copyControl(c: Pick<Ctx, 't' | 'p' | 'copy'>, what: Copyable, place: 'row' | 'corner' | 'low'): RenderElement[] {
   const { t, p, copy } = c
-  if (!copy || text.trim() === '') return []
-  const button = t.Button({
-    key: `copy:${text.length}:${text.slice(0, 24)}`,
-    label: G.copy,
-    plain: true,
-    dimColor: true,
-    hover: { backgroundColor: p.rowHover },
-    onPress: (press: { surface: 'terminal' | 'desktop' | 'vscode' | 'mobile' }) => copy(text, press),
+  if (!copy || what.md.trim() === '') return []
+  const scope = `copy:${what.md.length}:${what.md.slice(0, 24)}`
+  const marker = t.Box({ flexShrink: 0, hover: { scope }, children: [t.Text({ color: p.faint, children: [G.copy] })] })
+  const buttons: RenderNode[] = (['md', 'html', 'text'] as CopyFormat[]).flatMap((f, i) => [
+    ...(i ? [t.Text({ children: [' '] })] : []),
+    t.Button({
+      key: `${scope}:${f}`,
+      label: FORMAT_LABEL[f],
+      plain: true,
+      hover: { backgroundColor: p.rowHover },
+      onPress: (press: Press) => copy(what, f, press),
+    }),
+  ])
+  const panel = t.Box({
+    position: 'absolute',
+    ...(place === 'low' ? { bottom: 0 } : { top: 0 }),
+    right: 0,
+    display: 'none',
+    backgroundColor: p.blockBg,
+    hover: { scope, display: 'flex' },
+    children: [t.Text({ color: p.faint, children: [G.copy + ' '] }), ...buttons],
   })
-  return place === 'row' ? [t.Text({ children: ['  '] }), button] : [t.Box({ position: 'absolute', top: 0, right: 0, children: [button] })]
+  return place === 'row' ? [marker, panel] : [t.Box({ position: 'absolute', ...(place === 'low' ? { bottom: 0 } : { top: 0 }), right: 0, hover: { scope }, children: [t.Text({ color: p.faint, children: [G.copy] })] }), panel]
 }
 
 // a mermaid or figure fence as colored art, when it can be drawn within the
@@ -403,7 +427,7 @@ function renderArt(c: Ctx, art: Art, source: string): RenderElement {
           children: row.length === 0 ? [' '] : row.flatMap((r): RenderNode[] => (slotColor(p, r.slot) ? [t.Text({ color: slotColor(p, r.slot), children: [r.text] })] : [r.text])),
         }),
       ),
-      ...copyButton(c, source.replace(/\n$/, ''), 'corner'),
+      ...copyControl(c, fenceCopy('', source.replace(/\n$/, '')), 'corner'),
     ],
   })
 }

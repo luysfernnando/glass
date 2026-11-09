@@ -20,7 +20,7 @@ test('cellWidth mirrors the engine ruler on the glyphs the mod draws', async () 
     [cp(0x274c) + ' fail', 7],
     [cp(0x4e2d) + cp(0x6587), 4],
     ['e' + cp(0x301), 1],
-    [G.tee + G.rule + ' ' + G.tick, 4],
+    [G.rule + G.rule + ' ' + G.tick, 4],
     [G.check + ' task', 6],
     [G.ring + ' sub', 5],
     [G.rule.repeat(5), 5],

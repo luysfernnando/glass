@@ -3,11 +3,12 @@
 import { expect, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { renderHint, renderServerToolRows, renderUserRow } from '../hooks/chrome'
+import { renderHint, renderServerToolRows } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { parseMarkdown } from '../hooks/markdown'
 import { PALETTES } from '../hooks/palette'
-import { renderReply } from '../hooks/render'
+import { copyControl, renderReply } from '../hooks/render'
+import type { Copyable, CopyFormat } from '../hooks/render'
 
 const p = PALETTES.tidepool
 const el = (type: string) => (props: Record<string, unknown>) => ({ type, props }) as unknown as RenderElement
@@ -32,8 +33,8 @@ function colorsOf(node: RenderNode, out: string[] = []): string[] {
 
 test('a compaction summary ends on one faint summary row; a plain reply does not', async () => {
   const blocks = parseMarkdown('Summary so far: three files changed.\n\n- one\n- two')
-  const plain = renderReply(t, blocks, p, { first: true, columns: 80, marks: true })
-  const summary = renderReply(t, blocks, p, { first: true, columns: 80, marks: true, summary: true })
+  const plain = renderReply(t, blocks, p, { columns: 80, marks: true })
+  const summary = renderReply(t, blocks, p, { columns: 80, marks: true, summary: true })
   const plainRows = lines(plain)
   const rows = lines(summary)
   expect(rows.length).toBe(plainRows.length + 1)
@@ -51,8 +52,8 @@ test('server tool rows: the name plain, the note faint, the duration in meta, no
   ])
   const rows = lines(out)
   expect(rows.length).toBe(2)
-  expect(rows[0]!.startsWith(G.tee)).toBe(true)
-  expect(rows[0]).toContain(G.tee + G.rule + ' ' + G.tick + ' advisor  ran by the API')
+  expect(rows[0]!.startsWith(G.tick)).toBe(true)
+  expect(rows[0]).toContain(G.tick + ' advisor  ran by the API')
   expect(rows[0]).toContain('4.2s')
   // no end time: no duration at the right
   expect(/\d(\.\d)?s$/.test(rows[1]!.trimEnd())).toBe(false)
@@ -66,30 +67,37 @@ test('server tool rows: the name plain, the note faint, the duration in meta, no
   expect(colors).not.toContain(p.ok)
 })
 
-test('the dots line: a chevron and Copy as plain keyed Buttons once the turn is done; neither without a handler', async () => {
-  const turn = { turnId: 'x', durationMs: 5000, tools: 1, edits: 0, failed: 0, inTokens: 1, cacheTokens: 0, outTokens: 1, costUsd: null, lastToolId: 't1', answer: 'done', startedAt: 0, finishedAt: 5000 }
-  const calls = [{ id: 't1', tool: 'Bash', status: 'ok' as const, ms: 800 }]
-  const buttons = (node: RenderNode, out: Node[] = []): Node[] => {
+test('the hover copy control: one Button per format, a hidden panel the marker reveals, nothing without a handler', async () => {
+  const what: Copyable = { md: '**hi**', html: () => '<b>hi</b>', text: () => 'hi' }
+  const walk = (node: RenderNode, out: Node[] = []): Node[] => {
     if (typeof node === 'string') return out
     const n = node as unknown as Node
-    if (n.type === 'Button') out.push(n)
-    for (const k of n.props.children ?? []) buttons(k, out)
+    out.push(n)
+    for (const k of n.props.children ?? []) walk(k, out)
     return out
   }
-  const pressed: string[] = []
-  const withButtons = renderUserRow(t, p, { text: 'hi', submittedAt: 0, startedAt: 0, turn: { turnId: 'x', calls, done: turn }, columns: 80, folded: false, onFold: () => pressed.push('fold'), onCopy: () => pressed.push('copy') })
-  const found = buttons(withButtons)
-  expect(found.map(b => b.props.key)).toEqual(['fold:x', 'copy:x'])
-  expect(found.map(b => b.props.label)).toEqual([G.down, G.copy + ' Copy'])
-  for (const b of found) {
+  expect(copyControl({ t, p, copy: undefined }, what, 'row')).toEqual([])
+  expect(copyControl({ t, p, copy: () => undefined }, { ...what, md: ' ' }, 'row')).toEqual([])
+  const got: [string, CopyFormat][] = []
+  const parts = copyControl({ t, p, copy: (w, f) => got.push([w.md, f]) }, what, 'row')
+  expect(parts.length).toBe(2)
+  const nodes = parts.flatMap(x => walk(x))
+  const buttons = nodes.filter(n => n.type === 'Button')
+  expect(buttons.map(b => b.props.label)).toEqual(['markdown', 'html', 'text'])
+  for (const b of buttons) {
     expect(b.props.plain).toBe(true)
-    ;(b.props.onPress as () => void)()
+    ;(b.props.onPress as (x: { surface: string }) => void)({ surface: 'terminal' })
   }
-  expect(pressed).toEqual(['fold', 'copy'])
-  // folded: the chevron points right; live: no Copy yet
-  expect(buttons(renderUserRow(t, p, { text: 'hi', submittedAt: 0, startedAt: 0, turn: { turnId: 'x', calls, done: turn }, columns: 80, folded: true, onFold: () => undefined, onCopy: () => undefined }))[0]!.props.label).toBe(G.right)
-  expect(buttons(renderUserRow(t, p, { text: 'hi', submittedAt: 0, startedAt: 0, turn: { turnId: 'x', calls, done: null }, columns: 80, onFold: () => undefined, onCopy: () => undefined })).map(b => b.props.key)).toEqual(['fold:x'])
-  expect(buttons(renderUserRow(t, p, { text: 'hi', submittedAt: 0, startedAt: 0, turn: { turnId: 'x', calls, done: turn }, columns: 80 })).length).toBe(0)
+  expect(got.map(g => g[1])).toEqual(['md', 'html', 'text'])
+  // the panel starts hidden and shows under the marker's scope
+  const panel = nodes.find(n => n.props.display === 'none')!
+  const scope = (panel.props.hover as { scope: string; display: string })
+  expect(scope.display).toBe('flex')
+  const marker = nodes.find(n => (n.props.hover as { scope?: string } | undefined)?.scope === scope.scope && n !== panel)
+  expect(marker).toBeDefined()
+  // the low place pins to the bottom
+  const low = copyControl({ t, p, copy: () => undefined }, what, 'low').flatMap(x => walk(x))
+  expect(low.some(n => n.props.bottom === 0)).toBe(true)
 })
 
 test('the hint line: the mode word names the theme slot for its mode', async () => {

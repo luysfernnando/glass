@@ -65,10 +65,11 @@ test('a fenced block has a copy button only when copy is wired', async () => {
   const code = '```sh\nls -la\n```'
   expect(buttons(renderReply(t, parseMarkdown(code), p, { columns: 80, marks: false }))).toHaveLength(0)
   const copied: string[] = []
-  const tree = renderReply(t, parseMarkdown(code), p, { columns: 80, marks: false, onCopy: x => copied.push(x) })
-  const [button] = buttons(tree) as unknown as { props: { onPress: (press: { surface: string }) => void } }[]
-  button!.props.onPress({ surface: 'terminal' })
-  expect(copied).toEqual(['ls -la'])
+  const tree = renderReply(t, parseMarkdown(code), p, { columns: 80, marks: false, onCopy: (x, f) => copied.push(f + ':' + x.md + ':' + x.text()) })
+  const found = buttons(tree) as unknown as { props: { onPress: (press: { surface: string }) => void } }[]
+  expect(found).toHaveLength(3)
+  for (const b of found) b.props.onPress({ surface: 'terminal' })
+  expect(copied).toEqual(['md:```sh\nls -la\n```:ls -la', 'html:```sh\nls -la\n```:ls -la', 'text:```sh\nls -la\n```:ls -la'])
 })
 
 test('the hint stays within budget and ASCII', async () => {

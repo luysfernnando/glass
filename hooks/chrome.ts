@@ -1,18 +1,17 @@
-// Turn chrome, following SPEC.md "Turn chrome": the user row with its
-// assistant header and dots line, the tool tree, the folded group, event
-// rows. One glyph
+// Turn chrome, following SPEC.md "Turn chrome": the prompt and reply
+// bubbles, the activity line, flat call rows, event rows. One glyph
 // family (glyphs.ts), one ruler (width.ts), one hierarchy rule: bright for
 // the live thing, `meta` for the done thing, `faint` for scaffolding,
 // saturated color on marks only.
 import type { Elements, RenderElement, RenderNode, UiPressArgument } from 'claude-code'
 
-import type { GlassCall, GlassServerTool, GlassTurn } from '../types'
+import type { GlassServerTool } from '../types'
 import { G } from './glyphs'
 import { codeColor, highlightLine, langOf } from './highlight'
 import type { State } from './highlight'
 import { paintLine } from './output'
 import type { Palette } from './palette'
-import { measure } from './render'
+import { blend } from './render'
 import { shellSpans } from './shell'
 import { shotBox } from './shot'
 import type { Shot } from './shot'
@@ -88,14 +87,13 @@ export function clip(s: string, n: number): string {
   return out + G.ellipsis
 }
 
-// A tree row in the tree's inset. No air above it: the rows sit back to
-// back (owner's request, 2026-10-05; a blank between runs, 2026-10-03, read
-// as clutter once a turn had many). Tree rows sit 2 cells in from each edge (owner's request, 2026-10-03:
-// the right column was flush with the terminal's edge), the same 2 the
-// prose measure leaves on the right.
-const TREE_INSET = 2
-export function spaced(t: Table, p: Palette, row: RenderElement, air = false): RenderElement {
-  return t.Box({ flexDirection: 'column', marginLeft: TREE_INSET, marginRight: TREE_INSET, children: air ? [t.Text({ color: p.faint, children: [G.pipe] }), row] : [row] })
+// A call row in the side insets: 2 cells in from each edge, the same 2 the
+// prose measure leaves on the right. No air above it: rows sit back to back.
+const INSET = 2
+// cells a body leaves before its content: under the row's mark
+const BODY = 2
+export function spaced(t: Table, row: RenderElement): RenderElement {
+  return t.Box({ flexDirection: 'column', marginLeft: INSET, marginRight: INSET, children: [row] })
 }
 
 // the session's directory: paths under it draw relative (`SPEC.md`, not
@@ -143,61 +141,6 @@ export function shortPath(path: string): string {
 const plural = (n: number, one: string) => `${n} ${n === 1 ? one : one + 's'}`
 const sep = ` ${G.middot} `
 
-// ---- user row ------------------------------------------------------------
-
-export type TurnView = {
-  turnId: string
-  calls: GlassCall[]
-  /** the finished turn, once it is */
-  done: GlassTurn | null
-}
-
-export type UserRow = {
-  text: string
-  submittedAt: number | null
-  /** when the turn for this prompt began; the assistant header follows once known */
-  startedAt: number | null
-  turn: TurnView | null
-  columns: number
-  /** 0.5.0, gated on the live press retest: the turn's tree is folded */
-  folded?: boolean
-  /** a press folds or unfolds this turn's tree; none, no chevron */
-  onFold?: Press | null
-  /** a press copies the turn's answer; none, no Copy */
-  onCopy?: Press | null
-}
-
-// the dots: one per call in call order, grouped by consecutive tool with a
-// space between groups; `ok` green, `err` red, hollow while running. Past
-// DOTS_MAX calls the first DOTS_SHOWN draw and `+N` in `faint` stands for
-// the rest, so the summary after them is never pushed off the row (45
-// calls filled 80 columns with dots, 2026-10-06); the summary keeps every
-// count, failures included.
-const DOTS_MAX = 16
-const DOTS_SHOWN = 12
-function dots(t: Table, p: Palette, calls: GlassCall[]): RenderNode[] {
-  const out: RenderNode[] = []
-  let prev: string | null = null
-  const shown = calls.length > DOTS_MAX ? calls.slice(0, DOTS_SHOWN) : calls
-  for (const c of shown) {
-    if (prev !== null && c.tool !== prev) out.push(t.Text({ children: [' '] }))
-    prev = c.tool
-    const mark = c.status === 'running' ? G.hollow : c.status === 'failed' ? G.cross : G.disc
-    const color = c.status === 'failed' ? p.err : c.status === 'ok' ? p.ok : p.meta
-    // the dot and its tree row light together under the pointer
-    out.push(t.Text({ color, hover: { scope: callScope(c.id), backgroundColor: p.rowHover }, children: [mark] }))
-  }
-  if (shown.length < calls.length) out.push(t.Text({ color: p.faint, children: [` +${calls.length - shown.length}`] }))
-  return out
-}
-
-// `Bash x3 . Read x2`: the tools in first-seen order with their counts
-function toolCounts(calls: GlassCall[]): string {
-  const counts = new Map<string, number>()
-  for (const c of calls) counts.set(c.tool, (counts.get(c.tool) ?? 0) + 1)
-  return [...counts].map(([tool, n]) => (n > 1 ? `${toolText(tool)} ${G.times}${n}` : toolText(tool))).join(sep)
-}
-
 // ---- tool names ----------------------------------------------------------
 
 // MCP tools arrive as `mcp__<server>__<tool>`: the label drops `mcp__` and
@@ -228,103 +171,75 @@ function toolNodes(t: Table, p: Palette, tool: string, bold: boolean): RenderNod
   return l.server ? [t.Text({ color: p.faint, children: [l.server + ' '] }), name] : [name]
 }
 
-// `<diamond> You . 01:11 PM`, the prompt under it at the measure, then after
-// one blank row the assistant header `<fisheye> Claude . 01:14 PM` and the
-// dots line: the one place a header can sit above both the tool rows and
-// the reply, since the engine fixes the row order. Folded, the dots line
-// reads the tool counts while the turn runs and the totals once it is
-// done.
-export function renderUserRow(t: Table, p: Palette, r: UserRow): RenderElement {
-  const m = measure(r.columns)
-  const rows: RenderElement[] = [
-    // a turn separator: one blank row, a faint rule the measure wide, one
-    // more blank row, so a new prompt stands apart from the reply above
-    // (owner's request, 2026-10-03)
-    // the turn boundary is one titled rule: `<diamond> You . 3:20 PM ---`
-    // to the measure, a blank row above it (proposal 7, 2026-10-04: it
-    // replaces a bare rule with a blank row each side, two rows saved)
-    t.Box({
-      marginTop: 1,
-      children: [
-        t.Text({
-          wrap: 'truncate-end',
-          children: [
-            // name and glyph in one color: a neutral bold name was tried
-            // and the owner wanted the color back (2026-10-11)
-            t.Text({ color: p.accentUser, weight: 'bold', children: [G.diamond + ' You'] }),
-            ...(r.submittedAt === null ? [] : [t.Text({ color: p.meta, children: [sep + clockTime(r.submittedAt)] })]),
-            t.Text({ color: p.faint, children: [' ' + G.rule.repeat(Math.max(1, m - cellWidth(G.diamond + ' You' + (r.submittedAt === null ? '' : sep + clockTime(r.submittedAt))) - 1))] }),
-          ],
-        }),
-      ],
-    }),
-    t.Box({ marginLeft: 2, width: m, children: [t.Text({ wrap: 'wrap', children: [safeText(r.text)] })] }),
-  ]
-  if (r.startedAt !== null) {
-    rows.push(
-      t.Box({
-        marginTop: 1,
-        children: [
-          t.Text({
-            children: [
-              t.Text({ color: p.accent, weight: 'bold', children: [G.fisheye + ' Claude'] }),
-              t.Text({ color: p.meta, children: [sep + clockTime(r.startedAt)] }),
-            ],
-          }),
-        ],
-      }),
-    )
-  }
-  const v = r.turn
-  if (v && v.calls.length > 0) {
-    const summary: RenderNode[] = []
-    if (v.done) {
-      summary.push(plural(v.done.tools, 'action'))
-      if (v.done.edits > 0) summary.push(sep + plural(v.done.edits, 'edit'))
-      if (v.done.failed > 0) summary.push(sep, t.Text({ color: p.err, children: [`${v.done.failed} failed`] }))
-    } else {
-      summary.push(toolCounts(v.calls))
-      const failed = v.calls.filter(c => c.status === 'failed').length
-      if (failed > 0) summary.push(sep, t.Text({ color: p.err, children: [`${failed} failed`] }))
-    }
-    // dots as sibling Texts, so each can light its row (a Text nested in a
-    // Text follows its hover group but cannot heat it)
-    const left = t.Box({
-      flexDirection: 'row',
-      flexShrink: 1,
-      children: [...dots(t, p, v.calls), t.Text({ children: ['  '] }), t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: v.done ? p.meta : p.bold, children: summary })] })],
-    })
-    // 0.5.0: the chevron and Copy return as plain Buttons at the right end,
-    // gated on the live press retest (the 0.2 and 0.3 Buttons never
-    // received a press; 2.1.288 fixed button routing). /fold and /unfold
-    // stay the keyboard route. Label only: no children, so the tree
-    // validates on engines before 2.1.295.
-    const controls: RenderNode[] = []
-    if (r.onFold) controls.push(t.Button({ key: `fold:${v.turnId}`, label: r.folded ? G.right : G.down, plain: true, dimColor: true, hover: { backgroundColor: p.rowHover }, onPress: r.onFold }))
-    if (r.onCopy && v.done) controls.push(...(controls.length ? ['  '] : []), t.Button({ key: `copy:${v.turnId}`, label: G.copy + ' Copy', plain: true, dimColor: true, hover: { backgroundColor: p.rowHover }, onPress: r.onCopy }))
-    rows.push(
-      t.Box({
-        key: `dots:${v.turnId}`,
-        flexDirection: 'row',
-        marginLeft: 2,
-        // the same right inset as the tree rows, so the buttons end where
-        // the durations end
-        marginRight: TREE_INSET,
-        justifyContent: 'space-between',
-        hover: { backgroundColor: p.rowHover },
-        children: [
-          t.Box({ flexDirection: 'row', flexShrink: 1, children: [left] }),
-          ...(controls.length ? [t.Box({ flexDirection: 'row', flexShrink: 0, marginLeft: 2, children: controls })] : []),
-        ],
-      }),
-    )
-  }
-  return t.Box({ flexDirection: 'column', children: rows })
+// ---- bubbles -------------------------------------------------------------
+// Ported from prismantis 0.40.0 (MIT) chatPrompt / replyFrame, small labels:
+// the prompt a right-aligned round box under `You <disc>`, the reply a dim
+// round frame under `<disc> Claude` (the label on a reply's first bubble only).
+
+/** share of the columns a prompt bubble may take */
+export const CHAT_SHARE = 0.75
+/** cells a bubble spends on border and padding, per side pair */
+export const BUBBLE_PAD = 4
+
+/** widest line of a prompt, in cells */
+function widest(lines: ReadonlyArray<string>): number {
+  return lines.reduce((n, l) => Math.max(n, cellWidth(l)), 0)
 }
 
-// ---- tool tree -----------------------------------------------------------
+/** the width a prompt bubble takes: its widest line plus border and padding, capped at the share */
+export function promptWidth(lines: ReadonlyArray<string>, columns: number): number {
+  const room = Math.max(12, Math.floor(columns * CHAT_SHARE))
+  return Math.min(room, widest(lines) + BUBBLE_PAD)
+}
 
-export type TreeRow = {
+/** `You <disc>` over a right-aligned round box holding the prompt */
+export function renderPromptBubble(t: Table, p: Palette, content: RenderNode[], width: number): RenderElement {
+  const color = p.promptBorder ?? p.accentUser
+  return t.Box({
+    key: 'prompt',
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    width: '100%',
+    marginTop: 1,
+    children: [
+      t.Text({ color, weight: 'bold', children: ['You ' + G.disc] }),
+      t.Box({
+        borderStyle: 'round',
+        borderColor: color,
+        backgroundColor: blend(p.blockBg, color, 0.12),
+        paddingX: 1,
+        width,
+        flexShrink: 0,
+        flexDirection: 'column',
+        children: content,
+      }),
+    ],
+  })
+}
+
+/** a reply's dim round frame; `first` adds the `<disc> Claude` label above it */
+export function renderReplyBubble(t: Table, p: Palette, body: RenderElement[], first: boolean, extra: RenderElement[] = []): RenderElement {
+  return t.Box({
+    key: 'reply',
+    flexDirection: 'column',
+    children: [
+      ...(first ? [t.Text({ color: p.accent, weight: 'bold', children: [G.disc + ' Claude'] })] : []),
+      t.Box({
+        flexDirection: 'column',
+        borderStyle: 'round',
+        borderColor: p.accent,
+        borderDimColor: true,
+        backgroundColor: blend(p.blockBg, p.accent, 0.06),
+        paddingX: 1,
+        children: [...body, ...extra],
+      }),
+    ],
+  })
+}
+
+// ---- call rows -----------------------------------------------------------
+
+export type CallRow = {
   tool_use_id: string
   tool: string
   input: unknown
@@ -334,13 +249,9 @@ export type TreeRow = {
   output?: unknown
 }
 
-export type TreeOptions = {
-  /** the turn's last call draws the elbow */
-  last: boolean
+export type CallOptions = {
   /** wall time once known */
   durationMs: number | null
-  /** a trunk row above; none by default (2026-10-05) */
-  air?: boolean
   /** while running: the clock's first cells (clockCells); a ticker blits the rest */
   clock?: string
 }
@@ -389,11 +300,11 @@ function rowHead(t: Table, ...cells: RenderElement[]): RenderElement {
   return t.Box({ flexDirection: 'row', flexShrink: 0, children: cells })
 }
 
-// `|- v Bash  git log --oneline . 3 lines                        0.8s`
-// Connector `faint`, mark in its status color, the name in `tool` (bold
+// `v Bash  git log --oneline . 3 lines                        0.8s`
+// Mark in its status color, the name in `tool` (bold
 // while live), the subject truncating (ctrl+o has the whole call), the
 // time at the right. The row lights under the pointer.
-export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions): RenderElement {
+export function renderCallRow(t: Table, p: Palette, row: CallRow, o: CallOptions): RenderElement {
   const live = row.isRunning
   const failed = row.isErrored || row.isInterrupted
   const mark = live ? G.hollow : failed ? G.cross : G.tick
@@ -409,15 +320,13 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
   }
   // under a tenth of a second the time says nothing (`0.0s`): none
   const right = o.durationMs === null || o.durationMs < 100 ? '' : fmtToolTime(o.durationMs)
-  return spaced(t, p, t.Box({
+  return spaced(t, t.Box({
     key: `row:${row.tool_use_id}`,
     flexDirection: 'row',
     // a Read's row opens nothing, so it does not light under the pointer
     ...(row.tool === 'Read' ? {} : { hover: { scope: callScope(row.tool_use_id), backgroundColor: p.rowHover } }),
     children: [
-      // the turn's last row closes the tree with the rounded corner
-      // (owner's request, 2026-10-05)
-      rowHead(t, t.Text({ color: p.faint, children: [(o.last ? G.arcBL : G.tee) + G.rule + ' '] }), t.Text({ color: markColor, children: [mark + ' '] })),
+      rowHead(t, t.Text({ color: markColor, children: [mark + ' '] })),
       t.Box({
         flexGrow: 1,
         flexShrink: 1,
@@ -434,7 +343,7 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
           ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: live ? p.meta : p.faint, children: [right] })] })]
           : []),
     ],
-  }), o.air ?? false)
+  }))
 }
 
 // A tool the API ran inside the request (the advisor): no tool.call, no
@@ -446,12 +355,12 @@ export function renderTreeRow(t: Table, p: Palette, row: TreeRow, o: TreeOptions
 export function renderServerToolRows(t: Table, p: Palette, tools: ReadonlyArray<GlassServerTool>): RenderElement {
   const rows = tools.map(s => {
     const right = s.endedAt === undefined || s.endedAt - s.startedAt < 100 ? '' : fmtToolTime(s.endedAt - s.startedAt)
-    return spaced(t, p, t.Box({
+    return spaced(t, t.Box({
       key: `server:${s.id}`,
       flexDirection: 'row',
       hover: { backgroundColor: p.rowHover },
       children: [
-        rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: p.meta, children: [G.tick + ' '] })),
+        rowHead(t, t.Text({ color: p.meta, children: [G.tick + ' '] })),
         t.Box({
           flexGrow: 1,
           flexShrink: 1,
@@ -464,24 +373,17 @@ export function renderServerToolRows(t: Table, p: Palette, tools: ReadonlyArray<
   return t.Box({ flexDirection: 'column', children: rows })
 }
 
-// cells a body row leaves for the trunk column before its content
-const TRUNK = 3
 // painted output lines under a Bash row before the rest folds to a count
 export const MAX_PAINTED_LINES = 3
 
-// A body row under a tree row: the trunk down its left, `h` rows tall,
-// the content indented under the row's mark. Under the turn's last row
-// (`last`) the column is blank, since the elbow above closed the tree.
-export function trunked(t: Table, p: Palette, h: number, content: RenderNode[], last = false): RenderElement {
-  const bar = last ? ' ' : G.pipe
+// A body row under a call row: indented under the row's mark, in the same
+// side insets as the call rows.
+export function indented(t: Table, content: RenderNode[]): RenderElement {
   return t.Box({
-    flexDirection: 'row',
-    marginLeft: TREE_INSET,
-    marginRight: TREE_INSET,
-    children: [
-      t.Box({ width: TRUNK, flexShrink: 0, children: [t.Text({ color: p.faint, children: [Array(Math.max(1, h)).fill(bar).join('\n')] })] }),
-      t.Box({ flexGrow: 1, flexShrink: 1, flexDirection: 'column', children: content }),
-    ],
+    flexDirection: 'column',
+    marginLeft: INSET + BODY,
+    marginRight: INSET,
+    children: content,
   })
 }
 
@@ -499,8 +401,6 @@ export type OutputOptions = {
   columns: number
   /** lines past this fold to a `faint` count */
   maxLines: number
-  /** the row above is the turn's last: no trunk */
-  last?: boolean
 }
 
 // The engine's Bash result body, redrawn so the output can be painted (the
@@ -517,16 +417,59 @@ export function renderToolOutput(t: Table, p: Palette, lines: string[], o: Outpu
   // or a bell refused the whole tree) and cut well past any terminal's
   // width, since the row clips anyway (a minified JSON line ran 16000)
   const rows = shown.map(line =>
-    trunked(t, p, 1, [
+    indented(t, [
       t.Text({
         wrap: 'truncate-end',
         children: paintLine(safeText(overstruck(line), OUTPUT_LINE_MAX)).map(s => (s.color ? t.Text({ color: p[s.color], children: [s.text] }) : t.Text({ color: p.meta, children: [s.text] }))),
       }),
-    ], o.last),
+    ]),
   )
   const rest = lines.length - shown.length
-  if (rest > 0) rows.push(trunked(t, p, 1, [t.Text({ color: p.faint, children: [G.ellipsis + ` +${plural(rest, 'line')}`] })], o.last))
+  if (rest > 0) rows.push(indented(t, [t.Text({ color: p.faint, children: [G.ellipsis + ` +${plural(rest, 'line')}`] })]))
   return t.Box({ flexDirection: 'column', children: rows })
+}
+
+// output lines painted under a call's header in its open card
+export const CARD_LINES = 4
+
+/**
+ * What a call printed, as lines, for its open card: a Bash record's stdout and
+ * stderr, a failed call's reason, a Read's file text, a Grep's or Glob's
+ * match list, a plain string. Null when the output has nothing to show.
+ */
+export function outputPreview(output: unknown): string[] | null {
+  const lines = (text: string): string[] | null => {
+    const clean = text.replace(/<\/?tool_use_error>/g, '').replace(/\s+$/, '')
+    return clean.trim() === '' ? null : clean.split('\n')
+  }
+  if (typeof output === 'string') return lines(output)
+  if (!output || typeof output !== 'object') return null
+  const o = output as { stdout?: unknown; stderr?: unknown; content?: unknown; file?: { content?: unknown }; filenames?: unknown }
+  if (typeof o.stdout === 'string' || typeof o.stderr === 'string') {
+    return lines([o.stdout, o.stderr].filter((x): x is string => typeof x === 'string' && x.trim() !== '').map(x => x.replace(/\s+$/, '')).join('\n'))
+  }
+  if (typeof o.content === 'string') return lines(o.content)
+  if (typeof o.file?.content === 'string') return lines(o.file.content)
+  if (Array.isArray(o.filenames)) return lines(o.filenames.filter((x): x is string => typeof x === 'string').join('\n'))
+  return null
+}
+
+/**
+ * One call of an open span as a card: its header row (tool, subject, mark and
+ * time), then what it printed inside the same round frame, cut to a few lines
+ * with a `+N lines` count. No output draws the header alone.
+ */
+export function renderCallCard(t: Table, p: Palette, header: RenderElement, body: RenderElement[]): RenderElement {
+  return t.Box({
+    flexDirection: 'column',
+    borderStyle: 'round',
+    borderColor: p.faint,
+    borderDimColor: true,
+    backgroundColor: p.blockBg,
+    paddingX: 1,
+    marginTop: 0,
+    children: [header, ...body],
+  })
 }
 
 // ---- an Edit's diff ------------------------------------------------------
@@ -538,8 +481,6 @@ export type DiffOptions = {
   path: string
   /** the terminal's width */
   columns: number
-  /** the row above is the turn's last (kept for the callers' symmetry; the card's own border is its trunk) */
-  last?: boolean
   /** `Created` or `Deleted` before the path in the title; absent for an update */
   verb?: string
 }
@@ -608,7 +549,7 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
   const name = safeText(rel(o.path), 400)
   const counts = (add > 0 ? ` +${add}` : '') + (del > 0 ? ` -${del}` : '')
   const verb = o.verb ? o.verb + ' ' : ''
-  const cap = Math.max(20, o.columns - 2 * TREE_INSET)
+  const cap = Math.max(20, o.columns - 2 * INSET)
   const width = Math.min(cap, Math.max(DIFF_MIN, widest + digits + 3 + 4, cellWidth(verb + name + counts) + 8))
   // inside the frame: a border and a padding cell each side
   const inner = width - 4
@@ -681,7 +622,7 @@ export function renderDiff(t: Table, p: Palette, hunks: ReadonlyArray<Hunk>, o: 
   }
   out.push(edge(G.arcBL + G.rule.repeat(width - 2) + G.arcBR))
   // the card sits on the trunk column: its left edge is the trunk
-  return t.Box({ marginLeft: TREE_INSET, marginRight: TREE_INSET, width, flexDirection: 'column', children: out })
+  return t.Box({ marginLeft: INSET, marginRight: INSET, width, flexDirection: 'column', children: out })
 }
 
 // colored pieces cut into rows of at most `w` cells, by the engine's ruler
@@ -715,7 +656,6 @@ export type BashResultOptions = {
   maxLines: number
   moreFiles: number
   columns: number
-  last?: boolean
 }
 
 // A Bash result whose command rewrote files: the output body as the
@@ -725,18 +665,18 @@ export type BashResultOptions = {
 // engine's own panel for these was the one pink thing left).
 export function renderBashResult(t: Table, p: Palette, lines: string[], files: ReadonlyArray<ChangedFile>, o: BashResultOptions): RenderElement {
   const rows: RenderElement[] = []
-  const air = () => trunked(t, p, 1, [t.Text({ children: [''] })], o.last)
-  if (lines.length > 0) rows.push(renderToolOutput(t, p, lines, { columns: o.columns, maxLines: o.maxLines, last: o.last }))
+  const air = () => indented(t, [t.Text({ children: [''] })])
+  if (lines.length > 0) rows.push(renderToolOutput(t, p, lines, { columns: o.columns, maxLines: o.maxLines }))
   for (const f of files) {
     const verb = f.created ? 'Created' : f.deleted ? 'Deleted' : undefined
     rows.push(air())
     // the card's top border names the file; a change with no hunks keeps a header line
     if (f.hunks.length > 0) {
-      rows.push(renderDiff(t, p, f.hunks, { path: f.filePath, columns: o.columns, last: o.last, ...(verb ? { verb } : {}) }))
+      rows.push(renderDiff(t, p, f.hunks, { path: f.filePath, columns: o.columns, ...(verb ? { verb } : {}) }))
       continue
     }
     rows.push(
-      trunked(t, p, 1, [
+      indented(t, [
         t.Text({
           wrap: 'truncate-end',
           children: [
@@ -744,56 +684,17 @@ export function renderBashResult(t: Table, p: Palette, lines: string[], files: R
             t.Text({ color: p.path, children: [safeText(rel(f.filePath), 400)] }),
           ],
         }),
-      ], o.last),
+      ]),
     )
   }
   if (o.moreFiles > 0) {
     rows.push(air())
-    rows.push(trunked(t, p, 1, [t.Text({ color: p.faint, children: [G.ellipsis + ` +${o.moreFiles} more file${o.moreFiles === 1 ? '' : 's'}`] })], o.last))
+    rows.push(indented(t, [t.Text({ color: p.faint, children: [G.ellipsis + ` +${o.moreFiles} more file${o.moreFiles === 1 ? '' : 's'}`] })]))
   }
   return t.Box({ flexDirection: 'column', children: rows })
 }
 
-// ---- edit runs -----------------------------------------------------------
-
-/**
- * The keys of the turn's edits that draw as one row with the edit `key`, in
- * call order: edits of one file, and edits called back to back (no text, no
- * other tool between: owner's request, 2026-10-05, `Edit x3 a.ts, b.ts`),
- * chained. `order` is the turn's main-loop calls; a Bash edit links by file.
- */
-export function editRunKeys(edits: ReadonlyArray<{ id: string; key: string; file: string }>, order: ReadonlyArray<{ id: string; tool: string; afterText: boolean }>, key: string): string[] {
-  const streak = new Map<string, number>()
-  let s = 0
-  let prevEdit = false
-  for (const c of order) {
-    const isEdit = c.tool === 'Edit' || c.tool === 'Write'
-    if (!isEdit || c.afterText || !prevEdit) s++
-    if (isEdit) streak.set(c.id, s)
-    prevEdit = isEdit
-  }
-  const root = edits.map((_, i) => i)
-  const find = (i: number): number => (root[i] === i ? i : (root[i] = find(root[i]!)))
-  const byFile = new Map<string, number>()
-  const byStreak = new Map<number, number>()
-  edits.forEach((x, i) => {
-    const f = byFile.get(x.file)
-    if (f === undefined) byFile.set(x.file, i)
-    else root[find(i)] = find(f)
-    const n = x.key === x.id ? streak.get(x.id) : undefined
-    if (n === undefined) return
-    const at = byStreak.get(n)
-    if (at === undefined) byStreak.set(n, i)
-    else root[find(i)] = find(at)
-  })
-  const mine = edits.findIndex(x => x.key === key)
-  if (mine < 0) return []
-  return edits.filter((_, i) => find(i) === find(mine)).map(x => x.key)
-}
-
-// ---- folded group --------------------------------------------------------
-
-export type GroupCall = { tool: string; input?: unknown; output?: unknown; isRunning: boolean; isErrored: boolean; isInterrupted: boolean }
+// ---- edit line counts --------------------------------------------------------
 
 /** Lines an Edit's or a Write's result added and removed; a created file counts its lines as added. */
 export function lineCounts(output: unknown): { add: number; del: number } {
@@ -808,70 +709,6 @@ export function lineCounts(output: unknown): { add: number; del: number } {
     }
   }
   return { add, del }
-}
-
-export type GroupOptions = {
-  isActive: boolean
-  /** the row's key, which its hover tint needs; null draws it untinted */
-  key: string | null
-  onExpand: Press | null
-  /** the group holds the tree's last node: its last line closes the tree */
-  last?: boolean
-}
-
-// One tree row per tool: `|- > Bash x2  Find foo . ls`, `|- v Read  a.ts`,
-// all `faint`; a failed count in `err`; a live group ends in an ellipsis.
-export function renderGroupRow(t: Table, p: Palette, calls: ReadonlyArray<GroupCall>, o: GroupOptions): RenderElement {
-  const done = calls.filter(c => !c.isRunning).length
-  // one line per tool, in the order the run first used it: a Bash run and
-  // an edit are different things and never share a line
-  const byTool = new Map<string, GroupCall[]>()
-  for (const c of calls) byTool.set(c.tool, [...(byTool.get(c.tool) ?? []), c])
-  // the engine marks the group active before its calls report running: no
-  // count then (`0 running` read as a bug, 2026-10-05), and none for one call
-  const running = calls.length - done
-  const tail = o.isActive ? sep + (running > 1 ? `${running} running` : 'running') + G.ellipsis : ''
-  const lines = [...byTool].map(([tool, group], i) => {
-    // reads and searches by count alone, as on a run's row
-    const subjects = FLAT_TOOLS.has(tool) ? [] : [...new Set(group.map(c => {
-      const a = (c.input ?? {}) as Record<string, unknown>
-      // a command's own description says what it did; the command is the fallback
-      const path = str(a, 'file_path') ?? str(a, 'path')
-      const s = str(a, 'description') ?? (path ? shortPath(path) : null) ?? str(a, 'pattern') ?? str(a, 'query') ?? str(a, 'url') ?? clip((str(a, 'command') ?? '').replace(/\s+/g, ' '), 60)
-      return safeText(s.replace(/\s+/g, ' '), 200)
-    }).filter(s => s !== ''))]
-    // the tool's name in the terminal's own color, as an Edit row's Button
-    // label must be (owner's request, 2026-10-05: one color for every name)
-    const name = t.Text({ children: [group.length > 1 ? `${tool} ${G.times}${group.length}` : tool] })
-    const parts: RenderNode[] = []
-    if (subjects.length) parts.push('  ' + subjects.join(sep))
-    if (isEditTool(tool)) {
-      const k = group.filter(c => !c.isErrored).reduce((n, c) => {
-        const l = lineCounts(c.output)
-        return { add: n.add + l.add, del: n.del + l.del }
-      }, { add: 0, del: 0 })
-      if (k.add + k.del > 0) parts.push('  ', t.Text({ color: p.ok, children: [`+${k.add}`] }), ' ', t.Text({ color: p.err, children: [`-${k.del}`] }))
-    }
-    const failed = group.filter(c => c.isErrored || c.isInterrupted).length
-    if (failed > 0) parts.push(sep, t.Text({ color: p.err, children: [`${failed} failed`] }))
-    if (i === byTool.size - 1) parts.push(tail)
-    // each tool its own tree row (owner's request, 2026-10-05); a tool whose
-    // row already says it all (a Read's path) takes its status mark, not the
-    // fold's, and no hover: there is nothing under it to open
-    const opens = !FLAT_TOOLS.has(tool)
-    const running = group.some(c => c.isRunning)
-    const mark = opens ? G.right : running ? G.hollow : failed > 0 ? G.cross : G.tick
-    const markColor = opens || running ? p.meta : failed > 0 ? p.err : p.ok
-    return spaced(t, p, t.Box({
-      ...(o.key && opens ? { key: `group:${o.key}:${tool}`, hover: { backgroundColor: p.rowHover } } : {}),
-      flexDirection: 'row',
-      children: [
-        rowHead(t, t.Text({ color: p.faint, children: [(o.last && i === byTool.size - 1 ? G.arcBL : G.tee) + G.rule + ' '] }), t.Text({ color: markColor, children: [mark + ' '] })),
-        t.Box({ flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', children: [name, t.Text({ color: p.faint, children: parts })] })] }),
-      ],
-    }))
-  })
-  return lines.length === 1 ? lines[0]! : t.Box({ flexDirection: 'column', children: lines })
 }
 
 // ---- a run of calls -------------------------------------------------------
@@ -894,67 +731,60 @@ export function callRun<T extends { id: string; afterText: boolean }>(order: Rea
 
 export type RunCall = { id: string; tool: string; subject: string; status: 'running' | 'background' | 'ok' | 'failed' }
 
-export type RunOptions = {
+export type ActivityOptions = {
   key: string
   isOpen: boolean
-  /** the run holds the turn's last call: the row closes the tree */
-  last: boolean
-  lines: { add: number; del: number }
   durationMs: number | null
   /** while running: the spinner's first cell (spinCells); a ticker blits the rest */
   spin?: string
   onToggle: Press
 }
 
-// `|- v Bash x5 . Edit x2  Rewrite the hook  +54 -27 . 1 failed      1.2s`:
-// one row for a run, its mark a spinner while a call runs, then a green
-// tick, or a red cross when one failed; the subject is the running call's,
-// else the last's. A press anywhere past the mark opens the calls under it.
-export function renderRunRow(t: Table, p: Palette, calls: ReadonlyArray<RunCall>, o: RunOptions): RenderElement {
-  const running = calls.some(c => c.status === 'running')
+/** `5 actions . 2 edits . 1 failed`: what a finished span did, the failed count in `err`. */
+export function activitySummary(t: Table, p: Palette, calls: ReadonlyArray<RunCall>): RenderNode[] {
   const failed = calls.filter(c => c.status === 'failed').length
-  // launched in the background and not done yet: hollow, never a tick
   const background = calls.filter(c => c.status === 'background').length
-  const counts = new Map<string, number>()
-  for (const c of calls) counts.set(c.tool, (counts.get(c.tool) ?? 0) + 1)
-  const name = [...counts].map(([tool, n]) => (n > 1 ? `${tool} ${G.times}${n}` : tool)).join(sep)
-  const now = [...calls].reverse().find(c => c.status === 'running') ?? calls[calls.length - 1]
-  // a read or a search says nothing its count does not (owner's request,
-  // 2026-10-07): an edit's path and a command's description stay
-  const subject = now && !FLAT_TOOLS.has(now.tool) ? safeText(now.subject.replace(/\s+/g, ' '), 200) : ''
-  const mark = running && o.spin && 'Raster' in t
-    ? t.Raster({ key: 'spin', columns: 1, rows: 1, cells: o.spin })
-    : t.Text({ color: running || background > 0 ? p.meta : failed > 0 ? p.err : p.ok, children: [running || background > 0 ? G.hollow : failed > 0 ? G.cross : G.tick] })
-  // A Button's label takes no color (foldRow's note): the counts and the
-  // subject are Buttons, so a press anywhere opens the run
-  const press = (k: string, label: string, color: string, dim = false) => t.Button({
-    key: `${o.key}:${k}`, plain: true, ...(dim ? { dimColor: true } : {}), label, onPress: o.onToggle,
-    hover: { color, backgroundColor: p.rowHover, inverse: false, dimColor: false },
-  })
-  const tail: RenderElement[] = []
-  if (o.lines.add + o.lines.del > 0) tail.push(press('lines', `  +${o.lines.add} -${o.lines.del}`, p.ok))
-  if (background > 0) tail.push(press('background', sep + `${background} in background`, p.meta))
-  if (failed > 0) tail.push(press('failed', sep + `${failed} failed`, p.err))
-  const right = running || background > 0 || o.durationMs === null || o.durationMs < 100 ? '' : fmtToolTime(o.durationMs)
-  return spaced(t, p, t.Box({
+  const edits = calls.filter(c => isEditTool(c.tool)).length
+  const out: RenderNode[] = [plural(calls.length, 'action')]
+  if (edits > 0) out.push(sep + plural(edits, 'edit'))
+  if (background > 0) out.push(sep + `${background} in background`)
+  if (failed > 0) out.push(sep, t.Text({ color: p.err, children: [`${failed} failed`] }))
+  return out
+}
+
+// The one line under a reply bubble: a chevron, then a spinner and the
+// running call's subject while a call runs, else `5 actions . 2 edits .
+// 1 failed` and the span's time at the right. A press anywhere on the line
+// opens the calls under it, or folds them again. The line is one Button
+// (its Text children carry the colors), so it is all one press target.
+export function renderActivityRow(t: Table, p: Palette, calls: ReadonlyArray<RunCall>, o: ActivityOptions): RenderElement {
+  const running = calls.find(c => c.status === 'running')
+  const chevron = t.Text({ color: p.meta, children: [(o.isOpen ? G.down : G.right) + ' '] })
+  let body: RenderNode[]
+  if (running) {
+    const subject = safeText(running.subject.replace(/\s+/g, ' '), 200)
+    const failed = calls.filter(c => c.status === 'failed').length
+    body = [
+      t.Text({ weight: 'bold', children: [toolText(running.tool)] }),
+      ...(subject ? [t.Text({ dimColor: true, children: ['  ' + subject] })] : []),
+      ...(failed > 0 ? [sep, t.Text({ color: p.err, children: [`${failed} failed`] })] : []),
+    ]
+  } else {
+    body = [t.Text({ color: p.meta, children: activitySummary(t, p, calls) })]
+  }
+  const spinner = running && o.spin && 'Raster' in t ? [t.Box({ flexShrink: 0, marginRight: 1, children: [t.Raster({ key: 'spin', columns: 1, rows: 1, cells: o.spin })] })] : []
+  const right = running || o.durationMs === null || o.durationMs < 100 ? '' : fmtToolTime(o.durationMs)
+  return spaced(t, t.Box({
     key: `row:${o.key}`,
     flexDirection: 'row',
     hover: { backgroundColor: p.rowHover },
     children: [
-      rowHead(t, t.Text({ color: p.faint, children: [(o.last && !o.isOpen ? G.arcBL : G.tee) + G.rule + ' '] }), mark, t.Text({ children: [' '] })),
+      t.Box({ flexShrink: 0, flexDirection: 'row', children: spinner }),
       t.Box({
         flexGrow: 1,
         flexShrink: 1,
-        flexDirection: 'row',
         overflow: 'hidden',
-        // a Button never truncates: a long subject wrapped under the row and
-        // broke the tree's trunk (2026-10-07), so it is a Text that cuts and
-        // gives way first, the counts after it kept whole
-        children: [
-          t.Box({ flexShrink: 0, flexDirection: 'row', children: [press('mark', (o.isOpen ? G.down : G.right) + ' ', p.meta), press('name', name, p.bold)] }),
-          ...(subject ? [t.Box({ flexShrink: 1, minWidth: 0, children: [t.Text({ wrap: 'truncate-end', dimColor: true, children: ['  ' + subject] })] })] : []),
-          t.Box({ flexShrink: 0, flexDirection: 'row', children: tail }),
-        ],
+        children: [t.Button({ key: o.key, plain: true, onPress: o.onToggle, hover: { inverse: false, dimColor: false }, children: [chevron, ...body] })],
       }),
       ...(right ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.faint, children: [right] })] })] : []),
     ],
@@ -996,12 +826,12 @@ export function renderEventRow(t: Table, p: Palette, id: string, text: string, t
   const right = typeof task?.durationMs === 'number' && task.durationMs >= 100 ? fmtToolTime(task.durationMs) : ''
   // `Agent "Count hook source lines" finished` draws as a tool row
   const agent = /^Agent "(.+)" \w+/.exec(first)
-  const row = spaced(t, p, t.Box({
+  const row = spaced(t, t.Box({
     key: `event:${id}`,
     flexDirection: 'row',
     hover: { backgroundColor: p.rowHover },
     children: [
-      rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: failed ? p.err : p.ok, children: [(failed ? G.cross : G.tick) + ' '] })),
+      rowHead(t, t.Text({ color: failed ? p.err : p.ok, children: [(failed ? G.cross : G.tick) + ' '] })),
       t.Box({ flexGrow: 1, flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', children: agent ? [t.Text({ children: ['Agent'] }), t.Text({ color: p.meta, children: ['  ' + agent[1]!] })] : [t.Text({ color: p.meta, children: [first] })] })] }),
       ...(right ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.faint, children: [right] })] })] : []),
     ],
@@ -1012,7 +842,7 @@ export function renderEventRow(t: Table, p: Palette, id: string, text: string, t
   const body = rest.split('\n').map(l => t.Text({ wrap: 'truncate-end', color: p.meta, children: [l] }))
   return t.Box({
     flexDirection: 'column',
-    children: [row, trunked(t, p, body.length, body)],
+    children: [row, indented(t, body)],
   })
 }
 
@@ -1020,12 +850,12 @@ export function renderEventRow(t: Table, p: Palette, id: string, text: string, t
 // `private`; no key hint at the right (0.5.3: the hint line and the group
 // rows gave theirs up, this was the last)
 export function renderMessageRow(t: Table, p: Palette, name: string): RenderElement {
-  return spaced(t, p, t.Box({
+  return spaced(t, t.Box({
     key: `message:${name}`,
     flexDirection: 'row',
     hover: { backgroundColor: p.rowHover },
     children: [
-      rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), t.Text({ color: p.faint, children: [G.ring + ' '] })),
+      rowHead(t, t.Text({ color: p.faint, children: [G.ring + ' '] })),
       t.Box({ flexGrow: 1, flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', color: p.private, children: [`Message from @${safeText(name, 80)}`] })] }),
     ],
   }))
@@ -1046,12 +876,12 @@ export function renderPluginRow(t: Table, p: Palette, id: string, name: string, 
     : /^ok\b/.test(first)
       ? t.Text({ color: p.ok, children: [G.tick + ' '] })
       : t.Text({ color: p.faint, children: [G.ring + ' '] })
-  const row = spaced(t, p, t.Box({
+  const row = spaced(t, t.Box({
     key: `plugin:${id}`,
     flexDirection: 'row',
     hover: { backgroundColor: p.rowHover },
     children: [
-      rowHead(t, t.Text({ color: p.faint, children: [G.tee + G.rule + ' '] }), mark),
+      rowHead(t, mark),
       t.Box({ flexGrow: 1, flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', children: [t.Text({ color: p.private, children: [safeText(name, 80)] }), t.Text({ color: p.meta, children: ['  ' + first] })] })] }),
     ],
   }))
@@ -1059,7 +889,7 @@ export function renderPluginRow(t: Table, p: Palette, id: string, name: string, 
   const extra = rest.length - PLUGIN_LINES
   const shown = extra > 0 ? [...rest.slice(0, PLUGIN_LINES), `${G.ellipsis} +${extra}${sep}ctrl+o`] : rest
   const body = shown.map(l => t.Text({ wrap: 'truncate-end', color: p.meta, children: [l] }))
-  return t.Box({ flexDirection: 'column', children: [row, trunked(t, p, body.length, body)] })
+  return t.Box({ flexDirection: 'column', children: [row, indented(t, body)] })
 }
 
 export function shortModel(model: string): string {
@@ -1070,13 +900,13 @@ export function shortModel(model: string): string {
 // bracket broke the trunk, 2026-10-04): one trunked line in `faint`.
 export function renderAgentLaunch(t: Table, p: Palette, remote: boolean): RenderElement {
   const text = remote ? `running remotely${sep}/tasks` : `running in the background${sep}${G.arrowDown} to manage`
-  return trunked(t, p, 1, [t.Text({ color: p.faint, wrap: 'truncate-end', children: [text] })])
+  return indented(t, [t.Text({ color: p.faint, wrap: 'truncate-end', children: [text] })])
 }
 
 // A Bash command that printed nothing, in place of the engine's body (its
 // corner bracket broke the trunk, 2026-10-06): one trunked line in `faint`.
 export function renderNoOutput(t: Table, p: Palette): RenderElement {
-  return trunked(t, p, 1, [t.Text({ color: p.faint, wrap: 'truncate-end', children: ['(No output)'] })])
+  return indented(t, [t.Text({ color: p.faint, wrap: 'truncate-end', children: ['(No output)'] })])
 }
 
 // A loaded skill, in place of the engine's body (its corner bracket sat off
@@ -1085,11 +915,11 @@ export function renderNoOutput(t: Table, p: Palette): RenderElement {
 // Agent's launch.
 export function renderSkillLoad(t: Table, p: Palette, output: unknown): RenderElement {
   const o = (output && typeof output === 'object' ? output : {}) as { status?: unknown; background?: unknown; allowedTools?: unknown; model?: unknown }
-  if (o.status === 'forked') return o.background === true ? renderAgentLaunch(t, p, false) : trunked(t, p, 1, [t.Text({ color: p.faint, children: ['done'] })])
+  if (o.status === 'forked') return o.background === true ? renderAgentLaunch(t, p, false) : indented(t, [t.Text({ color: p.faint, children: ['done'] })])
   const parts = ['skill loaded']
   if (Array.isArray(o.allowedTools) && o.allowedTools.length > 0) parts.push(`${plural(o.allowedTools.length, 'tool')} allowed`)
   if (typeof o.model === 'string' && o.model !== '') parts.push(safeText(o.model, 80))
-  return trunked(t, p, 1, [t.Text({ color: p.faint, wrap: 'truncate-end', children: [parts.join(sep)] })])
+  return indented(t, [t.Text({ color: p.faint, wrap: 'truncate-end', children: [parts.join(sep)] })])
 }
 
 // rows a screenshot takes at most: enough to read a page, short enough to
@@ -1101,14 +931,14 @@ const SHOT_COLS_MAX = 100
 // The cells an MCP screenshot takes under its row: aspect kept, at most
 // SHOT_COLS_MAX wide and SHOT_ROWS_MAX (or 60% of the screen) tall.
 export function shotCells(shot: Shot, columns: number, rows: number): { columns: number; rows: number } {
-  const room = Math.max(10, Math.min(SHOT_COLS_MAX, columns - 2 * TREE_INSET - TRUNK))
+  const room = Math.max(10, Math.min(SHOT_COLS_MAX, columns - 2 * INSET - BODY))
   return shotBox(shot.width, shot.height, room, Math.max(6, Math.min(SHOT_ROWS_MAX, Math.floor(rows * 0.6))))
 }
 
 // An MCP screenshot, in place of the engine's text body: the picture on the
 // trunk (0.6.0), the engine's Image, whose `alt` shows where it cannot draw.
 export function renderShot(t: Table, p: Palette, shot: Shot, box: { columns: number; rows: number }): RenderElement {
-  return trunked(t, p, box.rows, [t.Image({ source: shot.source, columns: box.columns, rows: box.rows, alt: `screenshot ${shot.width}x${shot.height}` })])
+  return indented(t, [t.Image({ source: shot.source, columns: box.columns, rows: box.rows, alt: `screenshot ${shot.width}x${shot.height}` })])
 }
 
 // A failed non-Bash call's error, in place of the engine's body (its corner
@@ -1124,13 +954,13 @@ export function isDeclined(output: unknown): boolean {
 
 // A declined call's result: one trunked line in `faint`, not an error.
 export function renderDeclined(t: Table, p: Palette): RenderElement {
-  return trunked(t, p, 1, [t.Text({ color: p.faint, wrap: 'truncate-end', children: ['Declined'] })])
+  return indented(t, [t.Text({ color: p.faint, wrap: 'truncate-end', children: ['Declined'] })])
 }
 
 export function renderToolError(t: Table, p: Palette, text: string): RenderElement {
   const lines = text.split('\n').map(l => l.trim()).filter(l => l !== '')
-  const rows = [trunked(t, p, 1, [t.Text({ color: p.err, wrap: 'truncate-end', children: [safeText(lines[0] ?? 'Error', 400)] })])]
-  if (lines.length > 1) rows.push(trunked(t, p, 1, [t.Text({ color: p.faint, children: [G.ellipsis + ` +${plural(lines.length - 1, 'line')}`] })]))
+  const rows = [indented(t, [t.Text({ color: p.err, wrap: 'truncate-end', children: [safeText(lines[0] ?? 'Error', 400)] })])]
+  if (lines.length > 1) rows.push(indented(t, [t.Text({ color: p.faint, children: [G.ellipsis + ` +${plural(lines.length - 1, 'line')}`] })]))
   return t.Box({ flexDirection: 'column', children: rows })
 }
 
