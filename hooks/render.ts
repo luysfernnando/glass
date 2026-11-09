@@ -5,8 +5,10 @@ import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
 import { G } from './glyphs'
 import { codeColor, highlight } from './highlight'
+import { figureArt, mermaidArt, slotColor } from './diagram'
+import type { Art } from './diagram'
 import { inlineText } from './markdown'
-import type { Align, Block, CalloutRow, Inline, ListItem } from './markdown'
+import type { Align, AlertLevel, Block, CalloutRow, Inline, ListItem } from './markdown'
 import type { Palette } from './palette'
 import { bareWord, isUrl, pathLike } from './paths'
 import { isPrivateNote, needsAttention } from './prose'
@@ -23,6 +25,8 @@ type Ctx = {
   m: number
   /** a color for plain prose, when the block mutes it (a quote's `meta`) */
   tone?: string
+  /** copies a fenced block's text; absent, a fence draws no copy button */
+  copy?: (text: string, press: { surface: 'terminal' | 'desktop' | 'vscode' | 'mobile' }) => void
 }
 
 export type RenderOptions = {
@@ -33,6 +37,8 @@ export type RenderOptions = {
   marks: boolean
   /** a compaction summary (0.5.0): one faint ` . summary` row closes the reply, as the engine's own mark reads */
   summary?: boolean
+  /** copies a fenced block's text (the per-block copy button) */
+  onCopy?: Ctx['copy']
 }
 
 const LABEL_WIDTH = 8
@@ -123,7 +129,7 @@ function cardWidth(m: number, content: number): number {
 }
 
 export function renderReply(t: Table, blocks: Block[], p: Palette, o: RenderOptions): RenderElement {
-  const c: Ctx = { t, p, m: measure(o.columns) }
+  const c: Ctx = { t, p, m: measure(o.columns), copy: o.onCopy }
   const rows: RenderElement[] = []
   let prev: Block['kind'] | null = null
   blocks.forEach((b, i) => {
@@ -176,7 +182,7 @@ function renderBlock(c: Ctx, b: Block): RenderElement {
         children: renderInlines(c, b.inlines),
       })
     case 'code':
-      return renderFence(c, b.lang, b.source)
+      return renderFenceOrArt(c, b.lang, b.source, b.open)
     case 'list':
       return renderList(c, b.items)
     case 'rule':
@@ -189,7 +195,38 @@ function renderBlock(c: Ctx, b: Block): RenderElement {
       return renderTable(c, b.header, b.align, b.rows, b.raw)
     case 'callout':
       return renderCallout(c, b.title, b.rows, b.tone)
+    case 'alert':
+      return renderAlert(c, b.level, b.blocks)
   }
+}
+
+// GitHub alerts: a quote bar and a bold label in the level's color
+const ALERT_COLOR: Record<AlertLevel, keyof Palette> = { note: 'sub', tip: 'ok', important: 'cmd', warning: 'warn', caution: 'err' }
+const ALERT_LABEL: Record<AlertLevel, string> = { note: 'Note', tip: 'Tip', important: 'Important', warning: 'Warning', caution: 'Caution' }
+
+function renderAlert(c: Ctx, level: AlertLevel, blocks: Block[]): RenderElement {
+  const { t, p, m } = c
+  const color = p[ALERT_COLOR[level]] as string
+  const inner = { ...c, m: m - 2 }
+  const height = alertRows(blocks, m)
+  return t.Box({
+    flexDirection: 'row',
+    children: [
+      t.Box({ width: 2, flexShrink: 0, children: [t.Text({ color, children: [Array(height).fill(G.mark).join('\n')] })] }),
+      t.Box({
+        flexDirection: 'column',
+        flexGrow: 1,
+        flexShrink: 1,
+        width: m - 2,
+        children: [t.Text({ weight: 'bold', color, children: [ALERT_LABEL[level]] }), ...blocks.map((b, i) => t.Box({ marginTop: i > 0 ? 1 : 0, children: [renderBlock(inner, b)] }))],
+      }),
+    ],
+  })
+}
+
+// the label row, then the blocks with a blank between
+function alertRows(blocks: Block[], m: number): number {
+  return 1 + blocks.reduce((n, b, i) => n + (i > 0 ? 1 : 0) + blockRows(b, m - 2), 0)
 }
 
 // a fence with no language (or a plain-text one) whose rows are mostly
@@ -280,6 +317,7 @@ function renderFence(c: Ctx, lang: string, source: string): RenderElement {
           t.Text({ color: p.faint, children: [lang ? lang.toUpperCase() : ''] }),
           t.Box({ flexGrow: 1, children: [] }),
           t.Text({ color: p.faint, children: [`${lines} lines`] }),
+          ...copyButton(c, code, 'row'),
         ],
       }),
     )
@@ -306,6 +344,7 @@ function renderFence(c: Ctx, lang: string, source: string): RenderElement {
         : body,
     )
   })
+  if (!gutter) children.push(...copyButton(c, code, 'corner'))
   return t.Box({
     flexDirection: 'column',
     width,
@@ -313,6 +352,59 @@ function renderFence(c: Ctx, lang: string, source: string): RenderElement {
     paddingLeft: 1,
     paddingRight: 1,
     children,
+  })
+}
+
+// The per-block copy button (after prismantis, MIT): glass's own copy glyph
+// and the reply Copy's $.ui.copy route. A long fence carries it in its header
+// row; a short one pins it to the card's top right corner, in the padding
+// column, so no row or width changes.
+function copyButton(c: Ctx, text: string, place: 'row' | 'corner'): RenderElement[] {
+  const { t, p, copy } = c
+  if (!copy || text.trim() === '') return []
+  const button = t.Button({
+    key: `copy:${text.length}:${text.slice(0, 24)}`,
+    label: G.copy,
+    plain: true,
+    dimColor: true,
+    hover: { backgroundColor: p.rowHover },
+    onPress: (press: { surface: 'terminal' | 'desktop' | 'vscode' | 'mobile' }) => copy(text, press),
+  })
+  return place === 'row' ? [t.Text({ children: ['  '] }), button] : [t.Box({ position: 'absolute', top: 0, right: 0, children: [button] })]
+}
+
+// a mermaid or figure fence as colored art, when it can be drawn within the
+// card; a fence still streaming, or one that cannot, keeps the code card
+function artFor(lang: string, source: string, open: true | undefined, m: number): Art | null {
+  if (open) return null
+  const kind = lang.toLowerCase()
+  if (kind === 'mermaid') return mermaidArt(source, m - 2)
+  if (kind === 'figure') return figureArt(source, m - 2)
+  return null
+}
+
+function renderFenceOrArt(c: Ctx, lang: string, source: string, open?: true): RenderElement {
+  const art = artFor(lang, source, open, c.m)
+  return art ? renderArt(c, art, source) : renderFence(c, lang, source)
+}
+
+function renderArt(c: Ctx, art: Art, source: string): RenderElement {
+  const { t, p, m } = c
+  return t.Box({
+    flexDirection: 'column',
+    width: cardWidth(m, art.width + 2),
+    backgroundColor: p.blockBg,
+    paddingLeft: 1,
+    paddingRight: 1,
+    children: [
+      ...art.rows.map(row =>
+        t.Text({
+          wrap: 'truncate-end',
+          children: row.length === 0 ? [' '] : row.flatMap((r): RenderNode[] => (slotColor(p, r.slot) ? [t.Text({ color: slotColor(p, r.slot), children: [r.text] })] : [r.text])),
+        }),
+      ),
+      ...copyButton(c, source.replace(/\n$/, ''), 'corner'),
+    ],
   })
 }
 
@@ -430,8 +522,10 @@ function blockRows(b: Block, m: number): number {
     case 'paragraph':
     case 'heading':
       return wrappedLines(b.inlines, m)
-    case 'code':
-      return fenceRows(fenceShape(b.lang, b.source, m))
+    case 'code': {
+      const art = artFor(b.lang, b.source, b.open, m)
+      return art ? art.rows.length : fenceRows(fenceShape(b.lang, b.source, m))
+    }
     case 'list': {
       const { indent, numWidth } = listLayout(b.items)
       return b.items.reduce((n, it, i) => {
@@ -448,6 +542,8 @@ function blockRows(b: Block, m: number): number {
       return wrappedLines([{ kind: 'text', text: b.text }], m)
     case 'quote':
       return quoteRows(b.blocks, m)
+    case 'alert':
+      return alertRows(b.blocks, m)
     case 'table':
       // a table too wide even squeezed is the engine's Markdown, estimated as raw is
       return tableColumns(b.header, b.rows, m) ? b.rows.length + 2 : wrappedLines([{ kind: 'text', text: b.raw }], m)

@@ -13,12 +13,16 @@ export type Inline =
 // `blocks`: fences indented under the item, drawn under its text (0.4.22)
 export type ListItem = { depth: number; marker: string; task?: 'todo' | 'done'; inlines: Inline[]; blocks?: Block[] }
 export type CalloutRow = { label: string; inlines: Inline[] }
+export type AlertLevel = 'note' | 'tip' | 'important' | 'warning' | 'caution'
 export type Align = 'left' | 'center' | 'right'
 
 export type Block =
   | { kind: 'paragraph'; inlines: Inline[] }
   | { kind: 'heading'; level: number; inlines: Inline[] }
-  | { kind: 'code'; lang: string; source: string }
+  // open: the closing fence has not arrived yet (a streaming reply), so a diagram waits
+  | { kind: 'code'; lang: string; source: string; open?: true }
+  // a GitHub alert, `> [!NOTE]` and kin (0.19.0): a quote with a level and a colored bar
+  | { kind: 'alert'; level: AlertLevel; blocks: Block[] }
   | { kind: 'list'; items: ListItem[] }
   | { kind: 'rule' }
   | { kind: 'raw'; text: string }
@@ -44,6 +48,8 @@ const CALLOUT_HEAD_RE = /^\*\*(Bottom line):?\*\*:?\s*$/i
 // a quote opening `**<glyph> Prompt tip:** reason`; the glyph is optional and
 // any one symbol, so this file stays ASCII
 const TIP_HEAD_RE = /^\*\*(?:\S+\s+)?(Prompt tip):?\*\*:?\s*(.*)$/i
+// `[!NOTE]`, then the first line of its text, if any
+const ALERT_RE = /^\[!(note|tip|important|warning|caution)\]\s*(.*)$/i
 const CALLOUT_ROW_RE = /^(?:[-*+]\s+)?\*{0,2}(Verified|Issue|Fix)\s*:?\*{0,2}\s*:?\s+(.*)$/
 
 // U+FE0F after a symbol that is not an emoji by default (U+26A0 and kin)
@@ -88,8 +94,9 @@ export function parseMarkdown(input: string): Block[] {
       const body: string[] = []
       i++
       while (i < lines.length && !close.test(lines[i]!)) body.push(lines[i++]!)
+      const open = i >= lines.length
       i++
-      blocks.push({ kind: 'code', lang: fence[3] ?? '', source: body.join('\n') })
+      blocks.push({ kind: 'code', lang: fence[3] ?? '', source: body.join('\n'), ...(open ? { open: true as const } : {}) })
       continue
     }
     const heading = HEADING_RE.exec(line)
@@ -118,7 +125,13 @@ export function parseMarkdown(input: string): Block[] {
     if (QUOTE_RE.test(line)) {
       const inner: string[] = []
       while (i < lines.length && lines[i]!.trim() !== '') inner.push(lines[i++]!.replace(QUOTE_RE, '$1'))
-      blocks.push(tipBlock(inner) ?? { kind: 'quote', blocks: parseMarkdown(inner.join('\n')) })
+      const alert = ALERT_RE.exec(inner[0]!.trim())
+      blocks.push(
+        tipBlock(inner) ??
+          (alert
+            ? { kind: 'alert', level: alert[1]!.toLowerCase() as AlertLevel, blocks: parseMarkdown([alert[2]!, ...inner.slice(1)].join('\n')) }
+            : { kind: 'quote', blocks: parseMarkdown(inner.join('\n')) }),
+      )
       continue
     }
     if (RAW_START_RE.test(line)) {
