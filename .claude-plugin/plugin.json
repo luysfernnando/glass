@@ -1,8 +1,8 @@
 {
   "name": "glass",
   "displayName": "Glass",
-  "description": "A desktop-app look for Claude Code's terminal: colored shell commands in prose, a Bottom line card, content-fit code cards, borderless tables, gutter marks beside paragraphs that need you, painted tool rows and turn headers.",
-  "version": "0.19.0",
+  "description": "A desktop-app look for Claude Code's terminal: colored shell commands in prose, a Bottom line card, content-fit code cards, borderless tables, gutter marks beside paragraphs that need you, prompt and reply bubbles with a hover copy button, and one activity line per reply.",
+  "version": "0.20.0",
   "author": { "name": "rashed parvez" },
   "homepage": "https://github.com/rashedInt32/glass",
   "repository": "https://github.com/rashedInt32/glass",
@@ -26,7 +26,7 @@
     "screenshots": {
       "type": "boolean",
       "title": "Screenshots",
-      "description": "Draw the pictures Claude looks at under their row: screenshots MCP tools return (chrome-devtools, Figma) and images it reads, never one you named. Off by default: a devtools run takes a screenshot each step",
+      "description": "Draw the pictures Claude looks at once the activity line is open: screenshots MCP tools return (chrome-devtools, Figma) and images it reads, never one you named. Off by default: a devtools run takes a screenshot each step",
       "default": false
     },
     "hint": {
