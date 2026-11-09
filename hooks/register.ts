@@ -11,6 +11,7 @@ import { PALETTES, paletteNameOf, paletteNamed } from './palette'
 import type { Palette, PaletteName } from './palette'
 import { themeFileName, themeFor, themeJson, themeSetting } from './theme'
 import { writeIntent } from './prose'
+import { HINT } from './hint'
 import { renderReply } from './render'
 import { CONVERTIBLE, hashOf, namedIn, pictureOf, pictureReadOrder, readPath, shotFromPng } from './shot'
 import type { Picture, Shot } from './shot'
@@ -378,7 +379,7 @@ async function setCall($: EngineInterface, turnId: string, call: GlassCall) {
 }
 
 export const register: Register = (on, options) => {
-  const opts = (options ?? {}) as { palette?: unknown; notify?: unknown; screenshots?: unknown }
+  const opts = (options ?? {}) as { palette?: unknown; notify?: unknown; screenshots?: unknown; hint?: unknown }
   // the palette follows /config live: every hook reads this binding at
   // draw time, and the config.set hook below swaps it (rows already drawn
   // keep their colors until something redraws them)
@@ -387,6 +388,10 @@ export const register: Register = (on, options) => {
   // notifications (0.5.0): on unless the option says otherwise; follows /config live
   let notifyOn = opts.notify !== false
   shotsOn = isOn(opts.screenshots)
+  // the formatting hint: on unless the option says otherwise; sent with the
+  // first prompt of a session and the first after a compaction
+  let hintOn = opts.hint !== false
+  let hintDue = true
   // gutter marks are off for a turn whose prompt asked for writing: the
   // reply is then the thing itself and asks nothing of the reader
   let marks = true
@@ -562,6 +567,20 @@ export const register: Register = (on, options) => {
     return result
   })
 
+  on('config.set', { key: 'glass.hint' }, async ($, e, next) => {
+    const result = await next(e)
+    hintOn = e.value !== false
+    return result
+  })
+
+  // a compaction drops the hint with the rest of the history: send it again
+  // with the next prompt (the main loop's own compaction, not a precompute)
+  on('session.compact', async ($, e, next) => {
+    const result = await next(e)
+    if (e.agentId === undefined && e.trigger !== 'precompute' && !('skip' in (result ?? {}))) hintDue = true
+    return result
+  })
+
   on('config.set', { key: 'glass.notify' }, async ($, e, next) => {
     const result = await next(e)
     notifyOn = e.value !== false
@@ -633,6 +652,7 @@ export const register: Register = (on, options) => {
       first: false,
       columns: columns - 5,
       marks: false,
+      onCopy: (text, press) => void $.ui.copy({ text, surface: press.surface }).catch(() => undefined),
       // a compaction summary (read-only flag, passed on untouched; typed from
       // 2.1.295 on, so read loosely for older type layouts)
       summary: (e.props as { isSummary?: unknown }).isSummary === true,
@@ -968,6 +988,10 @@ export const register: Register = (on, options) => {
     if (!MACHINE_ORIGINS.has(e.origin?.kind ?? '')) notePrompt(mem, e.text)
     const now = await $.clock.now()
     await update($, prompts, ps => [...(ps ?? []), { text: e.text, submittedAt: now, startedAt: null, turnId: null }].slice(-HISTORY))
+    if (hintOn && hintDue && !MACHINE_ORIGINS.has(e.origin?.kind ?? '') && e.text.trim() !== '') {
+      hintDue = false
+      return next({ ...e, context: [...(e.context ?? []), HINT] })
+    }
     return next(e)
   })
 

@@ -140,6 +140,8 @@ The same turn under each palette: pick one with `/config` under Glass.
   turn's tree; `⧉ Copy` takes the finished answer to the clipboard.
   `/fold` and `/unfold` do the same from the keyboard.
 
+**Ported from prismantis (0.19.0).** GitHub alerts (`> [!NOTE]`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`) draw as a colored bar and label. `mermaid` fences (flowchart, sequence, xychart-beta bar/line, pie, gantt) draw as text art in the palette, a plain code card when they do not parse. `figure` fences take `{accent|warn|ok|note|dim|strong:text}` roles. Every code fence has a `⧉` copy button. The `hint` option sends the model one short line (about 250 characters) on the first prompt and after a compaction. See THIRD_PARTY.md.
+
 Every width is measured the way the engine measures cells, so emoji and
 CJK in tables stay aligned.
 
@@ -213,4 +215,4 @@ writes files has dropped private-use glyphs before.
 
 ## License
 
-MIT
+MIT. Portions from prismantis and beautiful-mermaid (MIT): see THIRD_PARTY.md.
