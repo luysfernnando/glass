@@ -1,12 +1,12 @@
 # Third-party notices
 
-Glass 0.19.0 ports rendering features from two MIT-licensed projects.
+Glass 0.20.0 ports rendering features from two MIT-licensed projects.
 
 ## prismantis 0.40.0
 
-GitHub alerts, mermaid and figure blocks and the per-block copy button follow
+GitHub alerts, mermaid and figure blocks, the prompt and reply bubbles and the hover copy control with its Markdown, HTML and text formats follow
 prismantis. `hooks/charts.ts` is a port of its `charts.ts`; `hooks/diagram.ts`
-adapts its `mermaid.tsx` and `figure.tsx`. Recolored with glass's palette.
+adapts its `mermaid.tsx` and `figure.tsx`; `hooks/clipboard.ts` ports its clipboard scripts (CopyQ, wl-copy, xclip, osascript, PowerShell). Recolored with glass's palette.
 
 Copyright (c) 2026 Nahum Litvin
 

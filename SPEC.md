@@ -16,8 +16,8 @@ mounted test and awaits a session.
 Glass is a Claude Code mod (function-hooks plugin) that redraws the
 terminal transcript the way a desktop client draws a chat: colored shell
 commands in prose, a Bottom line card, content-fit code cards, borderless
-tables, gutter marks beside paragraphs that need the reader, a tool tree
-with a concrete trunk under each turn, painted tool bodies, a background
+tables, gutter marks beside paragraphs that need the reader, prompt and reply bubbles with a hover copy control, one
+activity line under each reply that opens into cards, a background
 band for live subagents. The owner is its first user; anyone on a dark terminal is its
 audience. Engine floor: Claude Code 2.1.295 (0.5.0 reads APIs that arrived
 in 2.1.288 to 2.1.295; see Engine floor under 0.5.0).
@@ -46,7 +46,9 @@ in 2.1.288 to 2.1.295; see Engine floor under 0.5.0).
 ```
 hooks/
   register.ts   hooks module: every on(...), the atoms, module records
-  chrome.ts     turn chrome: user row, tree rows, bodies, diff card, band
+  chrome.ts     turn chrome: bubbles, activity line, call cards, diff card, band
+  html.ts       (0.20.0) blocks to HTML and plain text, for the copy formats
+  clipboard.ts  (0.20.0) the platform clipboard helpers for text/html
   render.ts     reply blocks: paragraphs, lists, fences, tables, cards
   markdown.ts   the streaming markdown parser (blocks, inline spans)
   shell.ts      command tokenizer, prose command spans, vocabulary
@@ -99,14 +101,14 @@ docs/shots/        (0.10.0) one demo turn per palette, 100 columns on the owner'
   previews in 2.1.309); `Link` only gets `https:` or `http://localhost` hrefs. Known limit: a
   reply tree past the engine's 100,000 serialized characters is refused
   whole and drawn by the engine.
-- Render hooks for tree rows (`ToolUse`, `ToolResult`, `ToolGroup`) read no
+- Render hooks for call rows (`ToolUse`, `ToolResult`, `ToolGroup`) read no
   atom: a read in a render hook subscribes the row, and every write then
   redraws every row of the turn, which stranded duplicate rows above the
   viewport (2026-10-03). They read module records written by the hooks
-  (call -> turn, call -> wall time, folded turns, /expand); `/fold`,
-  `/unfold`, `/expand`, `/collapse` call `$.ui.invalidate('ui.render')`. A
-  hot reload empties the records until the next turn. The user row's dots
-  line and the `TurnDuration` row subscribe (one row each per turn).
+  (call -> turn, call -> wall time, /expand); `/expand`,
+  `/collapse` call `$.ui.invalidate('ui.render')`. A
+  hot reload empties the records until the next turn. The activity line (it reads the
+  open atom) and the `TurnDuration` row subscribe (one row each per span).
 - A reply streams with no `ui.render` dispatch: the engine draws the
   streamed text, and glass's `AssistantMessage` hook runs once, as the
   reply ends. On the main screen (tmux by default, `isFullscreen: false`)
@@ -115,11 +117,10 @@ docs/shots/        (0.10.0) one demo turn per palette, 100 columns on the owner'
   run). `CLAUDE_CODE_NO_FLICKER=1` puts tmux on the fullscreen layout and
   the duplicate goes (live, 2026-10-12). Handing tall replies back to the
   engine on the main screen was not taken: it drops the styling.
-- A finished reply's parse is kept (the newest 64 by text), so `/fold`,
-  resizes and palette changes do not parse every reply again. Links, URLs
+- A finished reply's parse is kept (the newest 64 by text), so resizes and palette changes do not parse every reply again. Links, URLs
   and code words are matched in place.
 - Commit subjects name the version and the rule, as the log does:
-  `0.4.25: a loaded skill's result sits on the trunk`.
+  `0.4.25: a loaded skill's result is one line`.
 
 ## Global
 
@@ -144,7 +145,7 @@ docs/shots/        (0.10.0) one demo turn per palette, 100 columns on the owner'
   (connectors, folds, hints, the fence header), `bold`. No `dimColor` in a
   reply: it lands on a different step per terminal theme.
 - Never `wrap: 'truncate*'` in the reply body. A width mistake must wrap,
-  never lose text. Stated exceptions: tree-row subjects, output lines and
+  never lose text. Stated exceptions: call subjects, output lines and
   diagram rows, each named where it lives.
 - Hierarchy rule, as Empryo's: bright for the live thing, muted one step for
   the done thing, faint for scaffolding, saturated color only on status
@@ -304,130 +305,78 @@ engine's row order, which glass cannot change: user row, then tool rows
 and reply blocks interleaved as the model made them, then the
 `TurnDuration` row, then task-notification rows.
 
-### User row (`UserMessage`, origin `composer`)
+### Bubbles (`UserMessage` origin `composer`, `AssistantMessage`)
 
-- The turn boundary is one titled rule: `◆ You · 3:20 PM ───` in `faint`
-  to the measure, a blank row above, none below. `◆` and `You` in
-  `accentUser` (a neutral bold name was tried and turned down, 2026-10-11:
-  the owner likes the colored names), the time in `meta`: the `prompt.submit` clock for that
-  text (map text -> time, newest wins; no match, no time). The prompt
-  wraps at M, indented 2.
-- The assistant header `◉ Claude · 1:14 PM` is the tail of this tree
-  after one blank row: `◉` and the name in `accent`, the time in `meta`
-  (hours unpadded, as the `prompt.submit` clock draws them)
-  from `turn.start`'s clock, read from state so the row redraws when the
-  turn begins. Drawn only once a turn has started for this prompt.
-- The dots line, under the header, indented 2: one dot per main-loop call
-  in call order, grouped by consecutive tool with a space between groups,
-  `ok` green, `✗` in `err` for a failed call, hollow `meta` while running;
-  past 16 calls the first 12 dots and `+N` in `faint`. Then two spaces
-  and the summary: while live `Bash ×3 · Read ×2` and `· N failed` in
-  `err`; once done `17 actions · 3 edits · 2 failed` in `meta`, every
-  count kept. Drawn only for turns glass saw start (`prompts[].turnId`).
-  A call's dot and its tree row share a hover scope (`glass:<tool_use_id>`):
-  the pointer on either lights both with `rowHover`; the dot keeps its own
-  color (an inverted dot was a red block that matched nothing, 2026-10-04).
-  The dots are sibling Texts in a Box row: a Text nested in a Text follows
-  a hover group but cannot heat it.
-- **(0.5.0, gated)** Two plain Buttons return to the dots line's right end
-  once the live press retest passes (see 0.5.0, Buttons): `▸`/`▾` folds
-  and unfolds this turn's tree, `⧉ Copy` copies the turn's `answer` with
-  `$.ui.copy`. Both `plain`, `dimColor` (a Button has no color prop; this
-  is the one `dimColor` glass draws), lit by hover, with a `key`, in a
-  `flexShrink 0` box at the row's right end. `label` only, no children, so
-  the tree validates on engines before 2.1.295. Copy appears once the
-  turn is done. The dots line carries the tree's right inset, so the
-  buttons end where the durations end (0.5.2).
-  `/fold`, `/unfold` stay as the keyboard route. If the retest fails they
-  stay out and this bullet is history. (Both were drawn in 0.2 and 0.3,
-  never received a press, and were removed 2026-10-03 and 2026-10-04.)
+Ported from prismantis 0.40.0 (MIT; THIRD_PARTY.md) with its defaults:
+`promptStyle bubble`, `replyStyle auto`, `bubbleLabels small`.
+
+- The prompt is a right-aligned small label `You ●` (`promptBorder`, else
+  `accentUser`, bold) over a round-bordered box tinted 12% of that color
+  into `blockBg`, `paddingX 1`, as wide as its widest line plus border and
+  padding, capped at three quarters of the viewport (`CHAT_SHARE`). The
+  `prompt.submit` clock is not drawn (prismantis `clock off`).
+- The reply is a round `faint` frame on `blockBg`; the first bubble of a
+  turn carries a small `● Claude` label (`accent`, bold) above it, later
+  bubbles of the same turn none. The turn's header rule `◆ You` and the
+  `◉ Claude` header are gone.
 - Rows with other origins (`task-notification`, `peer`, ...) see Events
   below; `isExpanded` false passes to the engine.
 
-### Folding
+### Copy control (hover)
 
-- On demand only (a finished turn folded by itself at first, and with no
-  working chevron the tree was a one-way door, 2026-10-03). Every turn's
-  tree stays open. `foldedTurns` holds the turn ids `/fold` tucked away
-  (every finished turn at that moment); `/unfold` empties it; a new turn
-  leaves it at `turn.start`. A folded turn's `ToolUse`, `ToolGroup` and
-  `ToolResult` rows draw `display: none`; rows of calls glass never
-  recorded stay visible. The engine owns transcript folding of old turns
-  (HISTORY) and ctrl+o.
+- Every bubble, fence and art card ends in a small marker (`⧉`) that is
+  the hover target of a hidden panel: `display: 'none'` with
+  `hover: { scope, display: 'flex' }`, so the buttons appear when the
+  pointer is on the marker or the panel. Three `Button`s: `markdown`,
+  `html`, `text`. No `copy` capability, or an empty source, draws nothing.
+- Markdown and text go through `$.ui.copy({ text, surface })`. HTML goes to
+  the system clipboard as `text/html` with a plain-text companion:
+  Linux CopyQ, else `wl-copy --type text/html` on Wayland, else
+  `xclip -t text/html`; macOS `osascript` (public.html); Windows
+  PowerShell (CF_HTML, ASCII-escaped stdin). Over SSH, or with no helper,
+  the plain text is copied instead and a toast says so. Toasts: `Copied as
+  Markdown`, `Copied as HTML`, `Copied as plain text`, `Copy failed`.
+- The conversion (`hooks/html.ts`) works on the parsed blocks, so a table
+  keeps head and body, a fence its language, inline marks their tags.
+  Not ported: image copy (PNG) of prismantis.
 
-### Tree rows (`ToolUse`)
+### The activity line (under each reply bubble)
 
-- Every main-loop tool row is one line of a tree: `├─` in `faint`, a status
-  mark, the tool name, a subject, and a right-aligned duration.
-  `├─ ✓ Bash  git log --oneline -1 · 3 lines                      0.8s`
-  (The last call drew `└─` at first; dropped: knowing the last call needs a
-  subscription to the turn.)
-- Status mark: `✓` in `ok` (a `meta` tick, so only the red `✗` would carry
-  color, was tried and turned down 2026-10-11: the owner likes the green),
-  `✗` in `err` (errored or interrupted), `○` in `meta` while running.
-- Tool name in `tool`, bold while running, plain once done. An MCP tool
-  (`mcp__<server>__<tool>`) draws as its server in `faint`, a space, then
-  the tool name in `tool`: the server drops `plugin_<plugin>_`,
-  `claude_ai_` and a trailing `_MCP`, reads lowercase with hyphens; a run of
-  underscores draws as one; underscores stay (the name matches permission
-  rules and logs, owner's choice over spaces, 2026-10-07). A palette hue on
-  the server was turned down as a second colored word (0.4.24).
-- Subject while running: Bash tokenized with the head trusted, flowing on
-  one line (one command per line was tried and reverted); paths in `path`;
-  URLs in `url`; other arguments dim after a comma. Once done a Bash
-  command stays tokenized and every other subject drops to `faint`. The
-  subject never wraps: `truncate-end` is allowed here alone, since ctrl+o
-  shows the whole call. Only the subject gives way: the connector and mark
-  sit in a box that never shrinks (`rowHead`) on every row kind (a long
-  subject once squeezed the mark's cell, 2026-10-05).
-- Right column: the call's wall time from `tool.call` (clock around `await
-  next(e)`, keyed by `tool_use_id`, main loop only), `0.8s`, `12s`, `1m
-  04s`, `2h 05m`, in `faint` once done, the step the done subject sits on
-  (every finished row's right lane is one color: tree, server tool and
-  event rows alike); none under 100 ms; Bash adds `· N lines` in
-  `faint` only when the body folds past the three painted lines (0.5.3: a
-  body shown whole is its own count). `Box row justifyContent space-between`, the right Text
-  `flexShrink 0`. While the call runs the right column is a `Raster` keyed
-  `clock`, 7 cells, the elapsed time in `meta`: one ticker,
-  `$.clock.every(1000)`, blits every running call's clock by its
-  `tool_use_id`, no redraw, no state write; it starts at the first live
-  call and cancels itself once nothing runs. (A status line under the
-  prompt said what ran; removed 0.4.6, noise.)
-- Hover: the row `Box` carries `hover: { backgroundColor: rowHover }` and a
-  `key`.
-- Air: every tree row draws one row above itself holding only the trunk
-  `│` in `faint`, except a bare row that continues a run of the same
-  bodiless tool (`Read`) with no prose between (`turn.step` text chunks
-  mark prose). Tree rows and their bodies sit 2 cells in from each edge
-  (`TREE_INSET`), so the right column ends where the prose measure ends.
+- There is no tool tree. A span is the run of calls between two reply
+  bubbles (`callRun` over the turn's call order); activity between two
+  bubbles belongs under the preceding one. The span's head call draws ONE
+  line, a single `Button` (so the whole line is the press target) with
+  `Text` children for color, indented to the bubble:
+  - running: chevron, a spinner `Raster` and the running call's subject;
+  - done: `N actions · M edits · K failed` in `meta`, the failure count in
+    `err`, `N in background` when calls detached, the span's time at the
+    right;
+  - the chevron is `▸` closed, `▾` open.
+- The other calls of the span draw `display: none` while the span is
+  closed, and so does every `ToolResult` (a Read picture or a screenshot
+  also waits for the line to open). Nothing a call prints draws inline:
+  not Bash output, Read or Grep snippets, tracebacks, `(No output)` or
+  errors, in the main transcript or in a subagent's view. Calls outside
+  the turn record (a subagent's transcript) form their own span (the
+  engine's group, or the call alone) under the same rules.
+- A press on the line toggles `run:<head id>` in the `expanded` atom;
+  `/expand` opens every span, `/collapse` closes them. Opened, each call
+  draws as a card: a round `faint` frame on `blockBg` with a header row
+  (mark, tool, subject, time) and its output inside, cut to `CARD_LINES`
+  (4) lines with a `+N lines` count. Bash, Grep, Glob, Read, and
+  MCP calls alike; Edit and Write keep their header plus the diff card; a
+  call with no output draws the header alone. Never a `└` or `│` row.
+- `TurnDuration` draws `display: none`. The right-aligned `Ran ... ·
+  Searched ...` line of prismantis is not drawn: the activity line
+  replaces it.
+- Backgrounded Agent and Bash launches, loaded skills and server tool rows
+  are calls like any other: they count in the line, and draw only in the
+  opened span.
 
-### Bodies on the trunk
+### Call output
 
-- The trunk is concrete: every body row under a tool row carries `│` in
-  `faint` down a 3-cell column, the content under the mark (the engine's
-  `⎿` and its collapsed body left the line in pieces, 2026-10-03).
-- Every Bash result is glass's, drawn under its `ToolUse` row from the
-  row's own `output` (calls run in parallel drew no `ToolResult`); the
-  `ToolResult` row then draws nothing. Stdout and stderr painted for the
-  first 3 lines (commands with evidence,
-  paths and URLs, error, warning and success words, numbers and durations,
-  check and cross marks, git status codes; unpainted text in `meta`), each
-  line clipped to one row (`truncate-end`; ctrl+o has them whole), the
-  rest `… +N lines` in `faint`. A line is cut to 1000 characters and loses
-  its control characters first (a minified JSON line got the whole tree
-  refused); a carriage return starts the line over, so a progress bar
-  shows its last pass. A failed command the same way with its error words
-  in `err`. Nothing printed: one `faint` `(No output)` line. The engine
-  keeps only interrupted results and raw escape-coded output. Trade
-  accepted: a long result's ctrl+o expansion is no longer the engine's
-  collapsed body. (Rewriting `output` with SGR codes was tried first: the
-  engine strips them.)
-- A failed call other than Bash draws its reason's first line in `err` on
-  the trunk, the rest a `faint` `… +N lines`, in place of the engine's
-  `Error editing file` and its corner bracket. The `[Image #N]` row under
-  an image prompt is still the engine's.
 - **(0.6.0)** An MCP result carrying a PNG (chrome-devtools
-  `take_screenshot`, a Figma screenshot) draws the picture on the trunk in
+  `take_screenshot`, a Figma screenshot) draws the picture (in an opened span) in
   place of the engine's text body, so the person sees what Claude read:
   an `Image` of the base64 bytes (at most 2 MiB), else the stored copy the
   engine names in its `[Image: source: <path>, ...]` block. Bytes first: a
@@ -506,21 +455,13 @@ and reply blocks interleaved as the model made them, then the
   - Claude Code draws a finished turn's rows again at commit, and each
     fresh draw sends its picture again (seen live: one Read sent twice).
     Bytes only; the screen shows one picture.
-- A backgrounded Agent's or Bash command's result is one trunked `faint`
-  line, `running in the background · ↓ to manage`.
-- A loaded skill's result is one trunked `faint` line, `skill loaded`,
-  with the engine's `N tools allowed` and model after middots where it
-  gives them; a forked skill draws as an Agent's launch. **Unverified
-  live** (0.4.25).
-- A finished agent is one row: `✓ Agent  <description>` with its duration
-  in `faint`. The folded `Message from @<type>` row of a subagent this
-  session spawned draws `display: none` (the finished row says the same);
-  a peer's stays and takes `private`.
+- A picture (a Read of an image, an MCP screenshot) draws only once its
+  span is open, like any output; `userConfig.screenshots` still gates it.
 
 ### The diff card (Edit, Write, a Bash that rewrote files)
 
 - `structuredPatch` drawn by glass in place of the engine's panel. A
-  rounded `faint` frame on the trunk column (`marginLeft TREE_INSET`), the
+  rounded `faint` frame, the
   file named in its top border, `╭─ SPEC.md +1 -1 ───╮` (`Created`,
   `Deleted` before the path when so), drawn row by row by glass, no Box
   border. Every code line breaks at the card's room by the engine's
@@ -529,7 +470,7 @@ and reply blocks interleaved as the model made them, then the
   absolute Text over a Box border was clipped or covered the first code
   row: the engine never lets a child paint the border row. A title as the
   first row inside the frame read plain. 2026-10-03.) Sized to the hunks
-  (floor 60, cap `columns - 2 * TREE_INSET`), `paddingX 1`.
+  (floor 60, cap `columns - 4`), `paddingX 1`.
 - One number column in `faint` (`meta` on a tinted row): the new number on
   a kept or added line, the old on a removed one. `+` in `ok` on an `addBg`
   row, `-` in `err` on a `delBg` row; the tints are not green and red but
@@ -547,11 +488,9 @@ and reply blocks interleaved as the model made them, then the
   per file one row of air and the card; a file with no hunks keeps a
   header `Updated <path> +a -b` (verb `meta`, path `path`, counts `ok`
   and `err`); `moreFiles` ends it as `… +N more files`.
-  In the tree it draws as edits (owner's request, 2026-10-05): the row's
-  subject is the call's `description` in place of the command, the
-  output folds to one trunked `▸ output N lines`, and each file is an
-  Edit tree row folded to `▸ Edit <name> +a -b`, opened by a press or
-  /expand. A failed command keeps its row and output as before.
+  In an opened span the call's card draws the command's `description` as
+  its subject and the files under it as cards; closed, the activity line
+  counts them as edits.
 - **(0.5.0)** Colors: the card's tints come from the active theme's
   `diffAdded` and `diffRemoved`, its `+` and `-` marks and the header's
   counts from the theme's `success` and `error` (0.5.3: the `diff*Word`
@@ -565,60 +504,30 @@ and reply blocks interleaved as the model made them, then the
 
 ### Group rows (`ToolGroup`)
 
-- The engine's folded run of reads and searches draws one tree row, all
-  `faint`, the mark `▸` in `meta` (`◉` is the Claude header's alone):
-  the tools with counts in `tool`, then each subject once (a Bash call by
-  its command, clipped to 60 cells). Each MCP server takes a line of its
-  own under one hover, named once at its head, the built-in tools on a
-  line of their own, first-seen order; a live group's `N running...` sits
-  on the lines with a running call, and the row ends in `…`. A group with
-  any errored call opens on its own and adds `· N failed` in `err`;
-  **(0.6.0)** a group with a finished MCP call that returned a PNG opens
-  on its own too, so the picture never hides behind a count; a
-  group with edits adds `· N edits` in `faint` (0.5.2; `[1 edit]` was the
-  one bracketed count in the chrome). `/expand` opens every group, `/collapse` folds them again. No per-group
-  button (the density pass, 2026-10-03; the press retest of 0.5.0 does not
-  bring it back). `ctrl+o to expand` is not written (it never opened a
-  group live).
+- The engine's folded run of reads and searches is part of the span: its
+  calls count in the activity line, the group's row is the line when it
+  heads the span and `display: none` otherwise. Open, the group is passed
+  to the engine as expanded and its calls draw as cards. No per-group
+  button, and a group no longer opens by itself for an error or a picture.
 
 ### Events after the turn (`UserMessage`, origin `task-notification`)
 
-- Tree rows after the turn, same geometry: `├─ ✓ Agent  <description>
-  1m 12s` when the text opens `Agent "<description>" finished` (the name in
-  `tool`, the description in `meta`), else the text's first line in `meta`;
-  `✓` in `ok` unless `task.status` reads as failed, then `✗` in `err`; duration from `task.durationMs`, none under 100 ms. The hover
-  key is the message's `requestId`. `isExpanded` true passes to the engine;
-  the notification's remaining lines then hang off the trunk as a Bash
-  body does, one row per line in `meta`, clipped (0.5.2; a body with no
-  trunk sat off the column).
+- One flat row, no connector: `✓ Agent  <description>  1m 12s` when the
+  text opens `Agent "<description>" finished` (the name in `tool`, the
+  description in `meta`), else the text's first line in `meta`; `✓` in `ok`
+  unless `task.status` reads as failed, then `✗` in `err`; duration from
+  `task.durationMs`, none under 100 ms. `isExpanded` true passes to the
+  engine; the remaining lines draw one per row in `meta`, clipped.
 
 ### `TurnDuration`
 
-- The engine's `Baked for 12s` line draws `display: none` (owner's request,
-  2026-10-03): the dots line carries the counts; cost and tokens stay in
-  `turns` for later. (A footer line with time, cost, tokens and `Review`,
-  `Till pass`, `Fork`, `Copy` actions was 0.3; the actions never received a
-  press, `Fork` had no confirmed command, and the line went.)
-- **(0.5.0)** The row is the one per-turn engine row after the reply, so it
-  carries the turn's server tool rows (below) when the turn had any, and
-  stays `display: none` otherwise. It finds its turn by `durationMs`, as
-  the footer did; this is the one subscribed row besides the dots line.
-
-### **(0.5.0)** Server tool rows
-
-- `turn.step`'s result lists `serverToolUses`: calls the API ran inside the
-  request (the advisor is one). No `tool.call` fires, no engine row
-  exists, so glass records them on the turn (`turns[].serverTools`: `id`,
-  `name`, `startedAt`, `endedAt`) at the main loop's step result, and
-  draws them on the `TurnDuration` row as tree rows, after the reply:
-  `├─ ✓ advisor  ran by the API                                   4.2s`.
-  Connector `faint`, mark `✓` in `meta` (the engine ran nothing, so it is
-  not `ok`'s done), name in `tool`, the note in `faint`, the duration
-  `endedAt - startedAt` in `faint` as on every finished row, none when
-  `endedAt` is absent. Each row
-  keeps its air row above. Not counted in the dots line: the dots count
-  calls glass can vouch for. A subagent's server tools are not drawn.
-  The shape of `input` is not read.
+- The engine's `Baked for 12s` line draws `display: none`: the activity
+  line carries the counts. The server tool rows (the advisor) draw there as
+  flat rows after the reply: `✓ advisor  ran by the API  4.2s`, mark `✓` in
+  `meta`, name in `tool`, the note and duration in `faint`; the duration is
+  `endedAt - startedAt`, none when `endedAt` is absent. A subagent's server
+  tools are not drawn. `turns[].serverTools` records `id`, `name`,
+  `startedAt`, `endedAt` from `turn.step`'s `serverToolUses`.
 
 ### Spinner
 
@@ -656,10 +565,10 @@ and reply blocks interleaved as the model made them, then the
   edge `╰─ They outlive this turn ─── /tasks ─╯` (the `/tasks` hint only
   when `$.command.list()` has it). The face smiles while the agent thinks
   and lowers its eyes while it runs a tool. Stage is the last tool the
-  agent called (MCP names as tree rows draw them), or `thinking…`. Tokens
+  agent called (MCP names as the call rows draw them), or `thinking…`. Tokens
   are the sum of the agent's `turn.step` usages read off each stop chunk;
   effort is the step's. The chevron (a `key` of `band:toggle`, `plain`,
-  `dimColor`, lit by hover, as the dots line's buttons are) closes the
+  `dimColor`, lit by hover, as the line's press target is) closes the
   frame to one strip. It sits in a keyed Box (`band:chevron`): a hover
   with no keyed Box around it makes the engine refuse the whole tree and
   draw nothing, which is why the band was invisible from 0.5.2 to 0.5.3
@@ -717,7 +626,7 @@ id; last 48), `calls` (turn id -> main-loop calls with status and wall
 time), `agents` (live subagents), `band` (`open` or `closed`), `liveTurn`
 (the main-loop turn id while one runs, else null; 0.5.1). Module
 records (call -> turn, call -> wall time, a turn's call order, unfolded
-group calls, `foldedTurns`, `expandAllNow`) keep the last 48 turns, as the
+group calls, `expandAllNow`) keep the last 48 turns, as the
 atoms do. Each atom is declared in `types/index.d.ts`; `claude plugin
 validate` holds the module to it.
 
@@ -837,7 +746,7 @@ validate` holds the module to it.
   `#0d1117`): undertow's `faint`, `rule`, `blockBg` and `rowHover` lifted
   to their floors (faint 3.6:1, blockBg 1.3:1, hover a step above the card);
   codex `faint` to 3.7:1 and `rule` a step under `meta` (it outranked
-  `faint`, so table rules beat tree connectors); tidepool `codeStr` is `str`
+  `faint`, so table rules beat the rules); tidepool `codeStr` is `str`
   (it was `err`: a TypeScript string read as an error) and `codeFn` the
   verb's iris; water `url` a sky blue apart from the brand cyan that
   `tool`, `cmd`, `accent` and `codeKw` share; rose `path` rose (it was
@@ -891,11 +800,11 @@ Two directions, settled 2026-10-11.
   tuned by hand in August (`userMessageBackground`, `secondaryText`) are
   set from the palette, by decision: a palette that colors the transcript
   and leaves the user bubble stock gray reads unfinished.
-- `/glass-theme` (registered at `session.start`, as the fold commands are):
+- `/glass-theme` (registered at `session.start`, as `/expand` is):
   writes `~/.claude/themes/glass-<palette>.json` for the current palette
   with `$.fs.write` (`HOME` from `$.env.get`), then `$.config.set({ key:
   'theme', value: 'custom:glass-<palette>' })`; answers as a transcript
-  line, as the fold commands do (the engine prefixes it with `glass:`):
+  line, as `/expand` does (the engine prefixes it with `glass:`):
   `theme glass-<palette> on` or, when the set is denied, `wrote
   ~/.claude/themes/glass-<palette>.json. A plugin cannot select a custom
   theme, so pick glass-<palette> in /theme.` (The `/theme` picker lists
@@ -926,8 +835,8 @@ Two directions, settled 2026-10-11.
   and 2.1.295 gave Buttons children and a `primary` variant. The 0.2 and
   0.3 Buttons in transcript rows (chevron, Copy) never received a press
   live. One live retest decides (DEMO.md, step B): a plain `Button` in the
-  dots line that toasts on press. Pass: the two Buttons in the user row
-  section ship. Fail: nothing ships and the Buttons bullet there becomes
+  plain `Button` that toasts on press. Pass: the Buttons ship (0.20.0 uses
+  them for the activity line and the copy formats). Fail: nothing ships and the Buttons bullet there becomes
   history. The group fold button stays out either way.
 - No `variant: 'primary'` anywhere: a transcript has no main action.
 
@@ -941,19 +850,19 @@ Two directions, settled 2026-10-11.
 ## Glyphs
 
 `hooks/glyphs.ts`, by code point: `▎` U+258E, `•` U+2022, `◦` U+25E6, `☐`
-U+2610, `☑` U+2611, `─` U+2500, `│` U+2502, `├` U+251C, `╭` U+256D, `╮`
+U+2610, `☑` U+2611, `─` U+2500, `│` U+2502, `╭` U+256D, `╮`
 U+256E, `╰` U+2570, `╯` U+256F, `✓` U+2713, `✗` U+2717, `○` U+25CB, `◉`
-U+25C9, `◆` U+25C6, `◌` U+25CC, `▸` U+25B8, `▾` U+25BE, `…` U+2026, `·`
+U+25C9, `◌` U+25CC, `▸` U+25B8, `▾` U+25BE, `…` U+2026, `·`
 U+00B7, `×` U+00D7, the faces' `●` U+25CF and `‿` U+203F, **(0.5.0)** `⧉`
-U+29C9 (Copy, only if the Buttons ship). Each gets a `cellWidth` fixture.
+U+29C9 (the copy marker). Each gets a `cellWidth` fixture.
 Only glyphs the mod draws live here.
 
 ## Testing strategy
 
 - `tests/parse.test.ts`: the parser's edge cases, streaming callout,
   tables, fences under list items, the width ruler against Bun's drift.
-- `tests/chrome.test.ts`: mounted renders of every tree (user row with
-  header, tree rows running and done, a group, an event row, the band with
+- `tests/chrome.test.ts`: mounted renders (prompt and reply bubbles, the
+  activity line collapsed, running, done, failed and open, call cards, an event row, the band with
   six agents, a running row with its Raster clock and three ticks), the
   diff card, painted output, glyph widths, palette separation.
 - **(0.5.0)** `tests/theme.test.ts`: every palette produces a theme whose
@@ -961,8 +870,8 @@ Only glyphs the mod draws live here.
   file name `glass-<palette>.json`; the forward keys are the literal slot
   names. `tests/chrome.test.ts` gains: the summary trailer row; a server
   tool row from a turn record, with and without `endedAt`; the
-  `TurnDuration` row `display: none` with no server tools; the dots-line
-  Buttons validate mounted (only if they ship). Hook behaviour (the notify
+  `TurnDuration` row `display: none` with no server tools; the activity
+  line validates mounted. Hook behaviour (the notify
   cases) is checked through `mock.clock` and the kit's engine where the
   kit reaches it; what it cannot reach is a DEMO.md step.
 - `tests/demo.test.ts` writes `demo/<before|after>/*.txt` text dumps of the
@@ -973,8 +882,8 @@ Only glyphs the mod draws live here.
 ## Boundaries
 
 - Always: run `scripts/check.sh` before a commit; keep both manifests at
-  one version; build glyphs from code points; read no atom in a tree row
-  hook; call `next(e)` on the band; keep `/fold` and the other commands
+  one version; build glyphs from code points; read no atom in a call row
+  hook; call `next(e)` on the band; keep `/expand` and `/collapse`
   working without any Button.
 - Ask first: adding a userConfig option; any new notification case; a new
   palette; writing anywhere outside `~/.claude/themes/glass-*.json`;
@@ -1002,8 +911,7 @@ Only glyphs the mod draws live here.
 
 ## Open live checks
 
-Carried from earlier passes, each a DEMO.md step: the skill-loaded row on
-the trunk (0.4.25); the band four cells short of the `[-]` mark; the
+Carried from earlier passes, each a DEMO.md step: the skill-loaded call in an opened span (0.4.25); the band four cells short of the `[-]` mark; the
 narrow-band column order; a blank fence line's row; the hint string
 carrying `-- INSERT --`. For 0.5.0: the Button press; `config.set` of a
 `custom:` theme; codespans under a glass theme; the notify channel's
@@ -1011,6 +919,6 @@ carrying `-- INSERT --`. For 0.5.0: the Button press; `config.set` of a
 2.1.290 may have closed it: reproduce before filing); a tabbed fence after
 the engine's own tab-stop change in 2.1.295. For 0.10.0: the `view`
 press on a band row, `back` on the row in view, Esc from the agent view;
-a `deny` toast when the agent has finished; the dots line's counts under
+a `deny` toast when the agent has finished; the activity line's counts under
 a turn that spawns subagents (2.1.299 raises `turn.start` for them; 0.9.1
 guards it); crimson's `blockBg` and `rule` on the owner's ground.

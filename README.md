@@ -75,9 +75,9 @@ The same turn under each palette: pick one with `/config` under Glass.
 - **Diff cards.** An Edit, Write or file-changing Bash result as a rounded
   card with the file in its top border, `╭─ SPEC.md +1 -1 ───╮`: one
   number column, `+` and `-` rows on a quiet tint, one context line each
-  side, the code painted the same way, the frame on the tree trunk.
+  side, the code painted the same way.
 - **Pictures inline.** A screenshot an MCP tool returns (chrome-devtools
-  `take_screenshot`, a Figma screenshot) draws on the trunk under its row,
+  `take_screenshot`, a Figma screenshot) draws under its call once the activity line is open,
   so you see what Claude saw; so does an image file Claude reads, one per
   run of reads (the last; `/expand` shows them all), never one you named in
   your own prompt. JPEG, WebP and GIF are converted to PNG with macOS
@@ -90,40 +90,29 @@ The same turn under each palette: pick one with `/config` under Glass.
   `•` `◦` `☐` `☑` markers, a quote bar, borderless tables with aligned
   columns and right-aligned numbers. A table a little too wide squeezes
   its widest column instead of falling back to boxes.
-- **Turn headers.** `◆ You · 1:11 PM ────` as one titled rule over your
-  prompt, then `◉ Claude · 1:14 PM` once the turn starts, with a dots line
-  under it: one dot per tool call, grouped by tool, green, a red `✗` for a
-  failure, hollow while running, then `Bash ×3 · Read ×2`. Once done the
-  line reads `5 actions · 2 edits · 1 failed`. `/fold` tucks finished
-  trees away and `/unfold` opens them.
-- **A tool tree.** While a turn runs, every call is one row: `├─ ✓ Bash
-  git status · 3 lines` with its wall time at the right, `○` while it
-  runs, `✗` in red when it fails. A Bash command keeps its colors once
-  done; other arguments step down to a quiet color, and paths draw
-  relative to the project. Rows light under the
-  pointer. The engine's folded runs name what they read: `├─ ▸ Read ×2
-  SPEC.md · render.ts`. Bash output is painted, three lines then a count.
-  A finished agent is one row. Rows sit back to back, no blank between.
-- **Runs.** Calls with no text between them fold to one row:
-  `├─ ⠋ ▸ Bash ×5 · Edit ×2  Run tests  +54 -27`, a spinner while one
-  runs, then a green `✓`, or a red `✗` with `1 failed`; the failed call
-  stays folded until the row opens. The subject is the running call's, else the last's. A
-  call joins the run as soon as the model starts writing it, its file read
-  from the streaming input (a Bash command waits for its description). A
-  Bash that rewrote files is one row, `Bash  <description> · 11 lines
-  .gitignore  +2 -0`, its output and cards behind a press. A press opens
-  every call; `/expand` opens them all.
-- **Replies on the tree.** A reply is a node: `├─ ● text`, the rest of it
-  on the trunk, the turn's last reply closing it with `╰─ ●`.
+- **Bubbles.** Your prompt is a right-aligned `You ●` label over a round
+  box tinted with the palette's color; Claude's reply is a round dim frame
+  with a small `● Claude` label on the first bubble of a turn. No header
+  rules, no clock.
+- **One activity line.** Under each reply bubble, one line says what the
+  turn did: a spinner and the current action while it runs, then `5
+  actions · 2 edits · 1 failed` (the failure in red) with the time at the
+  right. No tool output draws in the transcript by default: Bash output,
+  Read and Grep snippets, tracebacks, `(No output)` and errors stay out of
+  the way, in the main view and in a subagent's. Press the line to open it
+  in place into a card per call (tool, subject, status and time, then its
+  output cut to a few lines with a `+N lines` count); press again to fold
+  it. Activity between two replies sits under the one before. `/expand`
+  opens every line, `/collapse` folds them again.
 - **Agent model.** With a subagent's transcript in the main view, the hint
   line under the prompt ends with that agent's model: `haiku-5-5`.
-- **Event rows.** A background task's notification draws as one tree row
+- **Event rows.** A background task's notification draws as one flat row
   with its duration; a message from another agent draws as one muted row.
 - **Summary rows.** A compaction summary ends on a quiet `· summary` mark,
   as the engine's own does.
 - **Server tool rows.** A tool the API ran inside the request (the advisor)
   has no tool call of its own; glass draws it after the reply as a quiet
-  tree row with its duration.
+  row with its duration.
 - **Themes.** The diff card and the mode word under the prompt take the
   active theme's own slots, so they match the engine's panels under any
   theme. `/glass-theme` writes a theme built from the current palette to
@@ -136,11 +125,13 @@ The same turn under each palette: pick one with `/config` under Glass.
   finishes after its turn ended, or a turn ends with failed calls. The
   engine already notifies when a turn finishes, so glass does not. Off
   with the `notify` option under Glass in `/config`.
-- **Fold and Copy.** A chevron at the right of the dots line folds that
-  turn's tree; `⧉ Copy` takes the finished answer to the clipboard.
-  `/fold` and `/unfold` do the same from the keyboard.
+- **Copy.** Hover a bubble, a code fence or a diagram and a small `⧉`
+  opens three buttons: `markdown`, `html`, `text`. HTML goes to the
+  clipboard as rich text (CopyQ, wl-copy or xclip; `osascript` on macOS;
+  PowerShell on Windows); with no helper, or over SSH, the plain text is
+  copied instead and a toast says so.
 
-**Ported from prismantis (0.19.0).** GitHub alerts (`> [!NOTE]`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`) draw as a colored bar and label. `mermaid` fences (flowchart, sequence, xychart-beta bar/line, pie, gantt) draw as text art in the palette, a plain code card when they do not parse. `figure` fences take `{accent|warn|ok|note|dim|strong:text}` roles. Every code fence has a `⧉` copy button. The `hint` option sends the model one short line (about 250 characters) on the first prompt and after a compaction. See THIRD_PARTY.md.
+**Ported from prismantis (0.19.0, bubbles and copy 0.20.0).** GitHub alerts (`> [!NOTE]`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`) draw as a colored bar and label. `mermaid` fences (flowchart, sequence, xychart-beta bar/line, pie, gantt) draw as text art in the palette, a plain code card when they do not parse. `figure` fences take `{accent|warn|ok|note|dim|strong:text}` roles. Prompt and reply bubbles and a hover copy button with Markdown, HTML and text formats. The `hint` option sends the model one short line (about 250 characters) on the first prompt and after a compaction. See THIRD_PARTY.md.
 
 Every width is measured the way the engine measures cells, so emoji and
 CJK in tables stay aligned.
