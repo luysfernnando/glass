@@ -3,7 +3,7 @@ import type { Elements, EngineInterface, RenderElement, Register } from 'claude-
 
 import type { GlassAgent, GlassCall, GlassServerTool, GlassTurn } from '../types'
 import { safeText, shortModel, MAX_PAINTED_LINES, toolText, callRun, renderActivityRow, spinCells, clockCells, fmtToolTime, isEditTool, setCwd, setHome, shortPath, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderNoOutput, renderPluginRow, renderPromptBubble, renderReplyBubble, promptWidth, renderServerToolRows, renderShot, renderSkillLoad, shotCells, renderToolError, renderToolOutput, isDeclined, renderDeclined, renderCallRow, renderCallCard, outputPreview, CARD_LINES } from './chrome'
-import type { ChangedFile, Hunk, RunCall } from './chrome'
+import type { CallRow, ChangedFile, Hunk, RunCall } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
 import type { Block } from './markdown'
@@ -447,6 +447,31 @@ export const register: Register = (on, options) => {
   const claimByKey = new Map<string, string>()
   const claimedHeads = new Set<string>()
   let seg: { head: string; text: string; key: string } | null = null
+  // what each call's row (or its engine group) last drew with: a claimed
+  // span's cards draw inside the reply's bubble from these, under its line,
+  // never above the bubble (owner's request 2026-11-09)
+  const callProps = new Map<string, CallRow>()
+  // records a call's props; true when a claimed open span should redraw its
+  // bubble with them (new to it, or its output changed)
+  const noteProps = (props: CallRow, run: Run | null): boolean => {
+    const was = callProps.get(props.tool_use_id)
+    callProps.set(props.tool_use_id, props)
+    return run !== null && run.isOpen && claimedHeads.has(run.head) && (was === undefined || was.output !== props.output || was.isRunning !== props.isRunning)
+  }
+  // a call's card: its row, then the diff (an edit) or what it printed
+  const callCard = (t: Elements['terminal'], row: RenderElement, props: CallRow, cols: number): RenderElement => {
+    if ((props.tool === 'Edit' || props.tool === 'Write') && !props.isRunning && !props.isErrored) {
+      const diff = editCard(t, palette, props.output, props.input, cols)
+      if (diff) return t.Box({ flexDirection: 'column', children: [row, diff] })
+    }
+    if (props.isRunning || props.output === undefined) return renderCallCard(t, palette, row, [])
+    if (props.tool === 'Bash') {
+      const body = bashBody(t, palette, props.output, props.isErrored, cols)
+      return renderCallCard(t, palette, row, body ? [body] : [])
+    }
+    const lines = outputPreview(props.output)
+    return renderCallCard(t, palette, row, lines ? [renderToolOutput(t, palette, lines, { columns: cols, maxLines: CARD_LINES })] : [])
+  }
   let hasCwd = false
   let expandAllNow = false
   // the module records keep the turns the atoms keep: past HISTORY turns
@@ -465,6 +490,7 @@ export const register: Register = (on, options) => {
       for (const c of list) {
         callTurn.delete(c.id)
         callMs.delete(c.id)
+        callProps.delete(c.id)
         grouped.delete(c.id)
         pictureReads.delete(c.id)
       }
@@ -595,7 +621,14 @@ export const register: Register = (on, options) => {
     // the activity of the calls before this text, under it inside the bubble
     const head = claimByKey.get(textKey(text))
     const run = head ? await findRun($, runCtx(), head) : null
-    const line = run ? [t.Box({ marginTop: 1, flexDirection: 'column', children: [await drawRun($, runCtx(), t, run, e.requestId)] })] : []
+    // opened, the span's cards follow the line inside the bubble
+    const cards = run?.isOpen
+      ? run.calls.flatMap(c => {
+          const props = callProps.get(c.id)
+          return props ? [callCard(t, renderCallRow(t, palette, props, { durationMs: callMs.get(c.id) ?? null }), props, columns - 4)] : []
+        })
+      : []
+    const line = run ? [t.Box({ marginTop: 1, flexDirection: 'column', children: [await drawRun($, runCtx(), t, run, e.requestId), ...cards] })] : []
     return renderReplyBubble(t, palette, [reply], e.props.isFirstOfReply, [...line, ...copyControl({ t, p: palette, copy: onCopy }, whole, 'low')])
   })
 
@@ -653,6 +686,9 @@ export const register: Register = (on, options) => {
     // a span of calls under one reply is one line: its first call's row
     // draws it, the others nothing until it opens
     const run = await findRun($, runCtx(), id, [soloCall(e.props)])
+    if (noteProps(e.props, run)) $.ui.invalidate('ui.render')
+    // a span a reply follows: its line and cards live in that reply's bubble
+    if (run && claimedHeads.has(run.head)) return t.Box({ display: 'none', children: [] })
     if (run && !run.isOpen) return (run.head === id ? await headLine($, runCtx(), claimedHeads, t, run, e.requestId) : null) ?? t.Box({ display: 'none', children: [] })
     const wrap = async (el: RenderElement) => {
       if (!run || run.head !== id) return el
@@ -660,19 +696,12 @@ export const register: Register = (on, options) => {
       return line === null ? el : t.Box({ flexDirection: 'column', children: [line, el] })
     }
     const cols = e.viewport?.columns ?? 80
-    // the card an open call draws: its header row, then what it printed
-    const card = (row: RenderElement, body: RenderElement[]) => wrap(renderCallCard(t, palette, row, body))
     const started = liveCalls.get(id)
     const clock = e.props.isRunning && started ? clockCells((await $.clock.now()) - started.t0, palette.meta) : undefined
     // a call the model is still writing spins too, named from its partial input
     const isStreaming = streaming?.id === id
     const input = isStreaming && Object.keys((e.props.input ?? {}) as object).length === 0 ? streamedArgs(streaming!.tool, streaming!.json) : e.props.input
     const row = renderCallRow(t, palette, isStreaming ? { ...e.props, isRunning: true, input } : e.props, { durationMs: callMs.get(id) ?? null, ...(clock ? { clock } : {}) })
-    // a done edit: its row, the diff card under it (always open)
-    if ((e.props.tool === 'Edit' || e.props.tool === 'Write') && !e.props.isRunning && !e.props.isErrored) {
-      const card = editCard(t, palette, e.props.output, e.props.input, e.viewport?.columns ?? 80)
-      if (card) return wrap(t.Box({ flexDirection: 'column', children: [row, card] }))
-    }
     // a grouped MCP call's screenshot draws under its row; a grouped Read's
     // picture too when it is the group's chosen one, or every one after
     // /expand (0.8.0)
@@ -684,13 +713,8 @@ export const register: Register = (on, options) => {
       const body = pic ? await pictureBody($, t, palette, pic, e.viewport?.columns ?? 80, e.viewport?.rows ?? 40) : null
       if (body) return wrap(t.Box({ flexDirection: 'column', children: [row, body] }))
     }
-    if (e.props.isRunning || e.props.output === undefined) return card(row, [])
-    if (e.props.tool === 'Bash') {
-      const body = bashBody(t, palette, e.props.output, e.props.isErrored, cols)
-      return card(row, body ? [body] : [])
-    }
-    const lines = outputPreview(e.props.output)
-    return card(row, lines ? [renderToolOutput(t, palette, lines, { columns: cols, maxLines: CARD_LINES })] : [])
+    // its row, then the diff (an edit, always open) or what it printed
+    return wrap(callCard(t, row, isStreaming ? { ...e.props, isRunning: true } : e.props, cols))
   })
 
   // the engine's folded run of reads and searches: part of the span's one
@@ -727,6 +751,12 @@ export const register: Register = (on, options) => {
     const run = first?.tool_use_id ? await findRun($, runCtx(), first.tool_use_id, e.props.calls.filter((c: { tool_use_id?: string }) => typeof c.tool_use_id === 'string').map(soloCall)) : null
     if (!run) return next(e)
     const t = $.ui.resolve(e)
+    // a span a reply follows draws its cards in that bubble: the group's
+    // calls are kept for it, and open, the group draws nothing here
+    let stale = false
+    for (const c of e.props.calls) if (typeof c.tool_use_id === 'string' && noteProps({ ...c, tool_use_id: c.tool_use_id }, run)) stale = true
+    if (stale) $.ui.invalidate('ui.render')
+    if (run.isOpen && claimedHeads.has(run.head)) return t.Box({ display: 'none', children: [] })
     if (run.isOpen) {
       remember(grouped, e.props.calls)
       if (fresh) $.ui.invalidate('ui.render')
@@ -755,7 +785,8 @@ export const register: Register = (on, options) => {
     const hidden = $.ui.resolve(e).Box({ display: 'none', children: [] })
     const isPic = (e.props.tool.startsWith('mcp__') || e.props.tool === 'Read') && pictureOf(e.props.output) !== null
     // an open span's card holds each call's output; only a picture draws here
-    if (!isPic || (run && !run.isOpen)) return hidden
+    // a span a reply follows draws nothing above that reply's bubble
+    if (!isPic || (run && (!run.isOpen || claimedHeads.has(run.head)))) return hidden
     // an MCP screenshot or a Read image: the picture Claude read, in place of
     // its text body (0.6.0; a Read and any format, 0.8.0)
     // the row carries no input: its Read's file is the one recorded for its id,
