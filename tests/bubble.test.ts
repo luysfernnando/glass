@@ -14,7 +14,7 @@ const tool = (id: string) => ({
 }) as never
 const reply = (text: string) => ({ plugin: 'glass', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } }) as never
 
-test('live: the agent-hud spinner lists the running span; once the turn ends unclaimed, its line draws in a Claude bubble', async ($, on) => {
+test('live: the running span draws in the transcript; once the turn ends unclaimed, its line draws in a Claude bubble', async ($, on) => {
   mock.clock(on, { now: 1_000_000 })
   const chunks: Chunk[] = [{ kind: 'tool', id: 'a1', name: 'Bash' }]
   on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
@@ -26,7 +26,7 @@ test('live: the agent-hud spinner lists the running span; once the turn ends unc
   })
   await runTurn($, 'T1')
   const running = await $.ui.mount(tool('a1'))
-  expect(await running.find({ type: 'Text', text: /Bash/ })).toBeUndefined()
+  expect(await running.find({ type: 'Text', text: /Bash/ })).toBeDefined()
   await running.unmount()
   await $.turn.complete({ turnId: 'T1', reason: 'answer', answer: '', durationMs: 10 } as never)
   const row = await $.ui.mount(tool('a1'))
@@ -46,17 +46,17 @@ test('done: the line moves under the reply, its head row draws nothing', async (
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null } as never
   })
   await runTurn($, 'T2')
-  // while the turn runs the text draws nothing and claims nothing
-  const hidden = await $.ui.mount(reply('Listed the folder for you.'))
-  expect(await hidden.find({ type: 'Text', text: /Listed the folder/ })).toBeUndefined()
-  await hidden.unmount()
-  // an empty row and a partial one hide too (no bare engine marker)
-  for (const part of ['', ' ', 'Listed the']) {
+  // while the turn runs the text draws in the transcript and claims the span
+  const shown = await $.ui.mount(reply('Listed the folder for you.'))
+  expect(await shown.find({ type: 'Text', text: /Listed the folder/ })).toBeDefined()
+  await shown.unmount()
+  // an empty row hides (no bare engine marker)
+  for (const part of ['', ' ']) {
     const m = await $.ui.mount(reply(part))
     expect(await m.find({ type: 'Text', text: /\S/ })).toBeUndefined()
     await m.unmount()
   }
-  // agent-hud's spinner bubble lists the span
+  // the claimed span's head row draws nothing
   const live = await $.ui.mount(tool('b1'))
   expect(await live.find({ type: 'Text', text: /Bash/ })).toBeUndefined()
   await live.unmount()

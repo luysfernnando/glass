@@ -471,10 +471,13 @@ export const register: Register = (on, options) => {
   // AssistantMessage rows draw nothing while the turn runs, agent-hud's
   // bubble shows the text (owner's decision, 2026-11-09). A row's text is
   // a prefix of the segment while it streams, so keys match by prefix.
+  // Off since 2026-11-10 (owner's request): the sticky band could not scroll,
+  // so the running turn draws in the transcript again. True brings it back.
+  const LIVE_IN_HUD = false
   const liveKeys: string[] = []
   let liveSeg = -1
   const isLiveText = (text: string): boolean => {
-    if (!live.active || live.turnId === '') return false
+    if (!LIVE_IN_HUD || !live.active || live.turnId === '') return false
     const k = text.replace(/\s+/g, '')
     return k !== '' && liveKeys.some(x => x.startsWith(k))
   }
@@ -484,7 +487,7 @@ export const register: Register = (on, options) => {
   // The running turn's unclaimed span: agent-hud's spinner bubble lists its
   // calls (owner's request, 2026-11-09), so the transcript draws none of it
   // until a reply claims it or the turn ends.
-  const isLiveSpan = (run: Run) => live.active && run.turnId !== '' && run.turnId === live.turnId && !claimedHeads.has(run.head)
+  const isLiveSpan = (run: Run) => LIVE_IN_HUD && live.active && run.turnId !== '' && run.turnId === live.turnId && !claimedHeads.has(run.head)
   const callProps = new Map<string, CallRow>()
   // records a call's props; true when a claimed open span should redraw its
   // bubble with them (new to it, or its output changed)
@@ -638,7 +641,7 @@ export const register: Register = (on, options) => {
   // view switch back to the main loop never paints one frame of them before
   // the async path answers (owner's screencast, 2026-11-09). Neither
   // `live` nor `liveKeys` is touched by a view change.
-  const liveCall = (id: unknown): boolean => live.active && typeof id === 'string' && live.turnId !== '' && callTurn.get(id) === live.turnId && !claimedHeads.has(id)
+  const liveCall = (id: unknown): boolean => LIVE_IN_HUD && live.active && typeof id === 'string' && live.turnId !== '' && callTurn.get(id) === live.turnId && !claimedHeads.has(id)
   // an empty or partial row of the running turn would draw the engine's bare
   // `●` before the first chunk is known: empty hides with the turn
   const hiddenText = (e: any): boolean => (e.props.text.trim() === '' ? live.active && live.turnId !== '' : isLiveText(e.props.text))
