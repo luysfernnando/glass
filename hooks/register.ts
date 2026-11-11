@@ -10,6 +10,7 @@ import type { Block } from './markdown'
 import { PALETTES, paletteNameOf, paletteNamed } from './palette'
 import type { Palette, PaletteName } from './palette'
 import { themeFileName, themeFor, themeJson, themeSetting } from './theme'
+import { choicesFor, clear, gather, parseArgs, planFrom, reportText, rootsFor } from './storage'
 import { writeIntent } from './prose'
 import { HINT } from './hint'
 import { blocksHtml, blocksText } from './html'
@@ -162,10 +163,13 @@ async function installTheme($: EngineInterface, name: PaletteName): Promise<stri
 // Drawn under the ToolUse row from its own `output` (2026-10-04): calls run
 // in parallel drew their row with no ToolResult under it, so the body went
 // missing; the ToolResult row then draws nothing where this is non-null.
-function bashBody(t: Elements['terminal'], p: Palette, output: unknown, isErrored: boolean, cols: number): RenderElement | null {
+// `full`: the view draws the row whole (ctrl+o, --verbose, an unfolded
+// group), so no line folds to a count (2.1.318's isExpanded contract)
+function bashBody(t: Elements['terminal'], p: Palette, output: unknown, isErrored: boolean, cols: number, full = false): RenderElement | null {
+  const maxLines = full ? Infinity : MAX_PAINTED_LINES
   if (isErrored) {
     if (typeof output !== 'string' || output.trim() === '') return null
-    return renderToolOutput(t, p, output.replace(/\s+$/, '').split('\n'), { columns: cols, maxLines: MAX_PAINTED_LINES })
+    return renderToolOutput(t, p, output.replace(/\s+$/, '').split('\n'), { columns: cols, maxLines })
   }
   const r = bashResult(output)
   if (!r) return null
@@ -624,8 +628,31 @@ export const register: Register = (on, options) => {
     await $.command.register({ name: 'expand', description: 'glass: open every activity line' })
     await $.command.register({ name: 'collapse', description: 'glass: fold the activity lines again' })
     await $.command.register({ name: 'glass-theme', description: 'glass: write a theme for the current palette to ~/.claude/themes and select it' })
+    await $.command.register({ name: 'storage', description: "glass: Claude Code's disk use; clean clears idle sessions, old versions, unused worktrees", argumentHint: '[clean [days]]' })
     return next(e)
   })
+  // ---- /storage (0.19.0) ---------------------------------------------------
+  on('command.run', { command: 'storage' }, async ($, e) => {
+    const asked = parseArgs(e.args)
+    if ('error' in asked) return { text: asked.error }
+    if (!home) return { text: 'glass: HOME is not set, so the storage folders are unknown.' }
+    const roots = rootsFor(home)
+    const snap = await gather($, roots)
+    if (!asked.clean) return { text: reportText(snap) }
+    const plan = planFrom(snap, asked.days)
+    const choices = choicesFor(plan)
+    if (!choices.length) return { text: `Nothing to clear: no session idle ${asked.days}+ days, no old CLI version, no unused worktree.` }
+    let answer: string
+    try {
+      answer = await $.ui.ask('Clear which? Cleared sessions are gone from /resume for good. Worktrees go only if clean, and their branches stay.', { options: choices.map(c => c.label), header: 'Storage', multiSelect: true })
+    } catch {
+      return { text: 'Nothing cleared.' }
+    }
+    const keys = new Set(choices.filter(c => answer.includes(c.label)).map(c => c.key))
+    if (!keys.size) return { text: 'Nothing cleared.' }
+    return { text: await clear($, plan, keys, roots) }
+  })
+
   on('command.run', { command: 'expand' }, async $ => {
     expandAllNow = true
     $.ui.invalidate('ui.render')

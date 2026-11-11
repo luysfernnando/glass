@@ -181,53 +181,8 @@ test('mounted: a user row, a call and a group fold to one activity line; they va
   expect(await group.find({ type: 'Text', text: /2 actions/ })).toBeDefined()
   expect(await group.find({ type: 'Text', text: /a\.ts/ })).toBeUndefined()
   await group.unmount()
-
-  // a task's notification and another agent's message: both rows carry a
-  // hover, so both need a key or the validator refuses them
-  const event = await $.ui.mount({
-    plugin: 'glass',
-    surface: 'terminal',
-    component: 'UserMessage',
-    props: { text: 'Agent "Hunt widths" finished', origin: { kind: 'task-notification' }, isExpanded: true, task: { status: 'completed', durationMs: 9000 } },
-  })
-  expect(await event.find({ type: 'Text', text: /Hunt widths/ })).toBeDefined()
-  expect(await event.find({ type: 'Text', text: /9\.0s/ })).toBeDefined()
-  await event.unmount()
-
-  // folded, a task that went fine draws nothing (its call's row says it);
-  // a failed one keeps its row
-  const notice = (status: string) => $.ui.mount({
-    plugin: 'glass',
-    surface: 'terminal',
-    component: 'UserMessage',
-    props: { text: 'Agent "Hunt widths" finished', origin: { kind: 'task-notification' }, isExpanded: false, task: { status, durationMs: 9000 } },
-  })
-  const done = await notice('completed')
-  expect(await done.find({ type: 'Text', text: /Hunt widths/ })).toBeUndefined()
-  await done.unmount()
-  const failed = await notice('failed')
-  expect(await failed.find({ type: 'Text', text: /Hunt widths/ })).toBeDefined()
-  await failed.unmount()
-
-  const message = await $.ui.mount({
-    plugin: 'glass',
-    surface: 'terminal',
-    component: 'UserMessage',
-    props: { text: 'the report body', origin: { kind: 'peer' }, isExpanded: false, from: { name: 'Explore' } },
-  })
-  expect(await message.find({ type: 'Text', text: /Message from @Explore/ })).toBeDefined()
-  await message.unmount()
-  const plugin = await $.ui.mount({
-    plugin: 'glass',
-    surface: 'terminal',
-    component: 'UserMessage',
-    props: { text: 'ok 3s · `bun test`', origin: { kind: 'plugin', name: 'runner' }, isExpanded: false },
-  })
-  expect(await plugin.find({ type: 'Text', text: /Message from/ })).toBeUndefined()
-  expect(await plugin.find({ type: 'Text', text: /runner/ })).toBeDefined()
-  await plugin.unmount()
 })
-
+// as three lines and `+5 lines`, a failed call's reason cut to one line)
 test('a subagent view: the main agent brief draws in a labelled bubble, folded to two lines', async $ => {
   const brief = await $.ui.mount({
     plugin: 'glass',

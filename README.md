@@ -132,6 +132,14 @@ The same turn under each palette: pick one with `/config` under Glass.
   copied instead and a toast says so.
 
 **Ported from prismantis (0.19.0, bubbles and copy 0.20.0).** GitHub alerts (`> [!NOTE]`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`) draw as a colored bar and label. `mermaid` fences (flowchart, sequence, xychart-beta bar/line, pie, gantt) draw as text art in the palette, a plain code card when they do not parse. `figure` fences take `{accent|warn|ok|note|dim|strong:text}` roles. Prompt and reply bubbles and a hover copy button with Markdown, HTML and text formats. The `hint` option sends the model one short line (about 250 characters) on the first prompt and after a compaction. See THIRD_PARTY.md.
+- **Storage.** `/storage` shows how much disk Claude Code uses: transcripts
+  by project, CLI versions, plugins, file history and worktrees.
+  `/storage clean` offers to clear sessions idle 30+ days, CLI versions
+  no running session uses, and clean worktrees under `.claude/worktrees`
+  that sit on a branch and no live session holds. It deletes
+  only what you tick. `/storage clean 14` counts sessions idle 14+ days.
+  A cleared session is gone from `/resume`. A cleared worktree keeps its
+  branch.
 
 Every width is measured the way the engine measures cells, so emoji and
 CJK in tables stay aligned.
