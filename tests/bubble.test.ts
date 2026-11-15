@@ -123,3 +123,51 @@ test('a reply with no calls before it draws no activity line', async ($, on) => 
   expect(await m.find({ type: 'Text', text: /Bash/ })).toBeUndefined()
   await m.unmount()
 })
+
+test('after a hot reload: past spans come back from the transcript and draw under their reply', async ($, on) => {
+  mock.clock(on, { now: 1_000_000 })
+  // no turn events this load: the record is the transcript's
+  on('session.messages', (() => ({
+    value: [
+      { role: 'user', text: 'list it', toolUses: [] },
+      { role: 'assistant', text: '', toolUses: [{ tool_use_id: 'h1', tool: 'Bash', input: { command: 'ls' }, text: 'a' }] },
+      { role: 'user', text: '', toolUses: [], toolResults: [{ tool_use_id: 'h1', text: 'a', isError: false }] },
+      { role: 'assistant', text: 'Listed the folder before reload.', toolUses: [] },
+    ],
+  })) as never)
+  // the first draw reads the transcript and claims the span on the redraw
+  const first = await $.ui.mount(reply('Listed the folder before reload.'))
+  await first.unmount()
+  const again = await $.ui.mount(reply('Listed the folder before reload.'))
+  await again.unmount()
+  const head = await $.ui.mount(tool('h1'))
+  expect(await head.find({ type: 'Text', text: /action/ })).toBeUndefined()
+  await head.unmount()
+  const msg = await $.ui.mount(reply('Listed the folder before reload.'))
+  expect(await msg.find({ type: 'Text', text: /1 action/ })).toBeDefined()
+  await msg.unmount()
+})
+
+test('a subagent view after a reload: its calls fold to one line under its reply, from its own transcript', async ($, on) => {
+  mock.clock(on, { now: 1_000_000 })
+  const main = [
+    { role: 'user', text: 'research it', toolUses: [] },
+    { role: 'assistant', text: '', toolUses: [{ tool_use_id: 'ag', tool: 'Agent', input: { description: 'look' }, text: 'done', agentId: 'A1' }] },
+  ]
+  const agent = [
+    { role: 'user', text: 'brief', toolUses: [] },
+    { role: 'assistant', text: '', toolUses: [{ tool_use_id: 's1', tool: 'Bash', input: { command: 'ls' }, text: 'a' }] },
+    { role: 'assistant', text: '', toolUses: [{ tool_use_id: 's2', tool: 'Bash', input: { command: 'ls' }, text: 'a' }] },
+    { role: 'assistant', text: 'Found what the agent needed.', toolUses: [] },
+  ]
+  on('session.messages', ((_$: unknown, e: { agentId?: string }) => ({ value: e?.agentId === 'A1' ? agent : main })) as never)
+  for (let i = 0; i < 2; i++) await (await $.ui.mount(reply('Found what the agent needed.'))).unmount()
+  for (const id of ['s1', 's2']) {
+    const row = await $.ui.mount(tool(id))
+    expect(await row.find({ type: 'Text', text: /action/ })).toBeUndefined()
+    await row.unmount()
+  }
+  const msg = await $.ui.mount(reply('Found what the agent needed.'))
+  expect(await msg.find({ type: 'Text', text: /2 actions/ })).toBeDefined()
+  await msg.unmount()
+})

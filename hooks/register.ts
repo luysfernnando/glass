@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
-import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
+import type { Elements, EngineInterface, RenderElement, Register, SessionMessage } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassServerTool, GlassTurn } from '../types'
-import { safeText, shortModel, MAX_PAINTED_LINES, toolText, callRun, renderActivityRow, spinCells, clockCells, fmtToolTime, isEditTool, setCwd, setHome, shortPath, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderNoOutput, renderPluginRow, renderAgentBrief, renderPromptBubble, renderReplyBubble, promptWidth, renderServerToolRows, renderShot, renderSkillLoad, shotCells, renderToolError, renderToolOutput, isDeclined, renderDeclined, renderCallRow, renderCallCard, outputPreview, CARD_LINES } from './chrome'
+import { safeText, shortModel, MAX_PAINTED_LINES, toolText, callRun, renderActivityRow, pressToFold, spinCells, clockCells, fmtToolTime, isEditTool, setCwd, setHome, shortPath, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderNoOutput, renderPluginRow, renderAgentBrief, renderPromptBubble, renderReplyBubble, promptWidth, renderServerToolRows, renderShot, renderSkillLoad, shotCells, renderToolError, renderToolOutput, isDeclined, renderDeclined, renderCallRow, renderCallCard, outputPreview, CARD_LINES } from './chrome'
 import type { CallRow, ChangedFile, Hunk, RunCall } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -500,8 +500,79 @@ export const register: Register = (on, options) => {
     callProps.set(props.tool_use_id, props)
     return run !== null && run.isOpen && claimedHeads.has(run.head) && (was === undefined || was.output !== props.output || was.isRunning !== props.isRunning)
   }
+  // A hot reload (an edit to the theme) starts this module with no turn
+  // record: every past span drew its bare line outside the reply bubble
+  // (owner's report, 2026-11-15). The transcript gives it back once: each
+  // prompt opens a turn, each call joins it, and the first text after a
+  // span claims it, as turn.step would have. A subagent's transcript is one
+  // turn, `agent:<id>`, as tool.call records it. Calls already recorded
+  // live are left as they are.
+  let rebuilt: Promise<void> | null = null
+  /** Records a transcript's past turns (the main one, or `agent`'s); true when anything was added. */
+  const applyHistory = (messages: ReadonlyArray<SessionMessage>, agent?: string): boolean => {
+    let turn = agent ? `agent:${agent}` : ''
+    let n = 0
+    let afterText = false
+    let added = false
+    for (const msg of messages) {
+      if (msg.role === 'user') {
+        if (!agent && msg.text.trim() !== '' && (msg.toolResults ?? []).length === 0) {
+          turn = `hist:${n++}`
+          afterText = false
+        }
+        continue
+      }
+      if (turn === '') continue
+      if (msg.text.trim() !== '') {
+        const order = turnOrder.get(turn) ?? []
+        const last = order[order.length - 1]
+        const head = !afterText && last ? callRun(order, last.id)[0]?.id : undefined
+        if (head && !claimedHeads.has(head)) {
+          claimByKey.set(textKey(msg.text), head)
+          added = true
+        }
+        afterText = true
+      }
+      for (const u of msg.toolUses) {
+        if (callTurn.has(u.tool_use_id)) {
+          afterText = false
+          continue
+        }
+        callTurn.set(u.tool_use_id, turn)
+        recordCall(turn, { id: u.tool_use_id, tool: u.tool, afterText, subject: callSubject(u.input ?? {}) })
+        // a past call is done: no spinner; its time is unknown
+        if (u.text !== undefined || u.result !== undefined) callMs.set(u.tool_use_id, callMs.get(u.tool_use_id) ?? 0)
+        if (u.isError) failedCalls.add(u.tool_use_id)
+        afterText = false
+        added = true
+      }
+    }
+    return added
+  }
+  // A subagent's text after its calls claims their span, as the main
+  // loop's does in turn.step: its reply bubble carries the line (owner's
+  // report, 2026-11-15: each call drew its own bare line in the agent view).
+  const agentSeg = new Map<string, { head: string; text: string; key: string }>()
+  const agentTextChunk = (agentId: string, text: string) => {
+    if (!agentText.get(agentId)) {
+      const order = turnOrder.get(`agent:${agentId}`) ?? []
+      const last = order[order.length - 1]
+      const head = last ? callRun(order, last.id)[0]?.id : undefined
+      if (head) agentSeg.set(agentId, { head, text: '', key: '' })
+      else agentSeg.delete(agentId)
+    }
+    const seg = agentSeg.get(agentId)
+    if (!seg) return
+    seg.text += text
+    const key = textKey(seg.text)
+    if (key === seg.key) return
+    claimByKey.delete(seg.key)
+    seg.key = key
+    claimByKey.set(key, seg.head)
+    if (claimByKey.size > 400) claimByKey.delete(claimByKey.keys().next().value as string)
+  }
   // a call's card: its row, then the diff (an edit) or what it printed
-  const callCard = (t: Elements['terminal'], row: RenderElement, props: CallRow, cols: number): RenderElement => {
+  const callCard =(t: Elements['terminal'], row: RenderElement, props: CallRow, cols: number): RenderElement => {
     if ((props.tool === 'Edit' || props.tool === 'Write') && !props.isRunning && !props.isErrored) {
       const diff = editCard(t, palette, props.output, props.input, cols)
       if (diff) return t.Box({ flexDirection: 'column', children: [row, diff] })
@@ -693,6 +764,7 @@ export const register: Register = (on, options) => {
     if (e.surface === 'terminal' && hiddenText(e)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     return (async () => {
     if (e.surface !== 'terminal') return next(e)
+    if (!rebuilt) rebuilt = loadTurns($, applyHistory).catch(() => { rebuilt = null })
     const text = e.props.text
     if (text.trim() === '') return next(e)
     const t = $.ui.resolve(e)
@@ -731,7 +803,8 @@ export const register: Register = (on, options) => {
           return props ? [callCard(t, renderCallRow(t, palette, props, { durationMs: callMs.get(c.id) ?? null }), props, columns - 4)] : []
         })
       : []
-    const line = run ? [t.Box({ marginTop: 1, flexDirection: 'column', children: [await drawRun($, runCtx(), t, run, e.requestId), ...cards] })] : []
+    const folded = run && cards.length > 0 ? [pressToFold(t, `open:${run.head}`, cards, toggleRun($, `run:${run.head}`))] : []
+    const line = run ? [t.Box({ marginTop: 1, flexDirection: 'column', children: [await drawRun($, runCtx(), t, run, e.requestId), ...folded] })] : []
     return renderReplyBubble(t, palette, [reply], e.props.isFirstOfReply, [...line, ...copyControl({ t, p: palette, copy: onCopy }, whole, 'low')])
     })()
   })
@@ -801,6 +874,7 @@ export const register: Register = (on, options) => {
     if (e.surface === 'terminal' && hiddenCall(e)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     return (async () => {
     if (e.surface !== 'terminal') return next(e)
+    if (!rebuilt) rebuilt = loadTurns($, applyHistory).catch(() => { rebuilt = null })
     const id = e.props.tool_use_id
     const t = $.ui.resolve(e)
     // a declined call is no failure: no red cross
@@ -837,7 +911,9 @@ export const register: Register = (on, options) => {
       if (body) return wrap(t.Box({ flexDirection: 'column', children: [row, body] }))
     }
     // its row, then the diff (an edit, always open) or what it printed
-    return wrap(callCard(t, row, isStreaming ? { ...e.props, isRunning: true } : e.props, cols))
+    const card = callCard(t, row, isStreaming ? { ...e.props, isRunning: true } : e.props, cols)
+    // an opened span's card folds the span on a press, as its line does
+    return wrap(run && run.isOpen ? pressToFold(t, `open:${id}`, [card], toggleRun($, `run:${run.head}`)) : card)
     })()
   })
 
@@ -847,6 +923,7 @@ export const register: Register = (on, options) => {
     if (e.surface === 'terminal' && hiddenGroup(e)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     return (async () => {
     if (e.surface !== 'terminal') return next(e)
+    if (!rebuilt) rebuilt = loadTurns($, applyHistory).catch(() => { rebuilt = null })
     // the group's one Read picture (0.8.0): drawn under the folded row, or
     // under its own row once the group is open
     for (const c of e.props.calls) if (c.tool === 'Read') noteRead(mem, c.tool_use_id, c.input)
@@ -1105,7 +1182,10 @@ export const register: Register = (on, options) => {
           }
         }
       }
-      if (chunk.kind === 'text' && e.agentId) agentText.set(e.agentId, true)
+      if (chunk.kind === 'text' && e.agentId) {
+        agentTextChunk(e.agentId, chunk.text)
+        agentText.set(e.agentId, true)
+      }
       if (chunk.kind === 'text' && !e.agentId) {
         // the first text after a call closes the span above it: its line moves
         // into the reply bubble
@@ -1353,8 +1433,26 @@ async function drawRun($: EngineInterface, c: RunCtx, t: Elements['terminal'], r
     isOpen: run.isOpen,
     durationMs: running ? null : run.calls.reduce((n, x) => n + (c.callMs.get(x.id) ?? 0), 0),
     ...(running ? { spin: spinCells(await $.clock.now().catch(() => 0), c.palette.meta) } : {}),
-    onToggle: () => void update($, expanded, xs => ((xs ?? []).includes(key) ? (xs ?? []).filter(x => x !== key) : [...(xs ?? []), key].slice(-HISTORY))),
+    onToggle: toggleRun($, key),
   })
+}
+
+/** Reads the transcript into the turn record (applyHistory); redraws when it added any. */
+async function loadTurns($: EngineInterface, apply: (messages: ReadonlyArray<SessionMessage>, agent?: string) => boolean): Promise<void> {
+  const main = await $.session.messages()
+  let added = apply(main)
+  // each subagent the conversation started: its own transcript, its own turn
+  const agentIds = [...new Set(main.flatMap(m => m.toolUses.flatMap(u => (u.agentId ? [u.agentId] : []))))]
+  for (const agentId of agentIds) {
+    const messages = await $.session.messages({ agentId }).catch(() => null)
+    if (Array.isArray(messages) && apply(messages, agentId)) added = true
+  }
+  if (added) $.ui.invalidate('ui.render')
+}
+
+/** Opens a span's line (`run:<head>`), or folds it again. */
+function toggleRun($: EngineInterface, key: string): () => void {
+  return () => void update($, expanded, xs => ((xs ?? []).includes(key) ? (xs ?? []).filter(x => x !== key) : [...(xs ?? []), key].slice(-HISTORY)))
 }
 
 /**
