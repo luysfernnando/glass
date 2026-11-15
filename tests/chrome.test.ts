@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { CLOCK_CELLS, callRun, callScope, renderActivityRow, activitySummary, promptWidth, renderPromptBubble, renderReplyBubble, CLAUDE_ORANGE, renderCallRow, renderCallCard, outputPreview, CARD_LINES, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderPluginRow, renderToolOutput, rel, safeText, setCwd, setHome, shortPath, clip, fmtDuration, renderServerToolRows, renderSkillLoad, toolLabel } from '../hooks/chrome'
+import { CLOCK_CELLS, callRun, callScope, renderActivityRow, pressToFold, activitySummary, promptWidth, renderPromptBubble, renderReplyBubble, CLAUDE_ORANGE, renderCallRow, renderCallCard, outputPreview, CARD_LINES, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderPluginRow, renderToolOutput, rel, safeText, setCwd, setHome, shortPath, clip, fmtDuration, renderServerToolRows, renderSkillLoad, toolLabel } from '../hooks/chrome'
 import type { RunCall } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { codeColor, highlight, highlightLine, langOf } from '../hooks/highlight'
@@ -914,4 +914,24 @@ test('the tip card bar runs every wrapped row on a narrow terminal', async () =>
 
 test('the pencil is one cell', async () => {
   expect(cellWidth(G.pencil)).toBe(1)
+})
+
+test('an opened span folds on a press anywhere on its cards: every text a Button with the toggle', () => {
+  const fold = () => {}
+  const card = renderCallCard(t, p, renderCallRow(t, p, { tool_use_id: 'toolu_x', tool: 'Bash', input: { command: 'ls' }, output: { stdout: 'a\nb' }, isRunning: false, isErrored: false, isInterrupted: false }, { durationMs: 300 }), [])
+  const tree = pressToFold(t, 'open:x', [card], fold)
+  const all = elements(tree)
+  const buttons = all.filter(n => n.type === 'Button')
+  expect(buttons.length).toBeGreaterThan(0)
+  expect(buttons.every(b => b.props.onPress === fold)).toBe(true)
+  expect(new Set(buttons.map(b => b.props.key)).size).toBe(buttons.length)
+  // no Text left outside a Button at the top of its run
+  const loose = (n: RenderNode, inButton: boolean): boolean => {
+    if (typeof n === 'string' || !n) return false
+    const e = n as unknown as { type: string; props: Record<string, unknown> }
+    if (e.type === 'Text' && !inButton) return true
+    return ((e.props.children ?? []) as RenderNode[]).some(k => loose(k, inButton || e.type === 'Button'))
+  }
+  expect(loose(tree, false)).toBe(false)
+  expect(flat(tree)).toContain('Bash')
 })

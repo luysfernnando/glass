@@ -803,6 +803,26 @@ export function renderActivityRow(t: Table, p: Palette, calls: ReadonlyArray<Run
   }))
 }
 
+// An opened span's cards, every text in them a press that folds the span
+// again (owner's request, 2026-11-15: only the line's own piece folded it).
+// Only Button takes a press and only Text goes in one, so each outermost
+// Text becomes a plain Button; Buttons (copy), Rasters and Images keep
+// theirs. The keyed Box around it lets the Buttons carry `hover`.
+export function pressToFold(t: Table, key: string, nodes: RenderNode[], onPress: Press): RenderElement {
+  let n = 0
+  const walk = (node: RenderNode): RenderNode => {
+    if (typeof node === 'string' || node === null || typeof node !== 'object') return node
+    if (node.type === 'Text') return t.Button({ key: `${key}:${n++}`, plain: true, onPress, hover: { inverse: false, dimColor: false }, children: [node] })
+    if (node.type !== 'Box') return node
+    // the table keeps a Box's children in its props at run time
+    const box = node as unknown as { props?: { children?: unknown } }
+    const kids = box.props?.children
+    if (!Array.isArray(kids)) return node
+    return { ...box, props: { ...box.props, children: (kids as RenderNode[]).map(walk) } } as unknown as RenderElement
+  }
+  return t.Box({ key, flexDirection: 'column', children: nodes.map(walk) })
+}
+
 // a running run's spinner, one frame a tick: BRAILLE PATTERN DOTS U+280B ... U+280F
 const SPIN = [0x280b, 0x2819, 0x2839, 0x2838, 0x283c, 0x2834, 0x2826, 0x2827, 0x2807, 0x280f]
 
