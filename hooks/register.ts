@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
-import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
+import type { Elements, EngineInterface, RenderElement, Register, SessionMessage } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassServerTool, GlassTurn } from '../types'
-import { safeText, shortModel, MAX_PAINTED_LINES, toolText, callRun, renderActivityRow, spinCells, clockCells, fmtToolTime, isEditTool, setCwd, setHome, shortPath, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderNoOutput, renderPluginRow, renderAgentBrief, renderPromptBubble, renderPromptBody, promptParts, renderReplyBubble, promptWidth, renderServerToolRows, renderShot, renderSkillLoad, shotCells, renderToolError, renderToolOutput, isDeclined, renderDeclined, renderCallRow, renderCallCard, outputPreview, CARD_LINES } from './chrome'
+import { safeText, shortModel, MAX_PAINTED_LINES, toolText, callRun, renderActivityRow, pressToFold, spinCells, clockCells, fmtToolTime, isEditTool, setCwd, setHome, shortPath, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderNoOutput, renderPluginRow, renderAgentBrief, renderPromptBubble, renderPromptBody, promptParts, renderReplyBubble, promptWidth, renderServerToolRows, renderShot, renderSkillLoad, shotCells, renderToolError, renderToolOutput, isDeclined, renderDeclined, renderCallRow, renderCallCard, outputPreview, CARD_LINES } from './chrome'
 import type { CallRow, ChangedFile, Hunk, RunCall } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -10,6 +10,7 @@ import type { Block } from './markdown'
 import { PALETTES, paletteNameOf, paletteNamed } from './palette'
 import type { Palette, PaletteName } from './palette'
 import { themeFileName, themeFor, themeJson, themeSetting } from './theme'
+import { choicesFor, clear, gather, parseArgs, planFrom, reportText, rootsFor } from './storage'
 import { writeIntent } from './prose'
 import { HINT } from './hint'
 import { blocksHtml, blocksText } from './html'
@@ -162,10 +163,13 @@ async function installTheme($: EngineInterface, name: PaletteName): Promise<stri
 // Drawn under the ToolUse row from its own `output` (2026-10-04): calls run
 // in parallel drew their row with no ToolResult under it, so the body went
 // missing; the ToolResult row then draws nothing where this is non-null.
-function bashBody(t: Elements['terminal'], p: Palette, output: unknown, isErrored: boolean, cols: number): RenderElement | null {
+// `full`: the view draws the row whole (ctrl+o, --verbose, an unfolded
+// group), so no line folds to a count (2.1.318's isExpanded contract)
+function bashBody(t: Elements['terminal'], p: Palette, output: unknown, isErrored: boolean, cols: number, full = false): RenderElement | null {
+  const maxLines = full ? Infinity : MAX_PAINTED_LINES
   if (isErrored) {
     if (typeof output !== 'string' || output.trim() === '') return null
-    return renderToolOutput(t, p, output.replace(/\s+$/, '').split('\n'), { columns: cols, maxLines: MAX_PAINTED_LINES })
+    return renderToolOutput(t, p, output.replace(/\s+$/, '').split('\n'), { columns: cols, maxLines })
   }
   const r = bashResult(output)
   if (!r) return null
@@ -491,13 +495,101 @@ export const register: Register = (on, options) => {
   const callProps = new Map<string, CallRow>()
   // records a call's props; true when a claimed open span should redraw its
   // bubble with them (new to it, or its output changed)
+  // Compared by value: the engine hands each render a fresh copy of a
+  // structured output, so `!==` held every time and each draw of an opened
+  // span asked for the next one, ten a second, until the terminal hung or
+  // drew blank (owner's report, 2026-11-15, on a long opened span).
+  const outputKeys = new Map<string, string>()
+  const outputKey = (output: unknown): string => {
+    if (output === undefined) return ''
+    if (typeof output === 'string') return 's' + output
+    try {
+      return 'j' + JSON.stringify(output)
+    } catch {
+      return 'x'
+    }
+  }
   const noteProps = (props: CallRow, run: Run | null): boolean => {
     const was = callProps.get(props.tool_use_id)
+    const key = outputKey(props.output)
+    const wasKey = outputKeys.get(props.tool_use_id)
     callProps.set(props.tool_use_id, props)
-    return run !== null && run.isOpen && claimedHeads.has(run.head) && (was === undefined || was.output !== props.output || was.isRunning !== props.isRunning)
+    outputKeys.set(props.tool_use_id, key)
+    return run !== null && run.isOpen && claimedHeads.has(run.head) && (was === undefined || wasKey !== key || was.isRunning !== props.isRunning)
+  }
+  // A hot reload (an edit to the theme) starts this module with no turn
+  // record: every past span drew its bare line outside the reply bubble
+  // (owner's report, 2026-11-15). The transcript gives it back once: each
+  // prompt opens a turn, each call joins it, and the first text after a
+  // span claims it, as turn.step would have. A subagent's transcript is one
+  // turn, `agent:<id>`, as tool.call records it. Calls already recorded
+  // live are left as they are.
+  let rebuilt: Promise<void> | null = null
+  /** Records a transcript's past turns (the main one, or `agent`'s); true when anything was added. */
+  const applyHistory = (messages: ReadonlyArray<SessionMessage>, agent?: string): boolean => {
+    let turn = agent ? `agent:${agent}` : ''
+    let n = 0
+    let afterText = false
+    let added = false
+    for (const msg of messages) {
+      if (msg.role === 'user') {
+        if (!agent && msg.text.trim() !== '' && (msg.toolResults ?? []).length === 0) {
+          turn = `hist:${n++}`
+          afterText = false
+        }
+        continue
+      }
+      if (turn === '') continue
+      if (msg.text.trim() !== '') {
+        const order = turnOrder.get(turn) ?? []
+        const last = order[order.length - 1]
+        const head = !afterText && last ? callRun(order, last.id)[0]?.id : undefined
+        if (head && !claimedHeads.has(head)) {
+          claimByKey.set(textKey(msg.text), head)
+          added = true
+        }
+        afterText = true
+      }
+      for (const u of msg.toolUses) {
+        if (callTurn.has(u.tool_use_id)) {
+          afterText = false
+          continue
+        }
+        callTurn.set(u.tool_use_id, turn)
+        recordCall(turn, { id: u.tool_use_id, tool: u.tool, afterText, subject: callSubject(u.input ?? {}) })
+        // a past call is done: no spinner; its time is unknown
+        if (u.text !== undefined || u.result !== undefined) callMs.set(u.tool_use_id, callMs.get(u.tool_use_id) ?? 0)
+        if (u.isError) failedCalls.add(u.tool_use_id)
+        afterText = false
+        added = true
+      }
+    }
+    return added
+  }
+  // A subagent's text after its calls claims their span, as the main
+  // loop's does in turn.step: its reply bubble carries the line (owner's
+  // report, 2026-11-15: each call drew its own bare line in the agent view).
+  const agentSeg = new Map<string, { head: string; text: string; key: string }>()
+  const agentTextChunk = (agentId: string, text: string) => {
+    if (!agentText.get(agentId)) {
+      const order = turnOrder.get(`agent:${agentId}`) ?? []
+      const last = order[order.length - 1]
+      const head = last ? callRun(order, last.id)[0]?.id : undefined
+      if (head) agentSeg.set(agentId, { head, text: '', key: '' })
+      else agentSeg.delete(agentId)
+    }
+    const seg = agentSeg.get(agentId)
+    if (!seg) return
+    seg.text += text
+    const key = textKey(seg.text)
+    if (key === seg.key) return
+    claimByKey.delete(seg.key)
+    seg.key = key
+    claimByKey.set(key, seg.head)
+    if (claimByKey.size > 400) claimByKey.delete(claimByKey.keys().next().value as string)
   }
   // a call's card: its row, then the diff (an edit) or what it printed
-  const callCard = (t: Elements['terminal'], row: RenderElement, props: CallRow, cols: number): RenderElement => {
+  const callCard =(t: Elements['terminal'], row: RenderElement, props: CallRow, cols: number): RenderElement => {
     if ((props.tool === 'Edit' || props.tool === 'Write') && !props.isRunning && !props.isErrored) {
       const diff = editCard(t, palette, props.output, props.input, cols)
       if (diff) return t.Box({ flexDirection: 'column', children: [row, diff] })
@@ -624,8 +716,31 @@ export const register: Register = (on, options) => {
     await $.command.register({ name: 'expand', description: 'glass: open every activity line' })
     await $.command.register({ name: 'collapse', description: 'glass: fold the activity lines again' })
     await $.command.register({ name: 'glass-theme', description: 'glass: write a theme for the current palette to ~/.claude/themes and select it' })
+    await $.command.register({ name: 'storage', description: "glass: Claude Code's disk use; clean clears idle sessions, old versions, unused worktrees", argumentHint: '[clean [days]]' })
     return next(e)
   })
+  // ---- /storage (0.19.0) ---------------------------------------------------
+  on('command.run', { command: 'storage' }, async ($, e) => {
+    const asked = parseArgs(e.args)
+    if ('error' in asked) return { text: asked.error }
+    if (!home) return { text: 'glass: HOME is not set, so the storage folders are unknown.' }
+    const roots = rootsFor(home)
+    const snap = await gather($, roots)
+    if (!asked.clean) return { text: reportText(snap) }
+    const plan = planFrom(snap, asked.days)
+    const choices = choicesFor(plan)
+    if (!choices.length) return { text: `Nothing to clear: no session idle ${asked.days}+ days, no old CLI version, no unused worktree.` }
+    let answer: string
+    try {
+      answer = await $.ui.ask('Clear which? Cleared sessions are gone from /resume for good. Worktrees go only if clean, and their branches stay.', { options: choices.map(c => c.label), header: 'Storage', multiSelect: true })
+    } catch {
+      return { text: 'Nothing cleared.' }
+    }
+    const keys = new Set(choices.filter(c => answer.includes(c.label)).map(c => c.key))
+    if (!keys.size) return { text: 'Nothing cleared.' }
+    return { text: await clear($, plan, keys, roots) }
+  })
+
   on('command.run', { command: 'expand' }, async $ => {
     expandAllNow = true
     $.ui.invalidate('ui.render')
@@ -666,6 +781,7 @@ export const register: Register = (on, options) => {
     if (e.surface === 'terminal' && hiddenText(e)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     return (async () => {
     if (e.surface !== 'terminal') return next(e)
+    if (!rebuilt) rebuilt = loadTurns($, applyHistory).catch(() => { rebuilt = null })
     const text = e.props.text
     if (text.trim() === '') return next(e)
     const t = $.ui.resolve(e)
@@ -704,7 +820,8 @@ export const register: Register = (on, options) => {
           return props ? [callCard(t, renderCallRow(t, palette, props, { durationMs: callMs.get(c.id) ?? null }), props, columns - 4)] : []
         })
       : []
-    const line = run ? [t.Box({ marginTop: 1, flexDirection: 'column', children: [await drawRun($, runCtx(), t, run, e.requestId), ...cards] })] : []
+    const folded = run && cards.length > 0 ? [pressToFold(t, `open:${run.head}`, cards, toggleRun($, `run:${run.head}`))] : []
+    const line = run ? [t.Box({ marginTop: 1, flexDirection: 'column', children: [await drawRun($, runCtx(), t, run, e.requestId), ...folded] })] : []
     return renderReplyBubble(t, palette, [reply], e.props.isFirstOfReply, [...line, ...copyControl({ t, p: palette, copy: onCopy }, whole, 'low')])
     })()
   })
@@ -718,6 +835,12 @@ export const register: Register = (on, options) => {
   })
 
   // ---- prompt bubble -----------------------------------------------------
+  // prompts typed mid-turn the model has not read yet (whitespace-stripped text)
+  const pendingPrompts = new Set<string>()
+  // the hint line's queue state: shown on its last draw, and ever this load
+  let hintQueued = false
+  let sawQueueHint = false
+  const pendingKey = (s: string) => s.replace(/\s+/g, '')
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
     const t = $.ui.resolve(e)
@@ -767,7 +890,8 @@ export const register: Register = (on, options) => {
     if (text.trim() === '') return next(e)
     const columns = e.viewport?.columns ?? 80
     const shown = promptParts(text).flatMap(part => part.kind === 'text' ? part.text.split('\n') : ['xx colado - 0000 linhas', ...part.text.split('\n').map(l => 'xx' + l)])
-    return renderPromptBubble(t, palette, renderPromptBody(t, palette, text, e.props.isExpanded === true), promptWidth(shown, columns))
+    const queued = pendingPrompts.has(pendingKey(text))
+    return renderPromptBubble(t, palette, renderPromptBody(t, palette, text, e.props.isExpanded === true, queued), promptWidth(shown, columns), queued)
   })
 
   // ---- activity line and call rows ---------------------------------------
@@ -775,6 +899,7 @@ export const register: Register = (on, options) => {
     if (e.surface === 'terminal' && hiddenCall(e)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     return (async () => {
     if (e.surface !== 'terminal') return next(e)
+    if (!rebuilt) rebuilt = loadTurns($, applyHistory).catch(() => { rebuilt = null })
     const id = e.props.tool_use_id
     const t = $.ui.resolve(e)
     // a declined call is no failure: no red cross
@@ -811,7 +936,9 @@ export const register: Register = (on, options) => {
       if (body) return wrap(t.Box({ flexDirection: 'column', children: [row, body] }))
     }
     // its row, then the diff (an edit, always open) or what it printed
-    return wrap(callCard(t, row, isStreaming ? { ...e.props, isRunning: true } : e.props, cols))
+    const card = callCard(t, row, isStreaming ? { ...e.props, isRunning: true } : e.props, cols)
+    // an opened span's card folds the span on a press, as its line does
+    return wrap(run && run.isOpen ? pressToFold(t, `open:${id}`, [card], toggleRun($, `run:${run.head}`)) : card)
     })()
   })
 
@@ -821,6 +948,7 @@ export const register: Register = (on, options) => {
     if (e.surface === 'terminal' && hiddenGroup(e)) return $.ui.resolve(e).Box({ display: 'none', children: [] })
     return (async () => {
     if (e.surface !== 'terminal') return next(e)
+    if (!rebuilt) rebuilt = loadTurns($, applyHistory).catch(() => { rebuilt = null })
     // the group's one Read picture (0.8.0): drawn under the folded row, or
     // under its own row once the group is open
     for (const c of e.props.calls) if (c.tool === 'Read') noteRead(mem, c.tool_use_id, c.input)
@@ -919,6 +1047,10 @@ export const register: Register = (on, options) => {
 
   // ---- the turn's bookkeeping --------------------------------------------
   on('prompt.submit', async ($, e, next) => {
+    // typed over a running turn (`turnId` set): the bubble stays gray until the
+    // model's next request reads it (see turn.step). Observed only; the submit
+    // goes down untouched by this.
+    if (e.turnId && !e.isMeta && e.text.trim() !== '') pendingPrompts.add(pendingKey(e.text))
     marks = !writeIntent(e.text)
     // a prompt names its pictures unless a machine wrote it: a task
     // notification or another agent's message does not; an origin the engine
@@ -1049,6 +1181,13 @@ export const register: Register = (on, options) => {
   // the main loop's model requests. The event streams, so the hook is a
   // generator relaying every chunk.
   on('turn.step', async function* ($, e, next) {
+    // Fallback read signal, only while the hint line never showed the queue's
+    // `send now` (another engine version's wording): the next main-loop
+    // request carries the queued prompt. One redraw, only if one was pending.
+    if (!e.agentId && !sawQueueHint && pendingPrompts.size > 0) {
+      pendingPrompts.clear()
+      $.ui.invalidate('ui.render')
+    }
     const stream = next(e)
     let segText = ''
     let step = await stream.next()
@@ -1079,7 +1218,10 @@ export const register: Register = (on, options) => {
           }
         }
       }
-      if (chunk.kind === 'text' && e.agentId) agentText.set(e.agentId, true)
+      if (chunk.kind === 'text' && e.agentId) {
+        agentTextChunk(e.agentId, chunk.text)
+        agentText.set(e.agentId, true)
+      }
       if (chunk.kind === 'text' && !e.agentId) {
         // the first text after a call closes the span above it: its line moves
         // into the reply bubble
@@ -1247,6 +1389,17 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
+    // Read signal (owner's request, 2026-11-15): the engine's hint says
+    // `ctrl+enter to send now` while a typed prompt waits in its queue; the
+    // line losing it means the queue drained into the model's turn. Only the
+    // transition redraws, after this draw, so no loop.
+    const queueShown = /send now/i.test(e.props.hint)
+    if (queueShown) sawQueueHint = true
+    if (hintQueued && !queueShown && pendingPrompts.size > 0) {
+      pendingPrompts.clear()
+      void Promise.resolve().then(() => $.ui.invalidate('ui.render')).catch(() => undefined)
+    }
+    hintQueued = queueShown
     const model = viewedAgent ? agentModelIds.get(viewedAgent) : undefined
     const tail = model ? shortModel(model) : ''
     // only `tail`, never a rewritten `hint`: a rewrite replaces the engine's
@@ -1327,8 +1480,26 @@ async function drawRun($: EngineInterface, c: RunCtx, t: Elements['terminal'], r
     isOpen: run.isOpen,
     durationMs: running ? null : run.calls.reduce((n, x) => n + (c.callMs.get(x.id) ?? 0), 0),
     ...(running ? { spin: spinCells(await $.clock.now().catch(() => 0), c.palette.meta) } : {}),
-    onToggle: () => void update($, expanded, xs => ((xs ?? []).includes(key) ? (xs ?? []).filter(x => x !== key) : [...(xs ?? []), key].slice(-HISTORY))),
+    onToggle: toggleRun($, key),
   })
+}
+
+/** Reads the transcript into the turn record (applyHistory); redraws when it added any. */
+async function loadTurns($: EngineInterface, apply: (messages: ReadonlyArray<SessionMessage>, agent?: string) => boolean): Promise<void> {
+  const main = await $.session.messages()
+  let added = apply(main)
+  // each subagent the conversation started: its own transcript, its own turn
+  const agentIds = [...new Set(main.flatMap(m => m.toolUses.flatMap(u => (u.agentId ? [u.agentId] : []))))]
+  for (const agentId of agentIds) {
+    const messages = await $.session.messages({ agentId }).catch(() => null)
+    if (Array.isArray(messages) && apply(messages, agentId)) added = true
+  }
+  if (added) $.ui.invalidate('ui.render')
+}
+
+/** Opens a span's line (`run:<head>`), or folds it again. */
+function toggleRun($: EngineInterface, key: string): () => void {
+  return () => void update($, expanded, xs => ((xs ?? []).includes(key) ? (xs ?? []).filter(x => x !== key) : [...(xs ?? []), key].slice(-HISTORY)))
 }
 
 /**

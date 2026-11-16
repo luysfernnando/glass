@@ -193,8 +193,9 @@ export function promptWidth(lines: ReadonlyArray<string>, columns: number): numb
 }
 
 /** `You <disc>` over a right-aligned round box holding the prompt */
-export function renderPromptBubble(t: Table, p: Palette, content: RenderNode[], width: number): RenderElement {
-  const color = p.promptBorder ?? p.accentUser
+export function renderPromptBubble(t: Table, p: Palette, content: RenderNode[], width: number, queued = false): RenderElement {
+  // a prompt queued mid-turn, not yet read by the model: the palette's faint gray
+  const color = queued ? p.faint : (p.promptBorder ?? p.accentUser)
   return t.Box({
     key: 'prompt',
     flexDirection: 'column',
@@ -248,11 +249,11 @@ const PASTE_LINES = 6
  * mark gutter in the user's color, the text in `meta`) under a faint
  * `colado - N linhas` label, folded to PASTE_LINES unless expanded (ctrl+o).
  */
-export function renderPromptBody(t: Table, p: Palette, text: string, expanded: boolean): RenderNode[] {
-  const color = p.promptBorder ?? p.accentUser
+export function renderPromptBody(t: Table, p: Palette, text: string, expanded: boolean, queued = false): RenderNode[] {
+  const color = queued ? p.faint : (p.promptBorder ?? p.accentUser)
   const parts = promptParts(text)
   return parts.map((part, i) => {
-    if (part.kind === 'text') return t.Text({ wrap: 'wrap', children: [safeText(part.text)] })
+    if (part.kind === 'text') return t.Text({ wrap: 'wrap', ...(queued ? { color: p.faint } : {}), children: [safeText(part.text)] })
     const lines = part.text.split('\n')
     const shown = expanded ? lines : lines.slice(0, PASTE_LINES)
     const more = lines.length - shown.length
@@ -858,6 +859,26 @@ export function renderActivityRow(t: Table, p: Palette, calls: ReadonlyArray<Run
       ...(right ? [t.Box({ flexShrink: 0, marginLeft: 2, children: [t.Text({ color: p.faint, children: [right] })] })] : []),
     ],
   }))
+}
+
+// An opened span's cards, every text in them a press that folds the span
+// again (owner's request, 2026-11-15: only the line's own piece folded it).
+// Only Button takes a press and only Text goes in one, so each outermost
+// Text becomes a plain Button; Buttons (copy), Rasters and Images keep
+// theirs. The keyed Box around it lets the Buttons carry `hover`.
+export function pressToFold(t: Table, key: string, nodes: RenderNode[], onPress: Press): RenderElement {
+  let n = 0
+  const walk = (node: RenderNode): RenderNode => {
+    if (typeof node === 'string' || node === null || typeof node !== 'object') return node
+    if (node.type === 'Text') return t.Button({ key: `${key}:${n++}`, plain: true, onPress, hover: { inverse: false, dimColor: false }, children: [node] })
+    if (node.type !== 'Box') return node
+    // the table keeps a Box's children in its props at run time
+    const box = node as unknown as { props?: { children?: unknown } }
+    const kids = box.props?.children
+    if (!Array.isArray(kids)) return node
+    return { ...box, props: { ...box.props, children: (kids as RenderNode[]).map(walk) } } as unknown as RenderElement
+  }
+  return t.Box({ key, flexDirection: 'column', children: nodes.map(walk) })
 }
 
 // a running run's spinner, one frame a tick: BRAILLE PATTERN DOTS U+280B ... U+280F

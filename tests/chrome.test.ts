@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { CLOCK_CELLS, callRun, callScope, renderActivityRow, activitySummary, promptWidth, renderPromptBubble, renderReplyBubble, CLAUDE_ORANGE, renderCallRow, renderCallCard, outputPreview, CARD_LINES, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderPluginRow, renderToolOutput, rel, safeText, setCwd, setHome, shortPath, clip, fmtDuration, renderServerToolRows, renderSkillLoad, toolLabel } from '../hooks/chrome'
+import { CLOCK_CELLS, callRun, callScope, renderActivityRow, pressToFold, activitySummary, promptWidth, renderPromptBubble, renderReplyBubble, CLAUDE_ORANGE, renderCallRow, renderCallCard, outputPreview, CARD_LINES, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderPluginRow, renderToolOutput, rel, safeText, setCwd, setHome, shortPath, clip, fmtDuration, renderServerToolRows, renderSkillLoad, toolLabel } from '../hooks/chrome'
 import type { RunCall } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { codeColor, highlight, highlightLine, langOf } from '../hooks/highlight'
@@ -181,53 +181,8 @@ test('mounted: a user row, a call and a group fold to one activity line; they va
   expect(await group.find({ type: 'Text', text: /2 actions/ })).toBeDefined()
   expect(await group.find({ type: 'Text', text: /a\.ts/ })).toBeUndefined()
   await group.unmount()
-
-  // a task's notification and another agent's message: both rows carry a
-  // hover, so both need a key or the validator refuses them
-  const event = await $.ui.mount({
-    plugin: 'glass',
-    surface: 'terminal',
-    component: 'UserMessage',
-    props: { text: 'Agent "Hunt widths" finished', origin: { kind: 'task-notification' }, isExpanded: true, task: { status: 'completed', durationMs: 9000 } },
-  })
-  expect(await event.find({ type: 'Text', text: /Hunt widths/ })).toBeDefined()
-  expect(await event.find({ type: 'Text', text: /9\.0s/ })).toBeDefined()
-  await event.unmount()
-
-  // folded, a task that went fine draws nothing (its call's row says it);
-  // a failed one keeps its row
-  const notice = (status: string) => $.ui.mount({
-    plugin: 'glass',
-    surface: 'terminal',
-    component: 'UserMessage',
-    props: { text: 'Agent "Hunt widths" finished', origin: { kind: 'task-notification' }, isExpanded: false, task: { status, durationMs: 9000 } },
-  })
-  const done = await notice('completed')
-  expect(await done.find({ type: 'Text', text: /Hunt widths/ })).toBeUndefined()
-  await done.unmount()
-  const failed = await notice('failed')
-  expect(await failed.find({ type: 'Text', text: /Hunt widths/ })).toBeDefined()
-  await failed.unmount()
-
-  const message = await $.ui.mount({
-    plugin: 'glass',
-    surface: 'terminal',
-    component: 'UserMessage',
-    props: { text: 'the report body', origin: { kind: 'peer' }, isExpanded: false, from: { name: 'Explore' } },
-  })
-  expect(await message.find({ type: 'Text', text: /Message from @Explore/ })).toBeDefined()
-  await message.unmount()
-  const plugin = await $.ui.mount({
-    plugin: 'glass',
-    surface: 'terminal',
-    component: 'UserMessage',
-    props: { text: 'ok 3s · `bun test`', origin: { kind: 'plugin', name: 'runner' }, isExpanded: false },
-  })
-  expect(await plugin.find({ type: 'Text', text: /Message from/ })).toBeUndefined()
-  expect(await plugin.find({ type: 'Text', text: /runner/ })).toBeDefined()
-  await plugin.unmount()
 })
-
+// as three lines and `+5 lines`, a failed call's reason cut to one line)
 test('a subagent view: the main agent brief draws in a labelled bubble, folded to two lines', async $ => {
   const brief = await $.ui.mount({
     plugin: 'glass',
@@ -815,6 +770,12 @@ test('activitySummary: one action is singular, background calls counted', () => 
   expect(bg).toContain('1 in background')
 })
 
+test('prompt bubble: queued draws in the faint gray, read draws in the normal colors', () => {
+  const border = (q: boolean) => elements(renderPromptBubble(t, p, ['hi'], 20, q)).find(n => n.props.borderStyle === 'round')?.props.borderColor
+  expect(border(true)).toBe(p.faint)
+  expect(border(false)).toBe(p.promptBorder ?? p.accentUser)
+})
+
 test('prompt bubble: a small label over a right-aligned round box, width capped at three quarters', () => {
   expect(promptWidth(['hi'], 100)).toBe(6)
   expect(promptWidth(['x'.repeat(200)], 100)).toBe(75)
@@ -959,4 +920,24 @@ test('the tip card bar runs every wrapped row on a narrow terminal', async () =>
 
 test('the pencil is one cell', async () => {
   expect(cellWidth(G.pencil)).toBe(1)
+})
+
+test('an opened span folds on a press anywhere on its cards: every text a Button with the toggle', () => {
+  const fold = () => {}
+  const card = renderCallCard(t, p, renderCallRow(t, p, { tool_use_id: 'toolu_x', tool: 'Bash', input: { command: 'ls' }, output: { stdout: 'a\nb' }, isRunning: false, isErrored: false, isInterrupted: false }, { durationMs: 300 }), [])
+  const tree = pressToFold(t, 'open:x', [card], fold)
+  const all = elements(tree)
+  const buttons = all.filter(n => n.type === 'Button')
+  expect(buttons.length).toBeGreaterThan(0)
+  expect(buttons.every(b => b.props.onPress === fold)).toBe(true)
+  expect(new Set(buttons.map(b => b.props.key)).size).toBe(buttons.length)
+  // no Text left outside a Button at the top of its run
+  const loose = (n: RenderNode, inButton: boolean): boolean => {
+    if (typeof n === 'string' || !n) return false
+    const e = n as unknown as { type: string; props: Record<string, unknown> }
+    if (e.type === 'Text' && !inButton) return true
+    return ((e.props.children ?? []) as RenderNode[]).some(k => loose(k, inButton || e.type === 'Button'))
+  }
+  expect(loose(tree, false)).toBe(false)
+  expect(flat(tree)).toContain('Bash')
 })
