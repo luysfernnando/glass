@@ -770,6 +770,12 @@ test('activitySummary: one action is singular, background calls counted', () => 
   expect(bg).toContain('1 in background')
 })
 
+test('prompt bubble: queued draws in the faint gray, read draws in the normal colors', () => {
+  const border = (q: boolean) => elements(renderPromptBubble(t, p, ['hi'], 20, q)).find(n => n.props.borderStyle === 'round')?.props.borderColor
+  expect(border(true)).toBe(p.faint)
+  expect(border(false)).toBe(p.promptBorder ?? p.accentUser)
+})
+
 test('prompt bubble: a small label over a right-aligned round box, width capped at three quarters', () => {
   expect(promptWidth(['hi'], 100)).toBe(6)
   expect(promptWidth(['x'.repeat(200)], 100)).toBe(75)

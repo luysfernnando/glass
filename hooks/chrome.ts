@@ -193,8 +193,9 @@ export function promptWidth(lines: ReadonlyArray<string>, columns: number): numb
 }
 
 /** `You <disc>` over a right-aligned round box holding the prompt */
-export function renderPromptBubble(t: Table, p: Palette, content: RenderNode[], width: number): RenderElement {
-  const color = p.promptBorder ?? p.accentUser
+export function renderPromptBubble(t: Table, p: Palette, content: RenderNode[], width: number, queued = false): RenderElement {
+  // a prompt queued mid-turn, not yet read by the model: the palette's faint gray
+  const color = queued ? p.faint : (p.promptBorder ?? p.accentUser)
   return t.Box({
     key: 'prompt',
     flexDirection: 'column',

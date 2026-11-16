@@ -835,6 +835,12 @@ export const register: Register = (on, options) => {
   })
 
   // ---- prompt bubble -----------------------------------------------------
+  // prompts typed mid-turn the model has not read yet (whitespace-stripped text)
+  const pendingPrompts = new Set<string>()
+  // the hint line's queue state: shown on its last draw, and ever this load
+  let hintQueued = false
+  let sawQueueHint = false
+  const pendingKey = (s: string) => s.replace(/\s+/g, '')
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
     const t = $.ui.resolve(e)
@@ -883,7 +889,9 @@ export const register: Register = (on, options) => {
     const text = e.props.text
     if (text.trim() === '') return next(e)
     const columns = e.viewport?.columns ?? 80
-    return renderPromptBubble(t, palette, [t.Text({ wrap: 'wrap', children: [safeText(text)] })], promptWidth(text.split('\n'), columns))
+    const queued = pendingPrompts.has(pendingKey(text))
+    const body = t.Text({ wrap: 'wrap', children: [safeText(text)] })
+    return renderPromptBubble(t, palette, [queued ? t.Text({ wrap: 'wrap', color: palette.faint, children: [safeText(text)] }) : body], promptWidth(text.split('\n'), columns), queued)
   })
 
   // ---- activity line and call rows ---------------------------------------
@@ -1039,6 +1047,10 @@ export const register: Register = (on, options) => {
 
   // ---- the turn's bookkeeping --------------------------------------------
   on('prompt.submit', async ($, e, next) => {
+    // typed over a running turn (`turnId` set): the bubble stays gray until the
+    // model's next request reads it (see turn.step). Observed only; the submit
+    // goes down untouched by this.
+    if (e.turnId && !e.isMeta && e.text.trim() !== '') pendingPrompts.add(pendingKey(e.text))
     marks = !writeIntent(e.text)
     // a prompt names its pictures unless a machine wrote it: a task
     // notification or another agent's message does not; an origin the engine
@@ -1169,6 +1181,13 @@ export const register: Register = (on, options) => {
   // the main loop's model requests. The event streams, so the hook is a
   // generator relaying every chunk.
   on('turn.step', async function* ($, e, next) {
+    // Fallback read signal, only while the hint line never showed the queue's
+    // `send now` (another engine version's wording): the next main-loop
+    // request carries the queued prompt. One redraw, only if one was pending.
+    if (!e.agentId && !sawQueueHint && pendingPrompts.size > 0) {
+      pendingPrompts.clear()
+      $.ui.invalidate('ui.render')
+    }
     const stream = next(e)
     let segText = ''
     let step = await stream.next()
@@ -1370,6 +1389,17 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
+    // Read signal (owner's request, 2026-11-15): the engine's hint says
+    // `ctrl+enter to send now` while a typed prompt waits in its queue; the
+    // line losing it means the queue drained into the model's turn. Only the
+    // transition redraws, after this draw, so no loop.
+    const queueShown = /send now/i.test(e.props.hint)
+    if (queueShown) sawQueueHint = true
+    if (hintQueued && !queueShown && pendingPrompts.size > 0) {
+      pendingPrompts.clear()
+      void Promise.resolve().then(() => $.ui.invalidate('ui.render')).catch(() => undefined)
+    }
+    hintQueued = queueShown
     const model = viewedAgent ? agentModelIds.get(viewedAgent) : undefined
     const tail = model ? shortModel(model) : ''
     // only `tail`, never a rewritten `hint`: a rewrite replaces the engine's
