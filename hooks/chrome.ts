@@ -217,6 +217,63 @@ export function renderPromptBubble(t: Table, p: Palette, content: RenderNode[], 
   })
 }
 
+/**
+ * A pasted block in a prompt: the engine wraps it in
+ * `<pasted_content id="x">...</pasted_content id="x">` (closing id optional).
+ * Splits the prompt into its typed text and its pastes.
+ */
+const PASTED = /<pasted_content(?:\s+id="[^"]*")?\s*>\n?([\s\S]*?)\n?<\/pasted_content(?:\s+id="[^"]*")?\s*>/g
+
+export type PromptPart = { kind: 'text' | 'pasted'; text: string }
+
+export function promptParts(text: string): PromptPart[] {
+  const parts: PromptPart[] = []
+  let at = 0
+  for (const m of text.matchAll(PASTED)) {
+    const before = text.slice(at, m.index).replace(/^\n+|\n+$/g, '')
+    if (before.trim() !== '') parts.push({ kind: 'text', text: before })
+    parts.push({ kind: 'pasted', text: m[1] ?? '' })
+    at = m.index + m[0].length
+  }
+  const rest = text.slice(at).replace(/^\n+|\n+$/g, '')
+  if (rest.trim() !== '') parts.push({ kind: 'text', text: rest })
+  return parts
+}
+
+/** lines a folded paste shows before `... +N linhas` */
+const PASTE_LINES = 6
+
+/**
+ * The prompt bubble's body: typed text as is, each paste as a quote (a
+ * mark gutter in the user's color, the text in `meta`) under a faint
+ * `colado - N linhas` label, folded to PASTE_LINES unless expanded (ctrl+o).
+ */
+export function renderPromptBody(t: Table, p: Palette, text: string, expanded: boolean): RenderNode[] {
+  const color = p.promptBorder ?? p.accentUser
+  const parts = promptParts(text)
+  return parts.map((part, i) => {
+    if (part.kind === 'text') return t.Text({ wrap: 'wrap', children: [safeText(part.text)] })
+    const lines = part.text.split('\n')
+    const shown = expanded ? lines : lines.slice(0, PASTE_LINES)
+    const more = lines.length - shown.length
+    const label = `${G.mark} colado${sep}${lines.length} ${lines.length === 1 ? 'linha' : 'linhas'}`
+    return t.Box({
+      key: `p${i}`,
+      flexDirection: 'column',
+      marginTop: i === 0 ? 0 : 1,
+      marginBottom: i === parts.length - 1 ? 0 : 1,
+      children: [
+        t.Text({ color: p.faint, weight: 'bold', children: [label] }),
+        ...shown.map(l => t.Text({ wrap: 'wrap', children: [
+          t.Text({ color, children: [G.mark + ' '] }),
+          t.Text({ color: p.meta, children: [safeText(l, 2000) || ' '] }),
+        ] })),
+        ...(more > 0 ? [t.Text({ color: p.faint, children: [`${G.mark} ${G.ellipsis} +${more} ${more === 1 ? 'linha' : 'linhas'} (ctrl+o)`] })] : []),
+      ],
+    })
+  })
+}
+
 /** Claude Code's own brand orange (theme `claude`, rgb 215 119 87): the reply bubble's color in every palette */
 export const CLAUDE_ORANGE = '#d77757'
 

@@ -123,3 +123,16 @@ test('a reply with no calls before it draws no activity line', async ($, on) => 
   expect(await m.find({ type: 'Text', text: /Bash/ })).toBeUndefined()
   await m.unmount()
 })
+
+import { promptParts } from '../hooks/chrome'
+
+test('promptParts splits typed text from pasted blocks', () => {
+  const parts = promptParts('olha isso:\n<pasted_content id="bbd2">\nlinha 1\nlinha 2\n</pasted_content id="bbd2">\nexplica')
+  expect(parts).toEqual([
+    { kind: 'text', text: 'olha isso:' },
+    { kind: 'pasted', text: 'linha 1\nlinha 2' },
+    { kind: 'text', text: 'explica' },
+  ])
+  expect(promptParts('<pasted_content>só colado</pasted_content>')).toEqual([{ kind: 'pasted', text: 'só colado' }])
+  expect(promptParts('sem tag')).toEqual([{ kind: 'text', text: 'sem tag' }])
+})

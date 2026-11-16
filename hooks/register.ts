@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassServerTool, GlassTurn } from '../types'
-import { safeText, shortModel, MAX_PAINTED_LINES, toolText, callRun, renderActivityRow, spinCells, clockCells, fmtToolTime, isEditTool, setCwd, setHome, shortPath, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderNoOutput, renderPluginRow, renderAgentBrief, renderPromptBubble, renderReplyBubble, promptWidth, renderServerToolRows, renderShot, renderSkillLoad, shotCells, renderToolError, renderToolOutput, isDeclined, renderDeclined, renderCallRow, renderCallCard, outputPreview, CARD_LINES } from './chrome'
+import { safeText, shortModel, MAX_PAINTED_LINES, toolText, callRun, renderActivityRow, spinCells, clockCells, fmtToolTime, isEditTool, setCwd, setHome, shortPath, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderNoOutput, renderPluginRow, renderAgentBrief, renderPromptBubble, renderPromptBody, promptParts, renderReplyBubble, promptWidth, renderServerToolRows, renderShot, renderSkillLoad, shotCells, renderToolError, renderToolOutput, isDeclined, renderDeclined, renderCallRow, renderCallCard, outputPreview, CARD_LINES } from './chrome'
 import type { CallRow, ChangedFile, Hunk, RunCall } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -766,7 +766,8 @@ export const register: Register = (on, options) => {
     const text = e.props.text
     if (text.trim() === '') return next(e)
     const columns = e.viewport?.columns ?? 80
-    return renderPromptBubble(t, palette, [t.Text({ wrap: 'wrap', children: [safeText(text)] })], promptWidth(text.split('\n'), columns))
+    const shown = promptParts(text).flatMap(part => part.kind === 'text' ? part.text.split('\n') : ['xx colado - 0000 linhas', ...part.text.split('\n').map(l => 'xx' + l)])
+    return renderPromptBubble(t, palette, renderPromptBody(t, palette, text, e.props.isExpanded === true), promptWidth(shown, columns))
   })
 
   // ---- activity line and call rows ---------------------------------------
