@@ -308,7 +308,7 @@ test('0.17.0: a group opens only for a screenshot that draws; one glass cannot d
   await g.unmount()
 })
 
-// sips and the disk, mocked: a file exists once written, `mv` moves it, and
+// magick (sips with `noMagick`) and the disk, mocked: a file exists once written, `mv` moves it, and
 // a converted picture comes back as the PNG its source bytes stand for (`B...`
 // a 2x2 picture, any other 1x1), so a drawn picture says which bytes it came
 // from. `sizes` answers fs.stat of a converted PNG in turn; `slow` yields on
@@ -316,7 +316,7 @@ test('0.17.0: a group opens only for a screenshot that draws; one glass cannot d
 const DIR = '/tmp/glass-pictures-test'
 // the engine hands fs.* a native path (C:\tmp\... on Windows); the mock disk keys by the POSIX one
 const posix = (p: string) => p.replace(/^[A-Za-z]:/, '').replace(/\\/g, '/')
-const fakeDisk = (on: On, o: { sizes?: number[]; slow?: boolean; stuck?: () => boolean; delay?: () => Promise<void>; files?: Record<string, string> } = {}) => {
+const fakeDisk = (on: On, o: { sizes?: number[]; slow?: boolean; stuck?: () => boolean; delay?: () => Promise<void>; files?: Record<string, string>; noMagick?: boolean } = {}) => {
   const disk = new Map<string, string>(Object.entries(o.files ?? {}))
   const runs: { argv: readonly string[]; stdin?: string }[] = []
   let running = 0
@@ -333,6 +333,12 @@ const fakeDisk = (on: On, o: { sizes?: number[]; slow?: boolean; stuck?: () => b
         if (o.stuck?.()) return await new Promise(() => {})
         await o.delay?.()
         disk.set(a3!, e.init?.stdin ?? '')
+      } else if (cmd === 'magick' && a1 === '-version') {
+        if (o.noMagick) return { value: { exitCode: 127, stdout: '', stderr: 'magick: command not found' } }
+      } else if (cmd === 'magick' && a1 === 'identify') {
+        return { value: { exitCode: 0, stdout: 'pixelWidth: 1000\npixelHeight: 720\n', stderr: '' } }
+      } else if (cmd === 'magick') {
+        disk.set(e.argv[e.argv.length - 1]!.replace(/^png:/, ''), disk.get(a1!.replace(/\[0\]$/, '')) ?? '')
       } else if (cmd === 'sips' && a1 === '-g') {
         return { value: { exitCode: 0, stdout: `${e.argv[5]}\n  pixelWidth: 1000\n  pixelHeight: 720\n`, stderr: '' } }
       } else if (cmd === 'sips') {
@@ -385,11 +391,23 @@ test('0.17.0: a PNG too heavy to draw shrinks from its own size, never past it',
   const row = await resultRow($ as never, 'heavy', 'Aheavywebp', 'image/webp')
   expect(await imageOf(row)).toEqual({ png: ONE_PX })
   await row.unmount()
+  const converts = runs.filter(r => r.argv[0] === 'magick' && r.argv[1]!.endsWith('[0]')).map(r => r.argv.includes('-resize') ? r.argv[r.argv.indexOf('-resize') + 1] : '')
+  expect(converts).toEqual(['', '750x750>'])
+})
+
+test('no magick: sips converts, shrinking the same way', { options: { screenshots: true } }, async ($, on) => {
+  engineBody(on)
+  conversation(on, [])
+  const { runs } = fakeDisk(on, { sizes: [3_000_000, 100], noMagick: true })
+  await useRow($ as never, 'mac', '/tmp/mac.webp')
+  const row = await resultRow($ as never, 'mac', 'Amacwebp', 'image/webp')
+  expect(await imageOf(row)).toEqual({ png: ONE_PX })
+  await row.unmount()
   const converts = runs.filter(r => r.argv[0] === 'sips' && r.argv[1] === '-s').map(r => r.argv.includes('-Z') ? Number(r.argv[r.argv.indexOf('-Z') + 1]) : 0)
   expect(converts).toEqual([0, 750])
 })
 
-test('0.17.0: a picture an earlier load converted is read back, with no sips', { options: { screenshots: true } }, async ($, on) => {
+test('0.17.0: a picture an earlier load converted is read back, with no converter run', { options: { screenshots: true } }, async ($, on) => {
   engineBody(on)
   conversation(on, [])
   const data = 'Bconvertedbefore'
@@ -398,7 +416,7 @@ test('0.17.0: a picture an earlier load converted is read back, with no sips', {
   const row = await resultRow($ as never, 'again', data, 'image/jpeg')
   expect(await imageOf(row)).toEqual({ png: PNG_2PX })
   await row.unmount()
-  expect(runs.filter(r => r.argv[0] === 'sips')).toHaveLength(0)
+  expect(runs.filter(r => r.argv[0] === 'sips' || (r.argv[0] === 'magick' && r.argv[1] !== '-version'))).toHaveLength(0)
 })
 
 test('0.17.0: in the transcript view a grouped Read draws its picture once, under its ToolUse row (opened)', { options: { screenshots: true } }, async ($, on) => {
@@ -547,10 +565,10 @@ test('0.17.0: a file the person named counts however Claude spells its path', ()
 test('0.17.0: a group whose newest picture cannot draw shows an older one that can', { options: { screenshots: true } }, async ($, on) => {
   on('ui.render', { component: 'ToolGroup' }, (engine, e) => engine.ui.resolve(e).Text({ children: [e.props.isExpanded ? 'opened' : 'folded'] }) as never)
   conversation(on, [])
-  // no sips: every conversion fails
+  // no converter: every conversion fails
   on('process.run', ((_: unknown, e: { argv: readonly string[] }) => {
     if (e.argv[0] === 'sh' && /mkdir/.test(e.argv[2] ?? '')) return { value: { exitCode: 0, stdout: DIR, stderr: '' } }
-    if (e.argv[0] === 'sips') return { value: { exitCode: 127, stdout: '', stderr: 'sips: command not found' } }
+    if (e.argv[0] === 'sips' || e.argv[0] === 'magick') return { value: { exitCode: 127, stdout: '', stderr: 'command not found' } }
     return { value: { exitCode: 0, stdout: '', stderr: '' } }
   }) as never)
   on('fs.stat', ((_: unknown, e: { path: string }) => ({ deny: `no such file: ${e.path}` })) as never)

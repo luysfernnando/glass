@@ -452,26 +452,27 @@ Ported from prismantis 0.40.0 (MIT; THIRD_PARTY.md) with its defaults:
   text until now) and 329 image Reads (180 temp files Claude made, 143
   project files, 6 the owner's own):
   - Any format the model reads: PNG within 2 MiB draws as bytes; JPEG,
-    WebP, GIF or a bigger PNG is converted once with macOS `sips` to a PNG
+    WebP, GIF or a bigger PNG is converted once with ImageMagick `magick` (macOS `sips`
+    where there is no magick) to a PNG
     (as it is, then 75%, 50%, 35% of its own longest side, until it
     weighs 2 MiB or less; never larger than it came), from the bytes
     Claude read (written through stdin, never argv, never the file on
     disk, which may have changed), into a private
     `$TMPDIR/glass-pictures-<uid>` (mode 700, files a day old go), kept
     per session keyed by those bytes: a file read twice draws what each
-    read saw (0.17.0). No `sips` (Linux): the engine's text row stays.
+    read saw (0.17.0). Neither converter: the engine's text row stays.
     Conversions run one at a time, each with its own 8 s from when it
     starts (not while it waits its turn); one past that frees the queue
     and leaves the cache, so the next draw tries again. Each run writes
     its own scratch files (a random suffix) and removes them; the PNG is
     moved into place under the bytes' name, where a later load (a resume,
-    a reload) reads it back with no `sips`.
+    a reload) reads it back with no converter run.
   - A group opens for an MCP screenshot only once it converts and draws;
-    one glass cannot draw (`image/bmp`, no `sips`) keeps the group folded
+    one glass cannot draw (`image/bmp`, no converter) keeps the group folded
     (0.17.0).
   - A Read of an image file draws too, but only one per group: the newest
     image read the person did not name in one of their own prompts and
-    that can draw (a JPEG with no `sips` gives way to an older PNG, 0.17.0;
+    that can draw (a JPEG with no converter gives way to an older PNG, 0.17.0;
     a picture they fed Claude is never drawn back). Named means the prompt
     holds the path, the same under `~`, the other side of macOS's
     `/private` links (`/tmp`, `/var`, `/etc`), or the file's name as a word

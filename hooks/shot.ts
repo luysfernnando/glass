@@ -82,7 +82,7 @@ function storedCopy(blocks: Block[]): string | null {
 // ---- any picture Claude looked at (0.8.0) -------------------------------
 // An MCP result's image block or a Read of an image file, in any format the
 // model reads: PNG draws as it is, the rest is converted to PNG first
-// (register.ts, macOS `sips`), from `file` when a copy is on disk.
+// (register.ts, ImageMagick or macOS `sips`), from `file` when a copy is on disk.
 export type Picture = { mime: string; data: string; file: string | null }
 export const CONVERTIBLE = /^image\/(png|jpeg|webp|gif)$/
 
@@ -144,7 +144,7 @@ export const readPath = (input: unknown) => {
 
 // The Reads in a group whose picture may draw, newest first: each returned
 // an image the person did not name. The group draws the first of them that
-// can draw (a JPEG with no sips cannot), one picture, not one each; /expand
+// can draw (a JPEG with no converter cannot), one picture, not one each; /expand
 // draws them all.
 export function pictureReadOrder(calls: readonly Call[], named: (path: string) => boolean): string[] {
   const order: string[] = []

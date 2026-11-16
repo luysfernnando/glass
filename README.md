@@ -80,8 +80,8 @@ The same turn under each palette: pick one with `/config` under Glass.
   `take_screenshot`, a Figma screenshot) draws under its call once the activity line is open,
   so you see what Claude saw; so does an image file Claude reads, one per
   run of reads (the last; `/expand` shows them all), never one you named in
-  your own prompt. JPEG, WebP and GIF are converted to PNG with macOS
-  `sips`. Ghostty or kitty, plain or inside [sluice](https://github.com/rashedInt32/sluice).
+  your own prompt. JPEG, WebP and GIF are converted to PNG with ImageMagick
+  `magick` (macOS `sips` where there is no magick). Ghostty or kitty, plain or inside [sluice](https://github.com/rashedInt32/sluice).
   Inside tmux the row keeps its text, unless `CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1`
   says the pictures reach the terminal. Off by default, since a devtools
   run takes a screenshot each step: turn it on with

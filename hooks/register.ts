@@ -278,8 +278,9 @@ async function pictureBody($: EngineInterface, t: Elements['terminal'], p: Palet
 }
 
 // A PNG draws as it is; any other picture, or one over 2 MiB, is converted
-// once to a PNG with macOS `sips` and kept for the session's redraws. Where
-// that fails (no sips: Linux) the engine's text row stays. The key is the
+// once to a PNG with ImageMagick `magick` (macOS `sips` where there is no
+// magick) and kept for the session's redraws. Where that fails (neither) the
+// engine's text row stays. The key is the
 // bytes Claude read, never the file's path: a file read twice may hold two
 // pictures (a screenshot taken again to the same path).
 const converted = new Map<string, Promise<Shot | null>>()
@@ -288,7 +289,7 @@ const CONVERTED_MAX = 64
 // `$.process.run` result, and that row waited on it for good (live,
 // 2026-10-28). One that has not finished in CONVERT_MS frees the queue and
 // leaves the cache, so the next draw tries again; one that failed stays
-// failed (no sips: Linux).
+// failed (no converter).
 let convertQueue: Promise<unknown> = Promise.resolve()
 const CONVERT_MS = 8000
 const TIMED_OUT: unique symbol = Symbol('timed out')
@@ -327,9 +328,21 @@ function shotDir($: EngineInterface): Promise<string | null> {
     'base="${TMPDIR:-/tmp}"; base="${base%/}"; d="$base/glass-pictures-$(id -u)"',
     'mkdir -m 700 -p "$d" 2>/dev/null',
     '[ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ] || exit 1',
+    // Git Bash: the native path (C:/...), which fs.* and magick.exe read too
+    'command -v cygpath >/dev/null 2>&1 && d="$(cygpath -m "$d")"',
     'find "$d" -type f -mtime +1 -delete 2>/dev/null; printf "%s" "$d"',
-  ].join('\n')]).then(r => (r.exitCode === 0 && r.stdout.startsWith('/') ? r.stdout.trim() : null), () => null)
+  ].join('\n')]).then(r => (r.exitCode === 0 && /^(\/|[A-Za-z]:\/)/.test(r.stdout) ? r.stdout.trim() : null), () => null)
   return shotDirJob
+}
+
+// ImageMagick when it answers (Linux, Windows, a Mac with it), else macOS
+// sips; asked once per load. Never a bare `convert`: on Windows that is the
+// FAT-to-NTFS disk tool in system32.
+type Converter = 'magick' | 'sips'
+let converterJob: Promise<Converter> | null = null
+function converter($: EngineInterface): Promise<Converter> {
+  converterJob ??= $.process.run(['magick', '-version']).then((r): Converter => (r.exitCode === 0 ? 'magick' : 'sips'), (): Converter => 'sips')
+  return converterJob
 }
 
 // the most a converted PNG may weigh on disk to draw as bytes
@@ -347,7 +360,7 @@ async function convertPicture($: EngineInterface, data: string, name: string): P
   }
   // Each run writes its own scratch files: a run that timed out keeps going,
   // and its retry, or another session converting the same bytes, must not
-  // rewrite the source under its sips (a truncated read draws grey).
+  // rewrite the source under its converter (a truncated read draws grey).
   const run = `${dir}/${name}.${Math.random().toString(36).slice(2, 10)}`
   try {
     return await convertRun($, data, `${run}.src`, `${run}.part.png`, out)
@@ -359,11 +372,15 @@ async function convertPicture($: EngineInterface, data: string, name: string): P
 async function convertRun($: EngineInterface, data: string, input: string, part: string, out: string): Promise<Shot | null> {
   // from the bytes Claude read, never the file on disk, which may have
   // changed since; through stdin, which takes any size (argv stops near 1 MiB)
-  const w = await $.process.run(['sh', '-c', 'base64 -D > "$0"', input], { stdin: data })
+  // `--decode`: GNU and macOS base64 both take it (`-D` is macOS only)
+  const w = await $.process.run(['sh', '-c', 'base64 --decode > "$0"', input], { stdin: data })
   if (w.exitCode !== 0) return null
-  // the longest side, so every retry shrinks: `-Z` alone would also blow a
-  // small picture up
-  const g = await $.process.run(['sips', '-g', 'pixelWidth', '-g', 'pixelHeight', input])
+  const tool = await converter($)
+  // the longest side, so every retry shrinks: a bare resize would also blow
+  // a small picture up. `[0]`: a GIF's first frame
+  const g = tool === 'magick'
+    ? await $.process.run(['magick', 'identify', '-format', 'pixelWidth: %w\npixelHeight: %h\n', `${input}[0]`])
+    : await $.process.run(['sips', '-g', 'pixelWidth', '-g', 'pixelHeight', input])
   const sides = [...g.stdout.matchAll(/pixel(?:Width|Height): (\d+)/g)].map(m => Number(m[1]))
   if (g.exitCode !== 0 || sides.length !== 2) return null
   const longest = Math.max(...sides)
@@ -372,7 +389,9 @@ async function convertRun($: EngineInterface, data: string, input: string, part:
   // `out` (another session's) never sees half a PNG
   for (const scale of [1, 0.75, 0.5, 0.35]) {
     const side = Math.max(1, Math.round(longest * scale))
-    const r = await $.process.run(['sips', '-s', 'format', 'png', ...(scale < 1 ? ['-Z', String(side)] : []), input, '--out', part])
+    const r = tool === 'magick'
+      ? await $.process.run(['magick', `${input}[0]`, ...(scale < 1 ? ['-resize', `${side}x${side}>`] : []), `png:${part}`])
+      : await $.process.run(['sips', '-s', 'format', 'png', ...(scale < 1 ? ['-Z', String(side)] : []), input, '--out', part])
     if (r.exitCode !== 0) return null
     // past the limit the bytes cannot draw: shrink without reading them
     const size = await $.fs.stat(part).then(s => s.size, () => Infinity)
@@ -954,7 +973,7 @@ export const register: Register = (on, options) => {
     for (const c of e.props.calls) if (c.tool === 'Read') noteRead(mem, c.tool_use_id, c.input)
     // a group with no Read picture never waits on the conversation
     const readPictures = shotsOn && !inTmux && e.props.calls.some((c: { tool: string; output?: unknown }) => c.tool === 'Read' && pictureOf(c.output) !== null)
-    // the newest Read picture that draws: a JPEG with no sips gives way to
+    // the newest Read picture that draws: a JPEG with no converter gives way to
     // an older PNG rather than leave the group with none
     let chosen: string | null = null
     if (readPictures && (await loadHistory($, mem))) {
