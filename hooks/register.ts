@@ -495,10 +495,27 @@ export const register: Register = (on, options) => {
   const callProps = new Map<string, CallRow>()
   // records a call's props; true when a claimed open span should redraw its
   // bubble with them (new to it, or its output changed)
+  // Compared by value: the engine hands each render a fresh copy of a
+  // structured output, so `!==` held every time and each draw of an opened
+  // span asked for the next one, ten a second, until the terminal hung or
+  // drew blank (owner's report, 2026-11-15, on a long opened span).
+  const outputKeys = new Map<string, string>()
+  const outputKey = (output: unknown): string => {
+    if (output === undefined) return ''
+    if (typeof output === 'string') return 's' + output
+    try {
+      return 'j' + JSON.stringify(output)
+    } catch {
+      return 'x'
+    }
+  }
   const noteProps = (props: CallRow, run: Run | null): boolean => {
     const was = callProps.get(props.tool_use_id)
+    const key = outputKey(props.output)
+    const wasKey = outputKeys.get(props.tool_use_id)
     callProps.set(props.tool_use_id, props)
-    return run !== null && run.isOpen && claimedHeads.has(run.head) && (was === undefined || was.output !== props.output || was.isRunning !== props.isRunning)
+    outputKeys.set(props.tool_use_id, key)
+    return run !== null && run.isOpen && claimedHeads.has(run.head) && (was === undefined || wasKey !== key || was.isRunning !== props.isRunning)
   }
   // A hot reload (an edit to the theme) starts this module with no turn
   // record: every past span drew its bare line outside the reply bubble
