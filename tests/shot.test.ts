@@ -314,6 +314,8 @@ test('0.17.0: a group opens only for a screenshot that draws; one glass cannot d
 // from. `sizes` answers fs.stat of a converted PNG in turn; `slow` yields on
 // every run so overlapping runs would show; `stuck` holds a write forever.
 const DIR = '/tmp/glass-pictures-test'
+// the engine hands fs.* a native path (C:\tmp\... on Windows); the mock disk keys by the POSIX one
+const posix = (p: string) => p.replace(/^[A-Za-z]:/, '').replace(/\\/g, '/')
 const fakeDisk = (on: On, o: { sizes?: number[]; slow?: boolean; stuck?: () => boolean; delay?: () => Promise<void>; files?: Record<string, string> } = {}) => {
   const disk = new Map<string, string>(Object.entries(o.files ?? {}))
   const runs: { argv: readonly string[]; stdin?: string }[] = []
@@ -346,11 +348,12 @@ const fakeDisk = (on: On, o: { sizes?: number[]; slow?: boolean; stuck?: () => b
     }
   }) as never)
   on('fs.stat', ((_: unknown, e: { path: string }) => {
-    if (!disk.has(e.path)) return { deny: `no such file: ${e.path}` }
-    const size = e.path.endsWith('.part.png') && o.sizes?.length ? o.sizes.shift()! : 100
+    const path = posix(e.path)
+    if (!disk.has(path)) return { deny: `no such file: ${path}` }
+    const size = path.endsWith('.part.png') && o.sizes?.length ? o.sizes.shift()! : 100
     return { value: { kind: 'file', size } }
   }) as never)
-  on('fs.read', ((_: unknown, e: { path: string }) => ({ value: { base64: (disk.get(e.path) ?? '').startsWith('B') ? PNG_2PX : ONE_PX } })) as never)
+  on('fs.read', ((_: unknown, e: { path: string }) => ({ value: { base64: (disk.get(posix(e.path)) ?? '').startsWith('B') ? PNG_2PX : ONE_PX } })) as never)
   return { runs, most: () => most, disk }
 }
 const imageOf = async (row: { find: (q: unknown) => Promise<unknown> }) => ((await row.find({ type: 'Image' })) as { props?: { source?: unknown } } | undefined)?.props?.source
