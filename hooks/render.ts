@@ -388,13 +388,13 @@ export function copyControl(c: Pick<Ctx, 't' | 'p' | 'copy'>, what: Copyable, pl
   const panel = t.Box({
     position: 'absolute',
     ...(place === 'low' ? { bottom: 0 } : { top: 0 }),
-    right: 0,
+    right: place === 'low' ? 1 : 0,
     display: 'none',
     backgroundColor: p.blockBg,
     hover: { scope, display: 'flex' },
     children: [t.Text({ color: p.faint, children: [G.copy + ' '] }), ...buttons],
   })
-  return place === 'row' ? [marker, panel] : [t.Box({ position: 'absolute', ...(place === 'low' ? { bottom: 0 } : { top: 0 }), right: 0, hover: { scope }, children: [t.Text({ color: p.faint, children: [G.copy] })] }), panel]
+  return place === 'row' ? [marker, panel] : [t.Box({ position: 'absolute', ...(place === 'low' ? { bottom: 0 } : { top: 0 }), right: place === 'low' ? 1 : 0, hover: { scope }, children: [t.Text({ color: p.faint, children: [G.copy] })] }), panel]
 }
 
 // a mermaid or figure fence as colored art, when it can be drawn within the

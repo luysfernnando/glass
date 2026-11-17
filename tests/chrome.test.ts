@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Elements, RenderElement, RenderNode } from 'claude-code'
 
-import { CLOCK_CELLS, callRun, callScope, renderActivityRow, pressToFold, activitySummary, promptWidth, renderPromptBubble, renderReplyBubble, CLAUDE_ORANGE, renderCallRow, renderCallCard, outputPreview, CARD_LINES, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderPluginRow, renderToolOutput, rel, safeText, setCwd, setHome, shortPath, clip, fmtDuration, renderServerToolRows, renderSkillLoad, toolLabel } from '../hooks/chrome'
+import { CLOCK_CELLS, callRun, callScope, renderActivityRow, pressToFold, activitySummary, promptWidth, renderPromptBubble, renderReplyBubble, CLAUDE_ORANGE, renderCallRow, renderCallCard, outputPreview, CARD_LINES, clockCells, renderAgentLaunch, fmtCost, fmtToolTime, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderPluginRow, renderInfoRow, renderToolOutput, rel, safeText, setCwd, setHome, shortPath, clip, fmtDuration, renderServerToolRows, renderSkillLoad, toolLabel } from '../hooks/chrome'
 import type { RunCall } from '../hooks/chrome'
 import { G } from '../hooks/glyphs'
 import { codeColor, highlight, highlightLine, langOf } from '../hooks/highlight'
@@ -108,6 +108,10 @@ test('a plugin prompt row: the plugin by name, a tick or cross from the first li
   expect(long).toContain('line 7')
   expect(long).not.toContain('line 8')
   expect(long).toContain(G.ellipsis + ' +4')
+  expect(flat(renderPluginRow(t, p, 'r5', 'runner', ['FAIL x', ...Array.from({ length: 12 }, (_, i) => `line ${i}`)].join('\n'), true))).toContain('line 11')
+  const info = flat(renderInfoRow(t, p, 'Using the proxy', '/config'))
+  expect(info.startsWith(G.ring + ' Using the proxy')).toBe(true)
+  expect(info).toContain('/config')
 })
 
 test('painted Bash output: the connector, then each line with its words in their colors', async () => {

@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, RenderElement, Register, SessionMessage } from 'claude-code'
 
 import type { GlassAgent, GlassCall, GlassServerTool, GlassTurn } from '../types'
-import { safeText, shortModel, MAX_PAINTED_LINES, toolText, callRun, renderActivityRow, pressToFold, spinCells, clockCells, fmtToolTime, isEditTool, setCwd, setHome, shortPath, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderNoOutput, renderPluginRow, renderAgentBrief, renderPromptBubble, renderPromptBody, promptParts, renderReplyBubble, promptWidth, renderServerToolRows, renderShot, renderSkillLoad, shotCells, renderToolError, renderToolOutput, isDeclined, renderDeclined, renderCallRow, renderCallCard, outputPreview, CARD_LINES } from './chrome'
+import { safeText, shortModel, MAX_PAINTED_LINES, toolText, callRun, renderActivityRow, pressToFold, spinCells, clockCells, fmtToolTime, isEditTool, setCwd, setHome, shortPath, renderAgentLaunch, renderBashResult, renderDiff, renderEventRow, renderMessageRow, renderNoOutput, renderPluginRow, renderInfoRow, renderAgentBrief, renderPromptBubble, renderPromptBody, promptParts, renderReplyBubble, promptWidth, renderServerToolRows, renderShot, renderSkillLoad, shotCells, renderToolError, renderToolOutput, isDeclined, renderDeclined, renderCallRow, renderCallCard, outputPreview, CARD_LINES } from './chrome'
 import type { CallRow, ChangedFile, Hunk, RunCall } from './chrome'
 import { G } from './glyphs'
 import { parseMarkdown } from './markdown'
@@ -845,6 +845,9 @@ export const register: Register = (on, options) => {
     })()
   })
 
+  // the dim status line under the logo (terminal only)
+  on('ui.render', { component: 'InfoNotice' }, ($, e) => renderInfoRow($.ui.resolve(e), palette, e.props.text, e.props.command))
+
   // ---- compaction ----------------------------------------------------------
   // /compact's row printed the summary hint and every PreCompact hook's output
   // (owner's request, 2026-11-09: one clean row); ctrl+o keeps the summary.
@@ -866,7 +869,8 @@ export const register: Register = (on, options) => {
     const kind = e.props.origin.kind
     // a background task's notification: one row, the body under it when the
     // view is expanded (a short one is expanded from the start)
-    if (kind === 'task-notification') {
+    // (`task` is set on every notification row, whatever kind the engine stamped)
+    if (kind === 'task-notification' || e.props.task) {
       const task = e.props.task
       const toolId = task?.toolUseId ?? (task?.id ? taskCalls.get(task.id) : undefined)
       const failed = task?.status === 'failed' || task?.status === 'killed'
@@ -882,8 +886,7 @@ export const register: Register = (on, options) => {
     const origin = e.props.origin
     const asUser = origin.kind === 'plugin' && origin.asUser === true
     if (origin.kind === 'plugin' && !asUser) {
-      if (e.props.isExpanded) return next(e)
-      return renderPluginRow(t, palette, e.requestId, origin.name, e.props.text)
+      return renderPluginRow(t, palette, e.requestId, origin.name, e.props.text, e.props.isExpanded)
     }
     // any other row (another agent's message, a scheduled trigger, a
     // bridge): one muted row; ctrl+o keeps the engine's body
@@ -910,7 +913,19 @@ export const register: Register = (on, options) => {
     const columns = e.viewport?.columns ?? 80
     const shown = promptParts(text).flatMap(part => part.kind === 'text' ? part.text.split('\n') : ['xx colado - 0000 linhas', ...part.text.split('\n').map(l => 'xx' + l)])
     const queued = pendingPrompts.has(pendingKey(text))
-    return renderPromptBubble(t, palette, renderPromptBody(t, palette, text, e.props.isExpanded === true, queued), promptWidth(shown, columns), queued)
+    const openKeys = (await read($, expanded)) ?? []
+    const pasteKey = (i: number) => `paste:${e.requestId}:${i}`
+    const fold = {
+      key: `paste:${e.requestId}`,
+      isOpen: (i: number) => openKeys.includes(pasteKey(i)),
+      onToggle: (i: number) => void (async () => {
+        const wasOpen = openKeys.includes(pasteKey(i))
+        await update($, expanded, xs => ((xs ?? []).includes(pasteKey(i)) ? (xs ?? []).filter(x => x !== pasteKey(i)) : [...(xs ?? []), pasteKey(i)].slice(-HISTORY)))
+        // collapsing from the foot: bring the paste's header back into view
+        if (wasOpen) await $.ui.scroll({ to: { key: `paste:${e.requestId}:${i}:top` }, block: 'nearest' }).catch(() => {})
+      })(),
+    }
+    return renderPromptBubble(t, palette, renderPromptBody(t, palette, text, e.props.isExpanded === true, queued, fold), promptWidth(shown, columns), queued)
   })
 
   // ---- activity line and call rows ---------------------------------------

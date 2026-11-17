@@ -249,28 +249,77 @@ const PASTE_LINES = 6
  * mark gutter in the user's color, the text in `meta`) under a faint
  * `colado - N linhas` label, folded to PASTE_LINES unless expanded (ctrl+o).
  */
-export function renderPromptBody(t: Table, p: Palette, text: string, expanded: boolean, queued = false): RenderNode[] {
+export type PasteFold = { key: string; isOpen: (i: number) => boolean; onToggle: (i: number) => void }
+
+export function renderPromptBody(t: Table, p: Palette, text: string, expanded: boolean, queued = false, fold?: PasteFold): RenderNode[] {
   const color = queued ? p.faint : (p.promptBorder ?? p.accentUser)
   const parts = promptParts(text)
   return parts.map((part, i) => {
     if (part.kind === 'text') return t.Text({ wrap: 'wrap', ...(queued ? { color: p.faint } : {}), children: [safeText(part.text)] })
     const lines = part.text.split('\n')
-    const shown = expanded ? lines : lines.slice(0, PASTE_LINES)
+    // a press on the header chip or the `+N linhas` row opens the paste in
+    // place; ctrl+o (transcript view) still opens them all
+    const open = expanded || (fold?.isOpen(i) ?? false)
+    const shown = open ? lines : lines.slice(0, PASTE_LINES)
     const more = lines.length - shown.length
     const label = `${G.mark} colado${sep}${lines.length} ${lines.length === 1 ? 'linha' : 'linhas'}`
+    // the gutter is an absolute column spanning the quote's height (top+bottom),
+    // so wrapped rows keep the mark too; it holds more marks than rows can be
+    // (a row wraps at >= 20 cells) and overflow clips the extra
+    const rows = shown.reduce((n, l) => n + Math.ceil(Math.max(l.length, 1) / 20), 0)
+    const quote = t.Box({
+      position: 'relative',
+      flexDirection: 'column',
+      paddingLeft: 2,
+      children: [
+        t.Box({
+          position: 'absolute', top: 0, bottom: 0, left: 0, width: 1,
+          flexDirection: 'column', overflow: 'hidden',
+          children: Array.from({ length: rows }, () => t.Text({ color, children: [G.mark] })),
+        }),
+        ...shown.map(l => t.Text({ wrap: 'wrap', color: p.meta, children: [safeText(l, 2000) || ' '] })),
+      ],
+    })
+    const foldable = lines.length > PASTE_LINES
+    // the toggle as a chip (same look as the copy control's formats): faint
+    // text, the row-hover fill under the pointer
+    const chip = (k: string, text: string): RenderElement => t.Button({
+      key: `${fold!.key}:${i}:${k}`,
+      label: text,
+      plain: true,
+      hover: { backgroundColor: p.rowHover },
+      onPress: () => fold!.onToggle(i),
+    })
+    // header: the label, and while the pointer is over the paste, a chip at
+    // the right (a `display: none` panel the paste's hover scope turns on)
+    const head = t.Box({
+      ...(fold ? { key: `${fold.key}:${i}:top` } : {}),
+      position: 'relative',
+      flexDirection: 'row',
+      children: [
+        t.Text({ color: p.faint, weight: 'bold', children: [label] }),
+        ...(fold && foldable && !expanded ? [t.Box({
+          position: 'absolute', top: 0, right: 0,
+          display: 'none',
+          hover: { display: 'flex' },
+          children: [t.Text({ color: p.faint, children: [open ? G.down + ' ' : G.right + ' '] }), chip('head', open ? 'recolher' : 'expandir')],
+        })] : []),
+      ],
+    })
+    const foot = !fold || expanded
+      ? (more > 0 ? [t.Text({ color: p.faint, children: [`${G.mark} ${G.ellipsis} +${more} ${more === 1 ? 'linha' : 'linhas'} (ctrl+o)`] })] : [])
+      : foldable
+        ? [t.Box({ flexDirection: 'row', children: [
+            t.Text({ color: p.faint, children: [`${G.mark} `] }),
+            chip('foot', open ? `${G.down} recolher` : `${G.ellipsis} +${more} ${more === 1 ? 'linha' : 'linhas'}`),
+          ] })]
+        : []
     return t.Box({
-      key: `p${i}`,
+      key: fold ? `${fold.key}:${i}` : `p${i}`,
       flexDirection: 'column',
       marginTop: i === 0 ? 0 : 1,
       marginBottom: i === parts.length - 1 ? 0 : 1,
-      children: [
-        t.Text({ color: p.faint, weight: 'bold', children: [label] }),
-        ...shown.map(l => t.Text({ wrap: 'wrap', children: [
-          t.Text({ color, children: [G.mark + ' '] }),
-          t.Text({ color: p.meta, children: [safeText(l, 2000) || ' '] }),
-        ] })),
-        ...(more > 0 ? [t.Text({ color: p.faint, children: [`${G.mark} ${G.ellipsis} +${more} ${more === 1 ? 'linha' : 'linhas'} (ctrl+o)`] })] : []),
-      ],
+      children: [head, quote, ...foot],
     })
   })
 }
@@ -956,7 +1005,7 @@ export function renderMessageRow(t: Table, p: Palette, name: string): RenderElem
 // under it up to PLUGIN_LINES (no Box takes a press, so nothing may hide
 // behind one); ctrl+o keeps the engine's body
 const PLUGIN_LINES = 8
-export function renderPluginRow(t: Table, p: Palette, id: string, name: string, text: string): RenderElement {
+export function renderPluginRow(t: Table, p: Palette, id: string, name: string, text: string, full = false): RenderElement {
   const lines = text.split('\n')
   const at = lines.findIndex(l => l.trim() !== '')
   const first = safeText(lines[at] ?? '', 400)
@@ -976,10 +1025,22 @@ export function renderPluginRow(t: Table, p: Palette, id: string, name: string, 
     ],
   }))
   if (rest.length === 0) return row
-  const extra = rest.length - PLUGIN_LINES
+  const extra = full ? 0 : rest.length - PLUGIN_LINES
   const shown = extra > 0 ? [...rest.slice(0, PLUGIN_LINES), `${G.ellipsis} +${extra}${sep}ctrl+o`] : rest
   const body = shown.map(l => t.Text({ wrap: 'truncate-end', color: p.meta, children: [l] }))
   return t.Box({ flexDirection: 'column', children: [row, indented(t, body)] })
+}
+
+// the engine's dim status line under the logo (`/command` trailing): a ring
+// and the text in `meta`, the command in `faint`, as the other event rows
+export function renderInfoRow(t: Table, p: Palette, text: string, command: string | null): RenderElement {
+  return spaced(t, t.Box({
+    flexDirection: 'row',
+    children: [
+      rowHead(t, t.Text({ color: p.faint, children: [G.ring + ' '] })),
+      t.Box({ flexGrow: 1, flexShrink: 1, children: [t.Text({ wrap: 'truncate-end', children: [t.Text({ color: p.meta, children: [safeText(text, 400)] }), ...(command ? [t.Text({ color: p.faint, children: ['  ' + safeText(command, 80)] })] : [])] })] }),
+    ],
+  }))
 }
 
 /** lines of the main agent's brief a folded bubble shows */
